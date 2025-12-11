@@ -19,7 +19,7 @@ const allowedOrigins = [
   "http://localhost:5500",
   "http://localhost:5501",
   "http://localhost:5050",
-  "https://tgyeo.github.io",
+  "https://gwoun01.github.io",
 ];
 
 app.use(
