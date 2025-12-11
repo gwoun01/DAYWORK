@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+
+<head>
+    <meta charset="UTF-8" />
+    <title>이노맥스 - 출장정산서</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="h-dvh overflow-hidden bg-[#f5f7fa] flex flex-col gap-6 text-base font-medium">
+
+    <div class="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6 min-h-0 flex-1 px-6 pb-6">
+
+        <!-- 좌측: 출장 목록 -->
+        <aside class="rounded-xl border border-gray-300 bg-white shadow-lg flex flex-col overflow-hidden">
+            <div class="p-4 font-bold text-lg border-b">출장 목록</div>
+            <div class="flex flex-col overflow-auto" style="max-height: 600px;">
+                <table class="w-full table-auto border-collapse text-sm">
+                    <thead class="bg-gray-100 border-b">
+                        <tr>
+                            <th class="py-2 px-3 text-left">출장일자</th>
+                            <th class="py-2 px-3 text-left">출장지역</th>
+                            <th class="py-2 px-3 text-right">금액</th>
+                            <th class="py-2 px-3 text-center">상세보기</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="border-b cursor-pointer hover:bg-blue-50" onclick="showDetail(this)" data-id="1">
+                            <td class="py-2 px-3">2022/11/04</td>
+                            <td class="py-2 px-3">미국</td>
+                            <td class="py-2 px-3 text-right text-red-600 font-semibold">20,478,450</td>
+                            <td class="py-2 px-3 text-center text-blue-600 cursor-pointer">🔍</td>
+                        </tr>
+                        <!-- 추가 출장 내역 행들 -->
+                    </tbody>
+                </table>
+            </div>
+        </aside>
+
+        <!-- 우측: 상세 내역 -->
+        <section
+            class="rounded-xl border border-gray-300 bg-white p-6 shadow-inner overflow-auto flex flex-col min-h-[600px]">
+            <div class="font-bold text-xl mb-4 border-b pb-2">출장 상세 내역</div>
+
+            <table class="w-full table-auto border-collapse text-sm text-gray-700">
+                <thead class="bg-gray-50 border-b">
+                    <tr>
+                        <th class="py-2 px-3 border-r">구분</th>
+                        <th class="py-2 px-3 border-r">직원명</th>
+                        <th class="py-2 px-3 border-r">업무</th>
+                        <th class="py-2 px-3 border-r">금액</th>
+                        <th class="py-2 px-3 border-r">비고</th>
+                    </tr>
+                </thead>
+                <tbody id="detailTableBody">
+                    <!-- 상세 내역 동적 생성 -->
+                    <tr>
+                        <td colspan="5" class="py-10 text-center text-gray-400">출장 목록에서 항목을 선택하세요.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+    </div>
+
+    <script>
+        // 예시 상세 데이터 (실제로는 API 호출 등으로 가져옴)
+        const detailsData = {
+            "1": [
+                { category: "교통비", staff: "오길열", work: "업무1", amount: 1500000, note: "택시비" },
+                { category: "숙박비", staff: "오길열", work: "업무1", amount: 2000000, note: "호텔" },
+                { category: "식대", staff: "오길열", work: "업무1", amount: 500000, note: "식사" },
+            ],
+            // 다른 출장 id별 데이터...
+        };
+
+        function showDetail(row) {
+            // 선택된 행 강조 스타일
+            document.querySelectorAll("aside tbody tr").forEach(tr => tr.classList.remove("bg-blue-100"));
+            row.classList.add("bg-blue-100");
+
+            const id = row.getAttribute("data-id");
+            const tbody = document.getElementById("detailTableBody");
+            tbody.innerHTML = ""; // 초기화
+
+            if (!detailsData[id]) {
+                tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center text-gray-400">상세 데이터가 없습니다.</td></tr>`;
+                return;
+            }
+
+            detailsData[id].forEach(item => {
+                const tr = document.createElement("tr");
+                tr.classList.add("border-b", "hover:bg-gray-50");
+                tr.innerHTML = `
+          <td class="py-2 px-3 border-r">${item.category}</td>
+          <td class="py-2 px-3 border-r">${item.staff}</td>
+          <td class="py-2 px-3 border-r">${item.work}</td>
+          <td class="py-2 px-3 border-r text-right font-semibold">${item.amount.toLocaleString()}</td>
+          <td class="py-2 px-3 border-r">${item.note}</td>
+        `;
+                tbody.appendChild(tr);
+            });
+        }
+    </script>
+
+</body>
