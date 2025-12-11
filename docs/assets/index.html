@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>이노맥스 업무관리 프로그램- 로그인</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <link href="assets/css/styles.css" rel="stylesheet" />
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#2770b4">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <style>
+    :root {
+      --bg: #f4f6f9;
+      --card: #fff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --btn: #2563eb;
+      --btn-hover: #1d4ed8;
+      --radius: 14px;
+      --shadow: 0 8px 18px rgba(0, 0, 0, .08);
+    }
+
+    body {
+      background: var(--bg);
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+    }
+
+    /* ✅ 하단 상태 표시줄 */
+    #statusBar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background: #111827;
+      color: #f9fafb;
+      font-size: 12px;
+      padding: 6px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10000;
+    }
+
+    #statusBar span {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    #serverStatus.online::before {
+      content: "●";
+      color: #22c55e;
+    }
+
+    #serverStatus.offline::before {
+      content: "●";
+      color: #ef4444;
+    }
+
+    #deviceStatus.mobile::before {
+      content: "📱";
+    }
+
+    #deviceStatus.pc::before {
+      content: "💻";
+    }
+  </style>
+</head>
+
+<!-- ✅ 전역 로딩 팝업 -->
+<div id="globalLoadingPopup" class="hidden fixed inset-0 z-[9999] flex items-center justify-center bg-black/40">
+  <div class="bg-white rounded-lg shadow-lg px-8 py-6 text-center max-w-sm w-[90%]">
+    <div class="flex justify-center mb-4">
+      <div class="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+    </div>
+    <p class="text-gray-700 font-medium text-sm leading-relaxed">
+      로그인 처리 중입니다.<br />잠시만 기다려주세요.
+    </p>
+  </div>
+</div>
+
+<!-- ✅ 로그인 실패 모달 -->
+<div id="loginFailModal" class="hidden fixed inset-0 z-[9999] flex items-center justify-center bg-black/50">
+  <div class="bg-white rounded-lg shadow-lg w-[320px] p-6 text-center">
+    <div class="text-5xl text-red-500 mb-3">❌</div>
+    <h2 class="text-lg font-bold mb-2 text-gray-800">로그인 실패</h2>
+    <p class="text-sm text-gray-600 mb-5" id="loginFailMessage">
+      아이디 또는 비밀번호가 올바르지 않습니다.
+    </p>
+    <button id="closeFailModal" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+      닫기
+    </button>
+  </div>
+</div>
+
+<body class="text-gray-800 bg-gray-100 flex items-center justify-center">
+
+  <div class="w-[min(94vw,850px)] grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-6 items-stretch">
+
+    <!-- 좌측: 프로그램 소개 -->
+    <section class="relative border border-gray-300 rounded-2xl bg-white shadow p-8 flex flex-col justify-between">
+      <div>
+        <div class="flex items-center gap-3 mb-4">
+          <div class="relative w-[220px] h-[40px] flex items-center">
+            <img src="static/logo.png" alt="이노맥스" class="h-10 object-contain" />
+          </div>
+          <div class="font-extrabold leading-tight tracking-tight text-lg text-gray-900">
+            이노맥스
+            <small class="block text-xs font-semibold text-gray-500 mt-1">업무관리 시스템</small>
+          </div>
+        </div>
+
+        <div class="mt-6 space-y-3 text-sm text-gray-600">
+          <p>이노맥스 임직원을 위한 업무관리 시스템입니다.</p>
+        </div>
+      </div>
+
+      <div class="mt-6 text-xs text-gray-400">
+        v1.0.0 (2025-10-06) · 시스템 로그인
+      </div>
+
+
+    </section>
+
+    <!-- 우측: 로그인 -->
+    <section class="border border-gray-300 rounded-2xl bg-white shadow p-8 flex flex-col justify-center">
+      <h1 class="mb-2 text-xl font-extrabold tracking-tight text-gray-900">이노맥스 로그인</h1>
+
+      <form id="loginForm" class="space-y-3">
+        <input id="emailInput" type="text" required placeholder="아이디"
+          class="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        <input id="passwordInput" type="password" required placeholder="비밀번호"
+          class="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+
+        <!-- ✅ 버튼 + 환경 선택 영역 -->
+        <div class="flex gap-2">
+          <button type="submit" id="loginBtn"
+            class="flex-1 rounded-lg text-sm font-bold tracking-tight text-white px-3 py-2 bg-blue-600 hover:bg-blue-500 active:scale-[.99] transition">
+            로그인
+          </button>
+
+          <!-- ✅ 환경 선택 드롭다운 -->
+          <select id="deviceModeSelect"
+            class="w-[40%] rounded-lg text-sm font-bold tracking-tight text-white px-3 py-2 bg-gray-700 hover:bg-gray-600 active:scale-[.99] transition cursor-pointer focus:outline-none">
+            <option value="pc" selected>PC 모드</option>
+            <option value="mobile">모바일 모드</option>
+          </select>
+        </div>
+      </form>
+
+
+
+
+      <div class="mt-4 text-center text-xs text-gray-400">© 2025 이노맥스. All rights reserved.</div>
+    </section>
+  </div>
+
+  <!-- ✅ 하단 상태 표시줄 -->
+  <div id="statusBar">
+    <span id="serverStatus" class="offline">서버 연결 중...</span>
+    <span id="deviceStatus" class="pc">환경 선택:</span>
+
+  </div>
+
+
+  <!-- ✅ 번들 스크립트 -->
+  <script src="assets/js/index.bundle.js" defer></script>
+</body>
+
+</html>
