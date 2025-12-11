@@ -115,7 +115,7 @@ loginForm?.addEventListener("submit", async (e) => {
         localStorage.setItem("loginUserId", data.id);
         localStorage.setItem("loginUserName", data.name);
         // ✅ 선택된 모드에 따라 페이지 분기
-        const nextUrl = mode === "mobile" ? "mobileindex.html" : "workspace.html";
+        const nextUrl = mode === "mobile" ? "mobileindex.html" : "outwork.html";
         console.log("[LOGIN SUCCESS]", nextUrl);
         window.location.href = nextUrl;
     }
