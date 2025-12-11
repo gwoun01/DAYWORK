@@ -4,16 +4,19 @@
   "description": "이노맥스 업무관리 프로그램",
   "main": "server/mainServer.ts",
   "scripts": {
+    "dev:server": "ts-node-dev --respawn --transpile-only --project tsconfig.server.json server/00_mainServer.ts",
     "dev:frontend": "webpack --watch --mode development",
     "dev:css": "postcss TypeScript/styles/styles.css -o docs/assets/css/styles.css --watch",
     "dev:all": "concurrently \"npm run dev:frontend\"",
     "build:frontend": "webpack --mode production",
+    "build:server": "tsc -p tsconfig.server.json",
     "build:css": "postcss TypeScript/styles/styles.css -o docs/assets/css/styles.css",
     "build": "npm run build:frontend && npm run build:css"
   },
   "dependencies": {
     "@types/nodemailer": "^7.0.3",
     "axios": "^1.7.7",
+    "bcrypt": "^6.0.0",
     "bcryptjs": "^2.4.3",
     "body-parser": "^2.2.0",
     "chart.js": "^4.5.0",
@@ -31,6 +34,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/body-parser": "^1.19.6",
     "@types/cors": "^2.8.19",
