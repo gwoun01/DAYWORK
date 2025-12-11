@@ -6,13 +6,16 @@
   "scripts": {
     "dev:server": "ts-node-dev --respawn --transpile-only --project tsconfig.server.json server/00_mainServer.ts",
     "dev:frontend": "webpack --watch --mode development",
-    "dev:css": "postcss TypeScript/styles/styles.css -o docs/assets/css/styles.css --watch",
-    "dev:all": "concurrently \"npm run dev:frontend\"",
+    "dev:css": "postcss src/styles.css -o docs/assets/css/styles.css --watch",
+    "dev:assets": "concurrently \"npm run dev:frontend\" \"npm run dev:css\"",
+    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev:frontend\" \"npm run dev:css\"",
+    "build:css": "postcss src/styles.css -o docs/assets/css/styles.css",
     "build:frontend": "webpack --mode production",
     "build:server": "tsc -p tsconfig.server.json",
-    "build:css": "postcss TypeScript/styles/styles.css -o docs/assets/css/styles.css",
-    "build": "npm run build:frontend && npm run build:css"
+    "build": "npm run build:server && npm run build:frontend && npm run build:css",
+    "start": "node dist/mainServer.js"
   },
+  
   "dependencies": {
     "@types/nodemailer": "^7.0.3",
     "axios": "^1.7.7",
