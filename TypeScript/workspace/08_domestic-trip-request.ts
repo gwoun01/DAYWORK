@@ -86,7 +86,8 @@ export async function initDomesticTripRequestPanel(API_BASE: string) {
     // ✅ 서버 엔드포인트 (노드 서버에 아래 중 하나로 맞추면 됨)
     // 1) 추천: POST /api/trips/domestic
     // 2) 대안: POST /api/trips
-    const url = `${API_BASE}/api/trips/domestic`;
+  const url = `${API_BASE}/api/business-trips/domestic`;
+
 
     try {
       saveBtn.disabled = true;

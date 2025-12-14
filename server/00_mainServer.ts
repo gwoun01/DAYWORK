@@ -101,6 +101,7 @@ import userRegisterRouter from "./02_user-register-server";
 import innomaxProjectsRouter from "./03_innomax-projects-server";
 import innomaxWorksRouter from "./04_innomax-works-server";
 import innomaxProgressRouter from "./05_innomax-progress-server";
+import { businessTripRouter } from "./08_business-trip-server";
 
 
 
@@ -117,6 +118,10 @@ app.use("/api/users", userRegisterRouter(pool));
 app.use("/api/innomax-projects", innomaxProjectsRouter(pool));
 app.use("/api/innomax-works", innomaxWorksRouter(pool));
 app.use("/api/innomax-progress", innomaxProgressRouter(pool));
+
+// ✅ 국내출장요청 라우터 연결
+app.use(businessTripRouter);
+
 
 
 
