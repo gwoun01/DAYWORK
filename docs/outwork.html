@@ -404,6 +404,16 @@
                 readonly />
             </div>
 
+            <!-- 출발지 -->
+            <div class="md:col-span-2">
+              <label class="block text-sm font-semibold text-gray-700 mb-1">
+                출발지(회사/자택) <span class="text-rose-500">*</span>
+              </label>
+              <input id="bt_place"
+                class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white"
+                placeholder="예: 자택" />
+            </div>
+            
             <!-- 출장지 -->
             <div class="md:col-span-2">
               <label class="block text-sm font-semibold text-gray-700 mb-1">
@@ -422,14 +432,16 @@
               <input id="bt_start" type="date"
                 class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white" />
             </div>
-
-            <div>
+            
+                <div>
               <label class="block text-sm font-semibold text-gray-700 mb-1">
-                종료일 <span class="text-rose-500">*</span>
+                업무 시작시간
               </label>
-              <input id="bt_end" type="date"
+              <input id="bt_work_start_time" type="time"
                 class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white" />
             </div>
+
+          
 
             <!-- 출장 시간(선택이 아니라면 *로 바꿔도 됨) -->
             <div>
@@ -448,22 +460,9 @@
                 class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white" />
             </div>
 
-            <div>
-              <label class="block text-sm font-semibold text-gray-700 mb-1">
-                업무 시작시간
-              </label>
-              <input id="bt_work_start_time" type="time"
-                class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white" />
-            </div>
+        
 
-            <div>
-              <label class="block text-sm font-semibold text-gray-700 mb-1">
-                업무 종료시간
-              </label>
-              <input id="bt_work_end_time" type="time"
-                class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white" />
-            </div>
-
+            
             <!-- 목적/내용 -->
             <div class="md:col-span-2">
               <label class="block text-sm font-semibold text-gray-700 mb-1">출장 목적/내용</label>
@@ -482,6 +481,22 @@
             <h3 class="text-base font-extrabold text-gray-900">출장요청 저장</h3>
             <span class="text-xs text-gray-500">정산용 옵션(차량/식사)</span>
           </div>
+           <!-- 업무종료일 -->
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-1">
+                종료일 <span class="text-rose-500">*</span>
+              </label>
+              <input id="bt_end" type="date"
+                class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white" />
+            </div>
+           <!-- 업무종료시간 -->
+          <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-1">
+                업무 종료시간
+              </label>
+              <input id="bt_work_end_time" type="time"
+                class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white" />
+            </div>
 
           <!-- 차량 -->
           <div class="mb-4">
