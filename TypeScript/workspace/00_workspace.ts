@@ -1,9 +1,9 @@
 import { initWorkAssignPanel } from "./01_work-assign";
-import { initDomesticTripRequestPanel } from "./08_domestic-trip-request"; // ✅ 추가
+import { initDomesticTripRequestPanel } from "./08_business-trip"; // ✅ 추가
 
 const API_BASE =
-  location.hostname === "tgyeo.github.io"
-    ? "https://port-0-innomax-mghorm7bef413a34.sel3.cloudtype.app"
+  location.hostname === "gwoun01.github.io"
+    ? "https://outwork.sel3.cloudtype.app"
     : "http://127.0.0.1:5050";
 
 function initLocalTabNavigation() {
@@ -62,6 +62,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (id.includes("panel-국내출장요청")) {
         await initDomesticTripRequestPanel(API_BASE);
         console.log("국내출장요청 init 완료");
+      }
+      
+      if (id.includes("panel-해외출장요청")) {
+        await initDomesticTripRequestPanel(API_BASE);
+        console.log("해외출장요청 init 완료");
       }
     });
   });

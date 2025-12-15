@@ -25,10 +25,10 @@ function initWorkAssignPanel() {
 
 /***/ }),
 
-/***/ "./TypeScript/workspace/08_domestic-trip-request.ts":
-/*!**********************************************************!*\
-  !*** ./TypeScript/workspace/08_domestic-trip-request.ts ***!
-  \**********************************************************/
+/***/ "./TypeScript/workspace/08_business-trip.ts":
+/*!**************************************************!*\
+  !*** ./TypeScript/workspace/08_business-trip.ts ***!
+  \**************************************************/
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -76,14 +76,14 @@ async function initDomesticTripRequestPanel(API_BASE) {
     saveBtn.addEventListener("click", async () => {
         const payload = {
             trip_type: "domestic",
-            requester_name: reqNameInput.value.trim(),
+            req_name: reqNameInput.value.trim(),
             place: placeInput.value.trim(),
             start_date: startInput.value,
             end_date: endInput.value,
             purpose: purposeInput.value.trim(),
         };
         // ✅ 필수값 체크
-        if (!payload.requester_name || !payload.place || !payload.start_date || !payload.end_date) {
+        if (!payload.req_name || !payload.place || !payload.start_date || !payload.end_date) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
                 title: "입력 확인",
@@ -103,14 +103,14 @@ async function initDomesticTripRequestPanel(API_BASE) {
             });
             return;
         }
-        // ✅ 서버 엔드포인트 (노드 서버에 아래 중 하나로 맞추면 됨)
-        // 1) 추천: POST /api/trips/domestic
-        // 2) 대안: POST /api/trips
-        const url = `${API_BASE}/api/business-trips/domestic`;
+        //org code
+        //const url = `${API_BASE}/api/business-trips/domestic`;
         try {
             saveBtn.disabled = true;
             resultBox.textContent = "저장 중...";
-            const res = await fetch(url, {
+            console.log(API_BASE);
+            // const res = await fetch(url,
+            const res = await fetch(`${API_BASE}/api/business-trip`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
@@ -330,11 +330,11 @@ var __webpack_exports__ = {};
   \**********************************************/
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _01_work_assign__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./01_work-assign */ "./TypeScript/workspace/01_work-assign.ts");
-/* harmony import */ var _08_domestic_trip_request__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./08_domestic-trip-request */ "./TypeScript/workspace/08_domestic-trip-request.ts");
+/* harmony import */ var _08_business_trip__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./08_business-trip */ "./TypeScript/workspace/08_business-trip.ts");
 
  // ✅ 추가
-const API_BASE = location.hostname === "tgyeo.github.io"
-    ? "https://port-0-innomax-mghorm7bef413a34.sel3.cloudtype.app"
+const API_BASE = location.hostname === "gwoun01.github.io"
+    ? "https://outwork.sel3.cloudtype.app"
     : "http://127.0.0.1:5050";
 function initLocalTabNavigation() {
     const navButtons = document.querySelectorAll(".nav-btn");
@@ -376,8 +376,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                 console.log("업무할당 init 완료");
             }
             if (id.includes("panel-국내출장요청")) {
-                await (0,_08_domestic_trip_request__WEBPACK_IMPORTED_MODULE_1__.initDomesticTripRequestPanel)(API_BASE);
+                await (0,_08_business_trip__WEBPACK_IMPORTED_MODULE_1__.initDomesticTripRequestPanel)(API_BASE);
                 console.log("국내출장요청 init 완료");
+            }
+            if (id.includes("panel-해외출장요청")) {
+                await (0,_08_business_trip__WEBPACK_IMPORTED_MODULE_1__.initDomesticTripRequestPanel)(API_BASE);
+                console.log("해외출장요청 init 완료");
             }
         });
     });
