@@ -2,29 +2,6 @@
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
-/***/ "./TypeScript/workspace/01_work-assign.ts":
-/*!************************************************!*\
-  !*** ./TypeScript/workspace/01_work-assign.ts ***!
-  \************************************************/
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   initWorkAssignPanel: () => (/* binding */ initWorkAssignPanel)
-/* harmony export */ });
-// ========================================================================================
-// 📌 업무할당 패널 초기화 (로컬 데이터 버전)
-// ========================================================================================
-let isWorkAssignPanelInitialized = false;
-function initWorkAssignPanel() {
-    if (!isWorkAssignPanelInitialized) {
-        isWorkAssignPanelInitialized = true;
-    }
-}
-
-
-/***/ }),
-
 /***/ "./TypeScript/workspace/08_business-trip.ts":
 /*!**************************************************!*\
   !*** ./TypeScript/workspace/08_business-trip.ts ***!
@@ -33,21 +10,29 @@ function initWorkAssignPanel() {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   initDomesticTripRequestPanel: () => (/* binding */ initDomesticTripRequestPanel)
+/* harmony export */   initDomesticTripRegisterPanel: () => (/* binding */ initDomesticTripRegisterPanel)
 /* harmony export */ });
 /* harmony import */ var _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./utils/ModalUtil */ "./TypeScript/workspace/utils/ModalUtil.ts");
 // TypeScript/workspace/08_domestic-trip-request.ts
+// import { getDefaultAutoSelectFamily } from "net";
 
-function getEl(id) {
-    const el = document.getElementById(id);
-    if (!el)
-        throw new Error(`❌ element not found: #${id}`);
-    return el;
-}
-function isValidDateRange(start, end) {
-    return !!start && !!end && end >= start;
-}
-async function initDomesticTripRequestPanel(API_BASE) {
+let isDomesticTripRegisterPanelInitialized = false;
+async function initDomesticTripRegisterPanel(API_BASE) {
+    const panel = document.getElementById("panel-국내출장-출장등록");
+    if (!panel) {
+        console.warn("⚠ [WorkProgress] panel-국내출장-출장등록 를 찾지 못했습니다.");
+        return;
+    }
+    isDomesticTripRegisterPanelInitialized = true;
+    function getEl(id) {
+        const el = document.getElementById(id);
+        if (!el)
+            throw new Error(`❌ element not found: #${id}`);
+        return el;
+    }
+    function isValidDateRange(start, end) {
+        return !!start && !!end && end >= start;
+    }
     // 패널 열 때마다 이벤트가 중복 등록되는 거 방지
     const saveBtn = getEl("bt_save");
     if (saveBtn._bound)
@@ -108,7 +93,7 @@ async function initDomesticTripRequestPanel(API_BASE) {
         try {
             saveBtn.disabled = true;
             resultBox.textContent = "저장 중...";
-            console.log(API_BASE);
+            console.log(payload);
             // const res = await fetch(url,
             const res = await fetch(`${API_BASE}/api/business-trip`, {
                 method: "POST",
@@ -329,9 +314,8 @@ var __webpack_exports__ = {};
   !*** ./TypeScript/workspace/00_workspace.ts ***!
   \**********************************************/
 __webpack_require__.r(__webpack_exports__);
-/* harmony import */ var _01_work_assign__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./01_work-assign */ "./TypeScript/workspace/01_work-assign.ts");
-/* harmony import */ var _08_business_trip__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./08_business-trip */ "./TypeScript/workspace/08_business-trip.ts");
-
+/* harmony import */ var _08_business_trip__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./08_business-trip */ "./TypeScript/workspace/08_business-trip.ts");
+//import { initWorkAssignPanel } from "./01_work-assign";
  // ✅ 추가
 const API_BASE = location.hostname === "gwoun01.github.io"
     ? "https://outwork.sel3.cloudtype.app"
@@ -341,24 +325,32 @@ function initLocalTabNavigation() {
     const panels = document.querySelectorAll('[id^="panel-"]');
     const titleEl = document.getElementById("wsTitle");
     function showPanel(id) {
+        // 1) 모든 패널 숨기기
         panels.forEach((p) => p.classList.add("hidden"));
+        // 2) 해당 패널 표시
         const target = document.getElementById(id);
         if (target)
             target.classList.remove("hidden");
+        // 3) 버튼 스타일 적용
         navButtons.forEach((btn) => {
             const active = btn.dataset.panel === id;
             btn.classList.toggle("bg-[#7ce92f]", active);
             btn.classList.toggle("text-[#000000]", active);
             btn.classList.toggle("font-bold", active);
         });
+        // 4) 제목 변경
         const curBtn = document.querySelector(`.nav-btn[data-panel="${id}"]`);
         if (curBtn && titleEl) {
             titleEl.textContent = curBtn.textContent?.trim() ?? "";
         }
     }
+    // 초기 Dashboard
     showPanel("panel-dashboard");
     return showPanel;
 }
+// ==============================================================
+// 🔵 메인 초기화
+// ==============================================================
 document.addEventListener("DOMContentLoaded", async () => {
     console.debug("[INIT] DOMContentLoaded 시작");
     const showPanel = initLocalTabNavigation();
@@ -371,18 +363,12 @@ document.addEventListener("DOMContentLoaded", async () => {
             // ✅ 1) 먼저 패널 화면 전환
             showPanel(id);
             // ✅ 2) 패널별 초기화(로직 연결)
-            if (id.includes("panel-업무할당")) {
-                await (0,_01_work_assign__WEBPACK_IMPORTED_MODULE_0__.initWorkAssignPanel)();
-                console.log("업무할당 init 완료");
+            if (id.includes("panel-국내출장-출장등록")) {
+                await (0,_08_business_trip__WEBPACK_IMPORTED_MODULE_0__.initDomesticTripRegisterPanel)(API_BASE);
             }
-            if (id.includes("panel-국내출장요청")) {
-                await (0,_08_business_trip__WEBPACK_IMPORTED_MODULE_1__.initDomesticTripRequestPanel)(API_BASE);
-                console.log("국내출장요청 init 완료");
-            }
-            if (id.includes("panel-해외출장요청")) {
-                await (0,_08_business_trip__WEBPACK_IMPORTED_MODULE_1__.initDomesticTripRequestPanel)(API_BASE);
-                console.log("해외출장요청 init 완료");
-            }
+            console.log("국내출장-출장등록 init 완료");
+            //  if (id.includes("panel-해외출장요청")) {
+            //   await initDomesticTripRequestPanel(API_BASE);
         });
     });
     console.debug("[INIT] workspace 초기화 완료");

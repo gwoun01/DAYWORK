@@ -1,26 +1,38 @@
 // TypeScript/workspace/08_domestic-trip-request.ts
+// import { getDefaultAutoSelectFamily } from "net";
 import { ModalUtil } from "./utils/ModalUtil";
 
-type DomesticTripCreatePayload = {
-  trip_type: "domestic";
-  req_name: string;   // userName에서 가져옴
-  place: string;            // 고객사/지역
-  start_date: string;       // YYYY-MM-DD
-  end_date: string;         // YYYY-MM-DD
-  purpose: string;          // 출장 목적
-};
+let isDomesticTripRegisterPanelInitialized = false;
 
-function getEl<T extends HTMLElement>(id: string): T {
-  const el = document.getElementById(id);
-  if (!el) throw new Error(`❌ element not found: #${id}`);
-  return el as T;
-}
+export async function initDomesticTripRegisterPanel(API_BASE: string) {
+  const panel = document.getElementById("panel-국내출장-출장등록");
+  if (!panel) {
+    console.warn("⚠ [WorkProgress] panel-국내출장-출장등록 를 찾지 못했습니다.");
+    return;
+  }
+  isDomesticTripRegisterPanelInitialized = true;
 
-function isValidDateRange(start: string, end: string) {
-  return !!start && !!end && end >= start;
-}
 
-export async function initDomesticTripRequestPanel(API_BASE: string) {
+  type DomesticTripCreatePayload = {
+    trip_type: "domestic";
+    req_name: string;   // userName에서 가져옴
+    place: string;            // 고객사/지역
+    start_date: string;       // YYYY-MM-DD
+    end_date: string;         // YYYY-MM-DD
+    purpose: string;          // 출장 목적
+  };
+
+  function getEl<T extends HTMLElement>(id: string): T {
+    const el = document.getElementById(id);
+    if (!el) throw new Error(`❌ element not found: #${id}`);
+    return el as T;
+  }
+
+  function isValidDateRange(start: string, end: string) {
+    return !!start && !!end && end >= start;
+  }
+
+
   // 패널 열 때마다 이벤트가 중복 등록되는 거 방지
   const saveBtn = getEl<HTMLButtonElement>("bt_save");
   if ((saveBtn as any)._bound) return;
@@ -58,8 +70,9 @@ export async function initDomesticTripRequestPanel(API_BASE: string) {
       start_date: startInput.value,
       end_date: endInput.value,
       purpose: purposeInput.value.trim(),
+
     };
-    
+
 
     // ✅ 필수값 체크
     if (!payload.req_name || !payload.place || !payload.start_date || !payload.end_date) {
@@ -70,6 +83,7 @@ export async function initDomesticTripRequestPanel(API_BASE: string) {
         showOk: true,
         showCancel: false,
       });
+
       return;
     }
 
@@ -90,7 +104,9 @@ export async function initDomesticTripRequestPanel(API_BASE: string) {
       saveBtn.disabled = true;
       resultBox.textContent = "저장 중...";
 
-      console.log(API_BASE);
+      console.log(payload);
+
+
 
       // const res = await fetch(url,
       const res = await fetch(`${API_BASE}/api/business-trip`, {
@@ -98,6 +114,8 @@ export async function initDomesticTripRequestPanel(API_BASE: string) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
+
 
       if (!res.ok) {
         const text = await res.text();
@@ -111,7 +129,7 @@ export async function initDomesticTripRequestPanel(API_BASE: string) {
         message: "국내 출장 요청이 등록되었습니다.",
         showOk: true,
         showCancel: false,
-        
+
       });
 
       // 저장 후 폼 비우고 싶으면 아래 주석 해제

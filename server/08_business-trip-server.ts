@@ -15,7 +15,7 @@ export default function businessTripRouter(pool: Pool) {
       start_date,
       end_date,
       purpose,
-    } = req.body ?? {};
+    } = req.body ?? {}
 
     const finalReqName = (req_name ?? requester_name ?? "").trim();
 
@@ -34,6 +34,11 @@ export default function businessTripRouter(pool: Pool) {
       });
     }
 
+    //'INSERT INTO business_trips
+    //(req_Name, detail_json)
+    //values
+    //($1, $2)
+    //[finalReqName,  req.body]
     try {
       const result = await pool.query(
         `
