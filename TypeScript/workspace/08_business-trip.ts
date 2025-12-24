@@ -1,144 +1,115 @@
-// TypeScript/workspace/08_domestic-trip-request.ts
-// import { getDefaultAutoSelectFamily } from "net";
+// TypeScript/workspace/08_domestic-trip-register.ts
 import { ModalUtil } from "./utils/ModalUtil";
 
-let isDomesticTripRegisterPanelInitialized = false;
+type DomesticTripRegisterPayload = {
+  trip_type: "domestic";
+  req_name: string;
+  depart_place: string;      // 출발지
+  destination: string;       // 출장지
+  start_date: string;        // YYYY-MM-DD
+  work_start_time: string;   // HH:mm
+  depart_time: string;       // HH:mm
+  arrive_time: string;       // HH:mm
+  purpose: string;
+};
 
-export async function initDomesticTripRegisterPanel(API_BASE: string) {
+function getEl<T extends HTMLElement>(id: string): T {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`❌ element not found: #${id}`);
+  return el as T;
+}
+
+export function initDomesticTripRegisterPanel(API_BASE: string) {
   const panel = document.getElementById("panel-국내출장-출장등록");
-  if (!panel) {
-    console.warn("⚠ [WorkProgress] panel-국내출장-출장등록 를 찾지 못했습니다.");
-    return;
-  }
-  isDomesticTripRegisterPanelInitialized = true;
+  if (!panel) return;
 
-
-  type DomesticTripCreatePayload = {
-    trip_type: "domestic";
-    req_name: string;   // userName에서 가져옴
-    place: string;            // 고객사/지역
-    start_date: string;       // YYYY-MM-DD
-    end_date: string;         // YYYY-MM-DD
-    purpose: string;          // 출장 목적
-  };
-
-  function getEl<T extends HTMLElement>(id: string): T {
-    const el = document.getElementById(id);
-    if (!el) throw new Error(`❌ element not found: #${id}`);
-    return el as T;
-  }
-
-  function isValidDateRange(start: string, end: string) {
-    return !!start && !!end && end >= start;
-  }
-
-
-  // 패널 열 때마다 이벤트가 중복 등록되는 거 방지
-  const saveBtn = getEl<HTMLButtonElement>("bt_save");
+  const saveBtn = getEl<HTMLButtonElement>("reg_save");
   if ((saveBtn as any)._bound) return;
   (saveBtn as any)._bound = true;
 
-  const userNameEl = document.getElementById("userName");
+  const resetBtn = getEl<HTMLButtonElement>("reg_reset");
+  const resultBox = getEl<HTMLDivElement>("reg_result");
 
+  const userNameEl = document.getElementById("userName");
   const reqNameInput = getEl<HTMLInputElement>("bt_req_name");
-  const placeInput = getEl<HTMLInputElement>("bt_place");
+  const departPlaceInput = getEl<HTMLInputElement>("bt_place");
+  const destinationInput = getEl<HTMLInputElement>("bt_destination");
   const startInput = getEl<HTMLInputElement>("bt_start");
-  const endInput = getEl<HTMLInputElement>("bt_end");
+  const workStartTimeInput = getEl<HTMLInputElement>("bt_work_start_time");
+  const departTimeInput = getEl<HTMLInputElement>("bt_depart_time");
+  const arriveTimeInput = getEl<HTMLInputElement>("bt_arrive_time");
   const purposeInput = getEl<HTMLTextAreaElement>("bt_purpose");
-  const resetBtn = getEl<HTMLButtonElement>("bt_reset");
-  const resultBox = getEl<HTMLDivElement>("bt_result");
 
   // 요청자 자동 채우기
-  const currentName = (userNameEl?.textContent ?? "").trim() || "사용자";
-  reqNameInput.value = currentName;
+  reqNameInput.value = (userNameEl?.textContent ?? "").trim() || "사용자";
 
-  // 초기화
   resetBtn.addEventListener("click", () => {
-    placeInput.value = "";
+    departPlaceInput.value = "";
+    destinationInput.value = "";
     startInput.value = "";
-    endInput.value = "";
+    workStartTimeInput.value = "";
+    departTimeInput.value = "";
+    arriveTimeInput.value = "";
     purposeInput.value = "";
     resultBox.textContent = "";
   });
 
-  // 저장
   saveBtn.addEventListener("click", async () => {
-    const payload: DomesticTripCreatePayload = {
+    const payload: DomesticTripRegisterPayload = {
       trip_type: "domestic",
       req_name: reqNameInput.value.trim(),
-      place: placeInput.value.trim(),
+      depart_place: departPlaceInput.value.trim(),
+      destination: destinationInput.value.trim(),
       start_date: startInput.value,
-      end_date: endInput.value,
+      work_start_time: workStartTimeInput.value,
+      depart_time: departTimeInput.value,
+      arrive_time: arriveTimeInput.value,
       purpose: purposeInput.value.trim(),
-
     };
 
-
-    // ✅ 필수값 체크
-    if (!payload.req_name || !payload.place || !payload.start_date || !payload.end_date) {
+    // 필수값 체크
+    if (
+      !payload.req_name ||
+      !payload.depart_place ||
+      !payload.destination ||
+      !payload.start_date ||
+      !payload.work_start_time ||
+      !payload.depart_time ||
+      !payload.arrive_time ||
+      !payload.purpose
+    ) {
       await ModalUtil.show({
         type: "alert",
         title: "입력 확인",
-        message: "요청자 / 고객사(지역) / 시작일 / 종료일은 필수입니다.",
-        showOk: true,
-        showCancel: false,
-      });
-
-      return;
-    }
-
-    if (!isValidDateRange(payload.start_date, payload.end_date)) {
-      await ModalUtil.show({
-        type: "alert",
-        title: "날짜 오류",
-        message: "종료일은 시작일보다 빠를 수 없습니다.",
+        message: "모든 항목은 필수입니다.",
         showOk: true,
         showCancel: false,
       });
       return;
     }
-    //org code
-    //const url = `${API_BASE}/api/business-trips/domestic`;
 
     try {
       saveBtn.disabled = true;
       resultBox.textContent = "저장 중...";
 
-      console.log(payload);
-
-
-
-      // const res = await fetch(url,
-      const res = await fetch(`${API_BASE}/api/business-trip`, {
+      const res = await fetch(`${API_BASE}/api/business-trip/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
 
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text}`);
-      }
-
-      resultBox.textContent = "✅ 저장 완료 (승인 대기)";
+      resultBox.textContent = "✅ 출장 등록 완료";
       await ModalUtil.show({
         type: "alert",
         title: "저장 완료",
-        message: "국내 출장 요청이 등록되었습니다.",
+        message: "출장 등록이 완료되었습니다.",
         showOk: true,
         showCancel: false,
-
       });
-
-      // 저장 후 폼 비우고 싶으면 아래 주석 해제
-      // resetBtn.click();
-
     } catch (err: any) {
-      console.error("❌ 국내출장 저장 실패:", err);
       resultBox.textContent = `❌ 저장 실패: ${err?.message ?? "알 수 없는 오류"}`;
-
       await ModalUtil.show({
         type: "alert",
         title: "저장 실패",

@@ -1,6 +1,6 @@
 //import { initWorkAssignPanel } from "./01_work-assign";
 import { initDomesticTripRegisterPanel } from "./08_business-trip"; // ✅ 추가
-
+import { initDomesticTripSettlementPanel } from "./09_domestic-trip-settlement";
 const API_BASE =
   location.hostname === "gwoun01.github.io"
     ? "https://outwork.sel3.cloudtype.app"
@@ -56,25 +56,19 @@ document.addEventListener("DOMContentLoaded", async () => {
       const id = btn.dataset.panel;
       if (!id) return;
 
-      // ✅ 1) 먼저 패널 화면 전환
       showPanel(id);
 
-      // ✅ 2) 패널별 초기화(로직 연결)
-   
       if (id.includes("panel-국내출장-출장등록")) {
         await initDomesticTripRegisterPanel(API_BASE);
+        console.log("국내출장-출장등록 init 완료");
+
+         if (id.includes("panel-국내출장-정산서등록")) {
+        await initDomesticTripSettlementPanel(API_BASE);
+        console.log("국내출장-정산서등록 init 완료");
       }
-      console.log("국내출장-출장등록 init 완료");
-
-    //  if (id.includes("panel-해외출장요청")) {
-     //   await initDomesticTripRequestPanel(API_BASE);
-        
-      }
-
-
-      
-    );
+    }});
   });
+
 
   console.debug("[INIT] workspace 초기화 완료");
 });

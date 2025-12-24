@@ -13,110 +13,95 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   initDomesticTripRegisterPanel: () => (/* binding */ initDomesticTripRegisterPanel)
 /* harmony export */ });
 /* harmony import */ var _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./utils/ModalUtil */ "./TypeScript/workspace/utils/ModalUtil.ts");
-// TypeScript/workspace/08_domestic-trip-request.ts
-// import { getDefaultAutoSelectFamily } from "net";
+// TypeScript/workspace/08_domestic-trip-register.ts
 
-let isDomesticTripRegisterPanelInitialized = false;
-async function initDomesticTripRegisterPanel(API_BASE) {
+function getEl(id) {
+    const el = document.getElementById(id);
+    if (!el)
+        throw new Error(`❌ element not found: #${id}`);
+    return el;
+}
+function initDomesticTripRegisterPanel(API_BASE) {
     const panel = document.getElementById("panel-국내출장-출장등록");
-    if (!panel) {
-        console.warn("⚠ [WorkProgress] panel-국내출장-출장등록 를 찾지 못했습니다.");
+    if (!panel)
         return;
-    }
-    isDomesticTripRegisterPanelInitialized = true;
-    function getEl(id) {
-        const el = document.getElementById(id);
-        if (!el)
-            throw new Error(`❌ element not found: #${id}`);
-        return el;
-    }
-    function isValidDateRange(start, end) {
-        return !!start && !!end && end >= start;
-    }
-    // 패널 열 때마다 이벤트가 중복 등록되는 거 방지
-    const saveBtn = getEl("bt_save");
+    const saveBtn = getEl("reg_save");
     if (saveBtn._bound)
         return;
     saveBtn._bound = true;
+    const resetBtn = getEl("reg_reset");
+    const resultBox = getEl("reg_result");
     const userNameEl = document.getElementById("userName");
     const reqNameInput = getEl("bt_req_name");
-    const placeInput = getEl("bt_place");
+    const departPlaceInput = getEl("bt_place");
+    const destinationInput = getEl("bt_destination");
     const startInput = getEl("bt_start");
-    const endInput = getEl("bt_end");
+    const workStartTimeInput = getEl("bt_work_start_time");
+    const departTimeInput = getEl("bt_depart_time");
+    const arriveTimeInput = getEl("bt_arrive_time");
     const purposeInput = getEl("bt_purpose");
-    const resetBtn = getEl("bt_reset");
-    const resultBox = getEl("bt_result");
     // 요청자 자동 채우기
-    const currentName = (userNameEl?.textContent ?? "").trim() || "사용자";
-    reqNameInput.value = currentName;
-    // 초기화
+    reqNameInput.value = (userNameEl?.textContent ?? "").trim() || "사용자";
     resetBtn.addEventListener("click", () => {
-        placeInput.value = "";
+        departPlaceInput.value = "";
+        destinationInput.value = "";
         startInput.value = "";
-        endInput.value = "";
+        workStartTimeInput.value = "";
+        departTimeInput.value = "";
+        arriveTimeInput.value = "";
         purposeInput.value = "";
         resultBox.textContent = "";
     });
-    // 저장
     saveBtn.addEventListener("click", async () => {
         const payload = {
             trip_type: "domestic",
             req_name: reqNameInput.value.trim(),
-            place: placeInput.value.trim(),
+            depart_place: departPlaceInput.value.trim(),
+            destination: destinationInput.value.trim(),
             start_date: startInput.value,
-            end_date: endInput.value,
+            work_start_time: workStartTimeInput.value,
+            depart_time: departTimeInput.value,
+            arrive_time: arriveTimeInput.value,
             purpose: purposeInput.value.trim(),
         };
-        // ✅ 필수값 체크
-        if (!payload.req_name || !payload.place || !payload.start_date || !payload.end_date) {
+        // 필수값 체크
+        if (!payload.req_name ||
+            !payload.depart_place ||
+            !payload.destination ||
+            !payload.start_date ||
+            !payload.work_start_time ||
+            !payload.depart_time ||
+            !payload.arrive_time ||
+            !payload.purpose) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
                 title: "입력 확인",
-                message: "요청자 / 고객사(지역) / 시작일 / 종료일은 필수입니다.",
+                message: "모든 항목은 필수입니다.",
                 showOk: true,
                 showCancel: false,
             });
             return;
         }
-        if (!isValidDateRange(payload.start_date, payload.end_date)) {
-            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
-                type: "alert",
-                title: "날짜 오류",
-                message: "종료일은 시작일보다 빠를 수 없습니다.",
-                showOk: true,
-                showCancel: false,
-            });
-            return;
-        }
-        //org code
-        //const url = `${API_BASE}/api/business-trips/domestic`;
         try {
             saveBtn.disabled = true;
             resultBox.textContent = "저장 중...";
-            console.log(payload);
-            // const res = await fetch(url,
-            const res = await fetch(`${API_BASE}/api/business-trip`, {
+            const res = await fetch(`${API_BASE}/api/business-trip/register`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
             });
-            if (!res.ok) {
-                const text = await res.text();
-                throw new Error(`HTTP ${res.status}: ${text}`);
-            }
-            resultBox.textContent = "✅ 저장 완료 (승인 대기)";
+            if (!res.ok)
+                throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+            resultBox.textContent = "✅ 출장 등록 완료";
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
                 title: "저장 완료",
-                message: "국내 출장 요청이 등록되었습니다.",
+                message: "출장 등록이 완료되었습니다.",
                 showOk: true,
                 showCancel: false,
             });
-            // 저장 후 폼 비우고 싶으면 아래 주석 해제
-            // resetBtn.click();
         }
         catch (err) {
-            console.error("❌ 국내출장 저장 실패:", err);
             resultBox.textContent = `❌ 저장 실패: ${err?.message ?? "알 수 없는 오류"}`;
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
@@ -129,6 +114,134 @@ async function initDomesticTripRegisterPanel(API_BASE) {
         finally {
             saveBtn.disabled = false;
         }
+    });
+}
+
+
+/***/ }),
+
+/***/ "./TypeScript/workspace/09_domestic-trip-settlement.ts":
+/*!*************************************************************!*\
+  !*** ./TypeScript/workspace/09_domestic-trip-settlement.ts ***!
+  \*************************************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   initDomesticTripSettlementPanel: () => (/* binding */ initDomesticTripSettlementPanel)
+/* harmony export */ });
+/* harmony import */ var _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./utils/ModalUtil */ "./TypeScript/workspace/utils/ModalUtil.ts");
+// TypeScript/workspace/09_domestic-trip-settlement.ts
+
+function getEl(id) {
+    const el = document.getElementById(id);
+    if (!el)
+        throw new Error(`❌ element not found: #${id}`);
+    return el;
+}
+function getCheckedRadioValue(name) {
+    const checked = document.querySelector(`input[name="${name}"]:checked`);
+    return checked?.value ?? "";
+}
+function initDomesticTripSettlementPanel(API_BASE) {
+    const panel = document.getElementById("panel-국내출장-정산서등록");
+    if (!panel)
+        return;
+    const loadBtn = getEl("bt_load_trip");
+    const saveBtn = getEl("bt_save");
+    const resetBtn = getEl("bt_reset");
+    const resultBox = getEl("bt_result");
+    // 중복 바인딩 방지 (패널 열때마다 이벤트 또 붙는거 방지)
+    if (saveBtn._bound)
+        return;
+    saveBtn._bound = true;
+    const settleDate = getEl("bt_settle_date");
+    const summaryBox = getEl("settle_trip_summary");
+    const workEndTime = getEl("bt_work_end_time");
+    const homeDepartTime = getEl("bt_home_depart_time");
+    const homeArriveTime = getEl("bt_home_arrive_time");
+    // ✅ 방금 HTML에 추가한 input
+    const returnPlace = getEl("bt_return_place");
+    // 식사
+    const breakfastChk = getEl("bt_meal_breakfast");
+    const breakfastOwner = getEl("bt_meal_breakfast_owner");
+    const lunchChk = getEl("bt_meal_lunch");
+    const lunchOwner = getEl("bt_meal_lunch_owner");
+    const dinnerChk = getEl("bt_meal_dinner");
+    const dinnerOwner = getEl("bt_meal_dinner_owner");
+    // 초기화
+    resetBtn.addEventListener("click", () => {
+        settleDate.value = "";
+        summaryBox.innerHTML = `<div class="text-gray-500">정산 대상 날짜를 선택하고 <b>출장정보 불러오기</b> 버튼을 누르면, 해당 날짜에 등록된 출장 정보가 여기 표시됩니다.</div>`;
+        workEndTime.value = "";
+        homeDepartTime.value = "";
+        homeArriveTime.value = "";
+        returnPlace.value = "";
+        // 차량 라디오 해제
+        document.querySelectorAll('input[name="bt_vehicle"]').forEach((r) => (r.checked = false));
+        // 식사 초기화
+        breakfastChk.checked = false;
+        breakfastOwner.value = "";
+        lunchChk.checked = false;
+        lunchOwner.value = "";
+        dinnerChk.checked = false;
+        dinnerOwner.value = "";
+        resultBox.textContent = "";
+    });
+    // 1) 출장정보 불러오기
+    loadBtn.addEventListener("click", async () => {
+        if (!settleDate.value) {
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "입력 확인",
+                message: "정산 대상 날짜를 선택하세요.",
+                showOk: true,
+                showCancel: false,
+            });
+            return;
+        }
+        try {
+            loadBtn.disabled = true;
+            resultBox.textContent = "출장정보 불러오는 중...";
+            // ✅ 여기 URL은 너 서버에 맞게 바꾸면 됨 (임시)
+            // 예: /api/innomax-business_trips/domestic?date=YYYY-MM-DD
+            const res = await fetch(`${API_BASE}/api/business-trip/by-date?date=${settleDate.value}`);
+            if (!res.ok)
+                throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+            const data = await res.json();
+            // data 예시는 서버에서 맞춰줘야 함
+            // 임시로 있는 값들만 표시
+            summaryBox.innerHTML = `
+        <div><b>출장자:</b> ${data.req_name ?? "-"}</div>
+        <div><b>출장지:</b> ${data.destination ?? data.place ?? "-"}</div>
+        <div><b>시작일:</b> ${data.start_date ?? "-"}</div>
+        <div><b>업무시작:</b> ${data.work_start_time ?? "-"}</div>
+        <div><b>출발:</b> ${data.depart_time ?? "-"}</div>
+        <div><b>도착:</b> ${data.arrive_time ?? "-"}</div>
+      `;
+            resultBox.textContent = "✅ 출장정보 불러오기 완료";
+        }
+        catch (err) {
+            resultBox.textContent = `❌ 불러오기 실패: ${err?.message ?? "알 수 없는 오류"}`;
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "불러오기 실패",
+                message: resultBox.textContent,
+                showOk: true,
+                showCancel: false,
+            });
+        }
+        finally {
+            loadBtn.disabled = false;
+        }
+    });
+    // 2) 정산서 저장
+    saveBtn.addEventListener("click", async () => {
+        const vehicle = getCheckedRadioValue("bt_vehicle");
+        const payload = {
+            trip_date: settleDate.value,
+            work_end_time: workEndTime.value,
+        };
     });
 }
 
@@ -315,8 +428,10 @@ var __webpack_exports__ = {};
   \**********************************************/
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _08_business_trip__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./08_business-trip */ "./TypeScript/workspace/08_business-trip.ts");
+/* harmony import */ var _09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./09_domestic-trip-settlement */ "./TypeScript/workspace/09_domestic-trip-settlement.ts");
 //import { initWorkAssignPanel } from "./01_work-assign";
  // ✅ 추가
+
 const API_BASE = location.hostname === "gwoun01.github.io"
     ? "https://outwork.sel3.cloudtype.app"
     : "http://127.0.0.1:5050";
@@ -360,15 +475,15 @@ document.addEventListener("DOMContentLoaded", async () => {
             const id = btn.dataset.panel;
             if (!id)
                 return;
-            // ✅ 1) 먼저 패널 화면 전환
             showPanel(id);
-            // ✅ 2) 패널별 초기화(로직 연결)
             if (id.includes("panel-국내출장-출장등록")) {
                 await (0,_08_business_trip__WEBPACK_IMPORTED_MODULE_0__.initDomesticTripRegisterPanel)(API_BASE);
+                console.log("국내출장-출장등록 init 완료");
+                if (id.includes("panel-국내출장-정산서등록")) {
+                    await (0,_09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_1__.initDomesticTripSettlementPanel)(API_BASE);
+                    console.log("국내출장-정산서등록 init 완료");
+                }
             }
-            console.log("국내출장-출장등록 init 완료");
-            //  if (id.includes("panel-해외출장요청")) {
-            //   await initDomesticTripRequestPanel(API_BASE);
         });
     });
     console.debug("[INIT] workspace 초기화 완료");
