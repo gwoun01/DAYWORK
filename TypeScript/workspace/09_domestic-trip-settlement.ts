@@ -197,6 +197,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
             if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
 
             localStorage.removeItem("domesticTripDraft");
+            window.dispatchEvent(new Event("trip-status-refresh"));
 
             resultBox.textContent = "✅ 정산서 저장 완료";
             await ModalUtil.show({
