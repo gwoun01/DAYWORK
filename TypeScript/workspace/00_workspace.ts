@@ -1,5 +1,5 @@
 //import { initWorkAssignPanel } from "./01_work-assign";
-import { initDomesticTripRegisterPanel } from "./08_business-trip"; // ✅ 추가
+import { initDomesticTripRegisterPanel } from "./08_domestic-trip-register"; // ✅ 추가
 import { initDomesticTripSettlementPanel } from "./09_domestic-trip-settlement";
 const API_BASE =
   location.hostname === "gwoun01.github.io"

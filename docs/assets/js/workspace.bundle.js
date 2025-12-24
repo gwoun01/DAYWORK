@@ -2,10 +2,10 @@
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
-/***/ "./TypeScript/workspace/08_business-trip.ts":
-/*!**************************************************!*\
-  !*** ./TypeScript/workspace/08_business-trip.ts ***!
-  \**************************************************/
+/***/ "./TypeScript/workspace/08_domestic-trip-register.ts":
+/*!***********************************************************!*\
+  !*** ./TypeScript/workspace/08_domestic-trip-register.ts ***!
+  \***********************************************************/
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -85,18 +85,27 @@ function initDomesticTripRegisterPanel(API_BASE) {
         try {
             saveBtn.disabled = true;
             resultBox.textContent = "저장 중...";
-            const res = await fetch(`${API_BASE}/api/business-trip/register`, {
+            const res = await fetch(`${API_BASE}/api/business-trip`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
             });
             if (!res.ok)
                 throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+            // ✅ 서버에서 id를 돌려준다고 가정 (data.id)
+            const json = await res.json();
+            const newId = json?.data?.id;
+            // ✅ 정산할 때 쓰려고 저장해둠
+            if (newId) {
+                localStorage.setItem("lastTripId", String(newId));
+            }
             resultBox.textContent = "✅ 출장 등록 완료";
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
                 title: "저장 완료",
-                message: "출장 등록이 완료되었습니다.",
+                message: newId
+                    ? `출장 등록 완료! (trip_id=${newId})\n정산등록에서 이 출장건을 업데이트합니다.`
+                    : "출장 등록이 완료되었습니다.",
                 showOk: true,
                 showCancel: false,
             });
@@ -238,10 +247,106 @@ function initDomesticTripSettlementPanel(API_BASE) {
     // 2) 정산서 저장
     saveBtn.addEventListener("click", async () => {
         const vehicle = getCheckedRadioValue("bt_vehicle");
+        // ✅ 필수값 체크 (초보용: 최소한 이것만 막아도 안정적)
+        if (!settleDate.value) {
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "입력 확인",
+                message: "정산 대상 출장 날짜를 선택하세요.",
+                showOk: true,
+                showCancel: false,
+            });
+            return;
+        }
+        if (!workEndTime.value || !homeDepartTime.value || !homeArriveTime.value) {
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "입력 확인",
+                message: "업무 종료시간 / 자택(회사) 출발시간 / 자택(회사) 도착시간은 필수입니다.",
+                showOk: true,
+                showCancel: false,
+            });
+            return;
+        }
+        if (!returnPlace.value.trim()) {
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "입력 확인",
+                message: "복귀지를 입력하세요. (예: 자택 또는 회사)",
+                showOk: true,
+                showCancel: false,
+            });
+            return;
+        }
+        if (!vehicle) {
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "입력 확인",
+                message: "차량(정산용)을 선택하세요.",
+                showOk: true,
+                showCancel: false,
+            });
+            return;
+        }
+        // ✅ payload 완성 (타입 에러 해결)
         const payload = {
             trip_date: settleDate.value,
             work_end_time: workEndTime.value,
+            home_depart_time: homeDepartTime.value,
+            home_arrive_time: homeArriveTime.value,
+            return_place: returnPlace.value.trim(),
+            vehicle,
+            meals: {
+                breakfast: {
+                    checked: breakfastChk.checked,
+                    owner: breakfastOwner.value || "",
+                },
+                lunch: {
+                    checked: lunchChk.checked,
+                    owner: lunchOwner.value || "",
+                },
+                dinner: {
+                    checked: dinnerChk.checked,
+                    owner: dinnerOwner.value || "",
+                },
+            },
         };
+        try {
+            saveBtn.disabled = true;
+            resultBox.textContent = "정산서 저장 중...";
+            // ✅ 서버 주소는 너 백엔드 라우터에 맞게 바꾸면 됨
+            const res = await fetch(`${API_BASE}/api/business-trip/settlement`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(`HTTP ${res.status}: ${text}`);
+            }
+            resultBox.textContent = "✅ 정산서 저장 완료";
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "저장 완료",
+                message: "정산서가 저장되었습니다.",
+                showOk: true,
+                showCancel: false,
+            });
+        }
+        catch (err) {
+            console.error("❌ 정산서 저장 실패:", err);
+            resultBox.textContent = `❌ 저장 실패: ${err?.message ?? "알 수 없는 오류"}`;
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "저장 실패",
+                message: resultBox.textContent,
+                showOk: true,
+                showCancel: false,
+            });
+        }
+        finally {
+            saveBtn.disabled = false;
+        }
     });
 }
 
@@ -427,7 +532,7 @@ var __webpack_exports__ = {};
   !*** ./TypeScript/workspace/00_workspace.ts ***!
   \**********************************************/
 __webpack_require__.r(__webpack_exports__);
-/* harmony import */ var _08_business_trip__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./08_business-trip */ "./TypeScript/workspace/08_business-trip.ts");
+/* harmony import */ var _08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./08_domestic-trip-register */ "./TypeScript/workspace/08_domestic-trip-register.ts");
 /* harmony import */ var _09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./09_domestic-trip-settlement */ "./TypeScript/workspace/09_domestic-trip-settlement.ts");
 //import { initWorkAssignPanel } from "./01_work-assign";
  // ✅ 추가
@@ -477,7 +582,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 return;
             showPanel(id);
             if (id.includes("panel-국내출장-출장등록")) {
-                await (0,_08_business_trip__WEBPACK_IMPORTED_MODULE_0__.initDomesticTripRegisterPanel)(API_BASE);
+                await (0,_08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_0__.initDomesticTripRegisterPanel)(API_BASE);
                 console.log("국내출장-출장등록 init 완료");
                 if (id.includes("panel-국내출장-정산서등록")) {
                     await (0,_09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_1__.initDomesticTripSettlementPanel)(API_BASE);
