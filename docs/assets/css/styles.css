@@ -572,6 +572,9 @@ video {
 .ml-1 {
   margin-left: 0.25rem;
 }
+.ml-2 {
+  margin-left: 0.5rem;
+}
 .ml-3 {
   margin-left: 0.75rem;
 }
@@ -1619,14 +1622,6 @@ video {
 
   .sm\:grid-cols-4 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .sm\:flex-row {
-    flex-direction: row;
-  }
-
-  .sm\:items-end {
-    align-items: flex-end;
   }
 }
 @media (min-width: 768px) {

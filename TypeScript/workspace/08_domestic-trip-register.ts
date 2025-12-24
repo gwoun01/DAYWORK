@@ -92,30 +92,26 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
       saveBtn.disabled = true;
       resultBox.textContent = "저장 중...";
 
-      const res = await fetch(`${API_BASE}/api/business-trip`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      localStorage.setItem(
+        "domesticTripDraft",
+        JSON.stringify(payload)
+      );
+
+      resultBox.textContent = "✅ 출장 등록 내용 저장 완료";
+
+      await ModalUtil.show({
+        type: "alert",
+        title: "저장 완료",
+        message: "출장 등록 내용이 저장되었습니다.\n정산 등록 화면에서 이어서 진행하세요.",
+        showOk: true,
+        showCancel: false,
       });
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-
-      // ✅ 서버에서 id를 돌려준다고 가정 (data.id)
-      const json = await res.json();
-      const newId = json?.data?.id;
-
-      // ✅ 정산할 때 쓰려고 저장해둠
-      if (newId) {
-        localStorage.setItem("lastTripId", String(newId));
-      }
 
       resultBox.textContent = "✅ 출장 등록 완료";
       await ModalUtil.show({
         type: "alert",
         title: "저장 완료",
-        message: newId
-          ? `출장 등록 완료! (trip_id=${newId})\n정산등록에서 이 출장건을 업데이트합니다.`
-          : "출장 등록이 완료되었습니다.",
+        message: "출장 등록이 완료되었습니다.\n정산 등록 화면에서 이어서 진행하세요.",
         showOk: true,
         showCancel: false,
       });
