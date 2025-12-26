@@ -123,7 +123,7 @@
                                 <button
                                     class="nav-btn w-full text-left px-4 py-2 rounded-lg text-[12px] text-gray-600 hover:bg-gray-100"
                                     data-panel="panel-국내출장-정산서등록">
-                                    정산서등록
+                                    출장내역
                                 </button>
                             </div>
                         </div>
@@ -521,11 +521,11 @@
 
                 </div>
 
-
-                <!-- ✅ 국내출장 - 출장등록 패널 -->
+                <!-- ✅ 국내출장 - 출장등록 + 정산 작성 패널 -->
                 <section id="panel-국내출장-출장등록" class="hidden p-3">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-4">
 
+                        <!-- 🔹 1. 출장등록 영역 -->
                         <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex flex-col gap-3">
                             <div class="flex items-center justify-between">
                                 <h3 class="text-sm font-extrabold text-gray-900">출장등록</h3>
@@ -615,40 +615,20 @@
                                     class="px-3 py-2 rounded-xl border border-gray-300 bg-white text-xs font-semibold hover:bg-gray-50">
                                     초기화
                                 </button>
+                                <button id="reg_continue"
+                                    class="px-3 py-2 rounded-xl bg-indigo-500 text-white text-xs font-bold hover:bg-indigo-600 active:bg-indigo-700 shadow-sm hidden">
+                                    이어서 정산 작성
+                                </button>
+
                                 <button id="reg_save"
                                     class="px-4 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 active:bg-red-700 shadow-sm">
                                     출장 등록
                                 </button>
                             </div>
                         </div>
-                    </div>
-                </section>
 
-                <!-- ✅ 국내출장 - 정산서등록 패널 -->
-                <section id="panel-국내출장-정산서등록" class="hidden p-3">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-3">
-
-                        <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex flex-col gap-3">
-                            <div class="flex items-center justify-between">
-                                <h3 class="text-sm font-extrabold text-gray-900">출장 정산서 등록</h3>
-                                <span class="text-[11px] text-gray-500">정산용 옵션(차량/식사)</span>
-                            </div>
-
-                            <!-- 1. 정산 대상 날짜 -->
-                            <div class="mt-3">
-                                <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                    출장 정보
-                                </label>
-
-                                <div id="settle_trip_summary"
-                                    class="border border-gray-200 rounded-xl p-3 bg-gray-50 text-xs text-gray-700">
-                                    <span class="text-gray-400">
-                                        출장 등록 정보를 불러오는 중입니다...
-                                    </span>
-                                </div>
-                            </div>
-
-
+                        <!-- 🔹 2. 정산 작성 영역 (처음엔 숨김) -->
+                        <div id="bt_settlement_section" class="mt-4 space-y-3 hidden">
 
                             <!-- 3. 시간 영역 -->
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -670,6 +650,7 @@
                                         class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white" />
                                 </div>
                             </div>
+
                             <!-- 3-1. 복귀지 -->
                             <div>
                                 <label class="block text-xs font-semibold text-gray-700 mb-1">
@@ -777,6 +758,88 @@
                                     </button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ✅ 국내출장 - 출장내역(정산 내역 보기) 패널 -->
+                <section id="panel-국내출장-정산서등록" class="hidden p-3">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-3">
+
+                        <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex flex-col gap-3">
+                            <div class="flex items-center justify-between">
+                                <!-- 🔹 제목만 살짝 변경 -->
+                                <h3 class="text-sm font-extrabold text-gray-900">출장 내역 보기</h3>
+                                <span class="text-[11px] text-gray-500">기간·사용자 기준으로 조회</span>
+                            </div>
+
+                            <!-- 1. 기간 + 사용자 선택 -->
+                            <div class="grid grid-cols-1 md:grid-cols-[auto_auto_auto] gap-2 items-end mt-2">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                        시작일 <span class="text-rose-500">*</span>
+                                    </label>
+                                    <input id="settle_from" type="date"
+                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs bg-white" />
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                        종료일 <span class="text-rose-500">*</span>
+                                    </label>
+                                    <input id="settle_to" type="date"
+                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs bg-white" />
+                                </div>
+
+                                <div class="flex flex-col gap-1">
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                        대상
+                                    </label>
+                                    <div class="flex items-center gap-2">
+                                        <label class="inline-flex items-center gap-1 text-[11px] text-gray-700">
+                                            <input id="settle_only_me" type="checkbox" class="accent-indigo-600"
+                                                checked />
+                                            나의 정산만
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 2. 버튼 + 결과 메시지 -->
+                            <div class="mt-2 flex items-center gap-2">
+                                <div id="settle_result_msg" class="flex-1 text-[11px] text-gray-600">
+                                    조회할 기간을 선택한 뒤 <span class="font-semibold">[조회하기]</span>를 눌러주세요.
+                                </div>
+                                <button id="settle_search"
+                                    class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 active:bg-indigo-800 shadow-sm">
+                                    조회하기
+                                </button>
+                            </div>
+
+                            <!-- 3. 결과 테이블 -->
+                            <div class="mt-3 border rounded-xl overflow-hidden">
+                                <table class="w-full text-[11px] text-gray-700 border-collapse">
+                                    <thead class="bg-gray-100">
+                                        <tr>
+                                            <th class="border px-2 py-1 w-20 text-center">날짜</th>
+                                            <th class="border px-2 py-1 w-20 text-center">이름</th>
+                                            <th class="border px-2 py-1 text-center">출장지(고객사)</th>
+                                            <th class="border px-2 py-1 w-24 text-center">출발~도착</th>
+                                            <th class="border px-2 py-1 w-24 text-center">업무시간</th>
+                                            <th class="border px-2 py-1 w-24 text-center">차량</th>
+                                            <th class="border px-2 py-1 w-32 text-center">식사</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="settle_result_tbody">
+                                        <tr>
+                                            <td colspan="7" class="border px-2 py-3 text-center text-gray-400">
+                                                조회된 정산 내역이 없습니다.
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
                         </div>
                     </div>
                 </section>

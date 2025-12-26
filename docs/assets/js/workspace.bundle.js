@@ -26,11 +26,16 @@ function initDomesticTripRegisterPanel(API_BASE) {
     if (!panel)
         return;
     const saveBtn = getEl("reg_save");
+    // 이미 바인딩 되었으면 재바인딩 방지
     if (saveBtn._bound)
         return;
     saveBtn._bound = true;
     const resetBtn = getEl("reg_reset");
     const resultBox = getEl("reg_result");
+    // 🔹 이어작성 버튼
+    const continueBtn = document.getElementById("reg_continue");
+    // 🔹 같은 패널 안의 정산 작성 섹션 (숨겼다가 펼칠 영역)
+    const settlementSection = document.getElementById("bt_settlement_section");
     const userNameEl = document.getElementById("userName");
     const reqNameInput = getEl("bt_req_name");
     const departPlaceInput = getEl("bt_place");
@@ -42,6 +47,12 @@ function initDomesticTripRegisterPanel(API_BASE) {
     const purposeInput = getEl("bt_purpose");
     // 요청자 자동 채우기
     reqNameInput.value = (userNameEl?.textContent ?? "").trim() || "사용자";
+    // 초기: 이어작성 버튼/정산섹션 숨김
+    if (continueBtn)
+        continueBtn.classList.add("hidden");
+    if (settlementSection)
+        settlementSection.classList.add("hidden");
+    // 🔹 폼 리셋
     resetBtn.addEventListener("click", () => {
         departPlaceInput.value = "";
         destinationInput.value = "";
@@ -51,7 +62,13 @@ function initDomesticTripRegisterPanel(API_BASE) {
         arriveTimeInput.value = "";
         purposeInput.value = "";
         resultBox.textContent = "";
+        // 리셋 시 이어작성 버튼/정산영역 숨기기
+        if (continueBtn)
+            continueBtn.classList.add("hidden");
+        if (settlementSection)
+            settlementSection.classList.add("hidden");
     });
+    // 🔹 출장 등록
     saveBtn.addEventListener("click", async () => {
         const payload = {
             trip_type: "domestic",
@@ -84,26 +101,83 @@ function initDomesticTripRegisterPanel(API_BASE) {
         }
         try {
             saveBtn.disabled = true;
-            resultBox.textContent = "저장 중...";
+            resultBox.textContent = "서버에 저장 중...";
+            // ✅ 1) 백엔드에 출장 등록 저장
+            //    (너가 올린 businessTripRouter의 /domestic 이 이걸 받음)
+            const url = `${API_BASE}/api/business-trip/domestic`;
+            console.log("[출장등록] 요청 URL =", url);
+            const res = await fetch(`${API_BASE}/api/business-trip/domestic`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                console.error("출장등록 실패 응답:", res.status, text);
+                resultBox.textContent = `❌ 서버 저장 실패: HTTP ${res.status}`;
+                await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                    type: "alert",
+                    title: "저장 실패",
+                    message: `서버 저장에 실패했습니다.\n(HTTP ${res.status})`,
+                    showOk: true,
+                    showCancel: false,
+                });
+                // 실패 시 이어작성 버튼/정산영역 숨김
+                if (continueBtn)
+                    continueBtn.classList.add("hidden");
+                if (settlementSection)
+                    settlementSection.classList.add("hidden");
+                return;
+            }
+            const data = await res.json().catch(() => null);
+            console.log("출장등록 성공 응답:", data);
+            // ✅ 2) 대시보드를 위해 로컬 businessTripList도 갱신 (선택)
+            try {
+                const listKey = "businessTripList";
+                const raw = localStorage.getItem(listKey);
+                let list = [];
+                if (raw) {
+                    list = JSON.parse(raw);
+                }
+                const item = {
+                    ...payload,
+                    id: Date.now(),
+                    status: "예정",
+                    created_at: new Date().toISOString(),
+                };
+                list.push(item);
+                localStorage.setItem(listKey, JSON.stringify(list));
+            }
+            catch (e) {
+                console.warn("[출장등록] localStorage businessTripList 갱신 실패:", e);
+            }
+            // ✅ 3) 정산 화면에서 참고할 초안 저장
             localStorage.setItem("domesticTripDraft", JSON.stringify(payload));
-            resultBox.textContent = "✅ 출장 등록 내용 저장 완료";
+            resultBox.textContent = "✅ 출장 등록 완료 (서버 저장 완료)";
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
                 title: "저장 완료",
-                message: "출장 등록 내용이 저장되었습니다.\n정산 등록 화면에서 이어서 진행하세요.",
+                message: "출장 등록 내용이 서버에 저장되었습니다.\n[이어 정산 작성] 버튼을 눌러 정산을 작성하세요.",
                 showOk: true,
                 showCancel: false,
             });
-            resultBox.textContent = "✅ 출장 등록 완료";
-            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
-                type: "alert",
-                title: "저장 완료",
-                message: "출장 등록이 완료되었습니다.\n정산 등록 화면에서 이어서 진행하세요.",
-                showOk: true,
-                showCancel: false,
-            });
+            // 🔹 여기서는 "버튼만" 보이게 하고, 정산 영역은 그대로 숨겨둔다
+            if (continueBtn)
+                continueBtn.classList.remove("hidden");
+            if (settlementSection) {
+                // 자동으로 펼치지 않는다. (클릭할 때만 열기)
+                settlementSection.classList.add("hidden");
+            }
+            // 정산에서 기본값으로 쓰고 싶은 정보 저장
+            localStorage.setItem("settleTargetDate", payload.start_date);
+            localStorage.setItem("settleTargetReqName", payload.req_name);
+            // 대시보드 갱신용 이벤트
+            window.dispatchEvent(new Event("trip-status-refresh"));
         }
         catch (err) {
+            console.error("출장등록 중 오류:", err);
             resultBox.textContent = `❌ 저장 실패: ${err?.message ?? "알 수 없는 오류"}`;
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
@@ -112,10 +186,29 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 showOk: true,
                 showCancel: false,
             });
+            // 에러 시 이어작성/정산영역 숨김
+            if (continueBtn)
+                continueBtn.classList.add("hidden");
+            if (settlementSection)
+                settlementSection.classList.add("hidden");
         }
         finally {
             saveBtn.disabled = false;
         }
+    });
+    // 🔹 이어작성 버튼 클릭 → 정산 섹션 펼치기
+    continueBtn?.addEventListener("click", () => {
+        const date = startInput.value;
+        const name = reqNameInput.value.trim();
+        if (date)
+            localStorage.setItem("settleTargetDate", date);
+        if (name)
+            localStorage.setItem("settleTargetReqName", name);
+        if (settlementSection) {
+            settlementSection.classList.remove("hidden");
+            settlementSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+        resultBox.textContent = "✏️ 이 출장건에 대한 정산 정보를 아래에서 이어서 작성하세요.";
     });
 }
 
@@ -145,173 +238,361 @@ function getCheckedRadioValue(name) {
     const checked = document.querySelector(`input[name="${name}"]:checked`);
     return checked?.value ?? "";
 }
+/**
+ * 국내출장 정산 입력 패널 초기화
+ * - 00_workspace.ts 에서 initDomesticTripSettlementPanel(API_BASE)로 한 번만 호출
+ */
 function initDomesticTripSettlementPanel(API_BASE) {
-    const panel = document.getElementById("panel-국내출장-정산서등록");
-    if (!panel)
-        return;
-    const saveBtn = getEl("bt_save");
-    const resetBtn = getEl("bt_reset");
-    const resultBox = getEl("bt_result");
-    const summaryBox = getEl("settle_trip_summary");
-    if (saveBtn._bound)
-        return;
-    saveBtn._bound = true;
-    // =========================
-    // 정산 입력 필드
-    // =========================
-    const workEndTime = getEl("bt_work_end_time");
-    const returnTime = getEl("bt_return_time");
-    const returnPlace = getEl("bt_return_place");
-    const breakfastChk = getEl("bt_meal_breakfast");
-    const breakfastOwner = getEl("bt_meal_breakfast_owner");
-    const lunchChk = getEl("bt_meal_lunch");
-    const lunchOwner = getEl("bt_meal_lunch_owner");
-    const dinnerChk = getEl("bt_meal_dinner");
-    const dinnerOwner = getEl("bt_meal_dinner_owner");
-    // =========================
-    // 1️⃣ 08에서 저장한 데이터 불러오기
-    // =========================
-    const draftStr = localStorage.getItem("domesticTripDraft");
-    if (!draftStr) {
-        _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
-            type: "alert",
-            title: "데이터 없음",
-            message: "출장 등록 데이터가 없습니다.\n출장 등록부터 진행하세요.",
-            showOk: true,
-            showCancel: false,
-        });
+    console.log("[정산] initDomesticTripSettlementPanel 호출");
+    const section = document.getElementById("bt_settlement_section");
+    if (!section) {
+        console.warn("[정산] #bt_settlement_section 요소를 찾을 수 없습니다. HTML 구조를 확인하세요.");
         return;
     }
-    const draft = JSON.parse(draftStr);
-    // 카드 컨테이너
-    const card = document.createElement("div");
-    card.className =
-        "border border-gray-200 rounded-xl p-4 bg-white text-xs text-gray-700 shadow-sm space-y-3";
-    // 1️⃣ 출장자 / 출장일
-    const row1 = document.createElement("div");
-    row1.className = "flex justify-between";
-    row1.innerHTML = `
-  <div><span class="font-semibold">출장자</span>: ${draft.req_name}</div>
-  <div><span class="font-semibold">출장일</span>: ${draft.start_date}</div>
-`;
-    card.appendChild(row1);
-    summaryBox.innerHTML = "";
-    summaryBox.appendChild(card);
-    // 2️⃣ 출발지 / 출장지
-    const row2 = document.createElement("div");
-    row2.className = "grid grid-cols-2 gap-4";
-    row2.innerHTML = `
-  <div><span class="font-semibold">출발지</span>: ${draft.depart_place}</div>
-  <div><span class="font-semibold">출장지</span>: ${draft.destination}</div>
-`;
-    card.appendChild(row2);
-    // 3️⃣ 시간 정보
-    const row3 = document.createElement("div");
-    row3.className = "grid grid-cols-3 gap-3 bg-gray-50 p-2 rounded-lg";
-    row3.innerHTML = `
-  <div><span class="font-semibold">출발</span><br>${draft.depart_time || "-"}</div>
-  <div><span class="font-semibold">업무시작</span><br>${draft.work_start_time || "-"}</div>
-  <div><span class="font-semibold">도착</span><br>${draft.arrive_time || "-"}</div>
-`;
-    card.appendChild(row3);
-    // 4️⃣ 목적
-    const row4 = document.createElement("div");
-    row4.className = "border-t pt-2";
-    row4.innerHTML = `
-  <span class="font-semibold">출장 목적</span><br>
-  <span class="text-gray-600">${draft.purpose}</span>
-`;
-    card.appendChild(row4);
-    // =========================
-    // 초기화
-    // =========================
+    const saveBtn = getEl("bt_save");
+    // 중복 바인딩 방지
+    if (saveBtn._bound) {
+        console.log("[정산] 이미 바인딩된 상태이므로 다시 바인딩하지 않음");
+        return;
+    }
+    saveBtn._bound = true;
+    const resetBtn = getEl("bt_reset");
+    const resultBox = getEl("bt_result");
+    const workEndInput = getEl("bt_work_end_time");
+    const returnTimeInput = getEl("bt_return_time");
+    const returnPlaceInput = getEl("bt_return_place");
+    const mealBreakfastCheck = getEl("bt_meal_breakfast");
+    const mealLunchCheck = getEl("bt_meal_lunch");
+    const mealDinnerCheck = getEl("bt_meal_dinner");
+    const mealBreakfastOwner = getEl("bt_meal_breakfast_owner");
+    const mealLunchOwner = getEl("bt_meal_lunch_owner");
+    const mealDinnerOwner = getEl("bt_meal_dinner_owner");
+    // 🔹 08_domestic-trip-register.ts 에서 저장해 둔 값 사용
+    const baseDate = localStorage.getItem("settleTargetDate") ?? "";
+    const baseReqName = localStorage.getItem("settleTargetReqName") ?? "";
+    console.log("[정산] baseDate =", baseDate, "baseReqName =", baseReqName);
+    // 🔹 리셋 버튼
     resetBtn.addEventListener("click", () => {
-        workEndTime.value = "";
-        returnTime.value = "";
-        returnPlace.value = "";
-        document
-            .querySelectorAll('input[name="bt_vehicle"]')
-            .forEach((r) => (r.checked = false));
-        breakfastChk.checked = false;
-        breakfastOwner.value = "";
-        lunchChk.checked = false;
-        lunchOwner.value = "";
-        dinnerChk.checked = false;
-        dinnerOwner.value = "";
-        resultBox.textContent = "";
+        workEndInput.value = "";
+        returnTimeInput.value = "";
+        returnPlaceInput.value = "";
+        mealBreakfastCheck.checked = false;
+        mealLunchCheck.checked = false;
+        mealDinnerCheck.checked = false;
+        mealBreakfastOwner.value = "";
+        mealLunchOwner.value = "";
+        mealDinnerOwner.value = "";
+        resultBox.textContent = "정산 입력값이 초기화되었습니다.";
     });
-    // =========================
-    // 2️⃣ 정산 + DB 저장 (INSERT)
-    // =========================
+    // 🔹 정산 저장 버튼
     saveBtn.addEventListener("click", async () => {
-        const vehicle = getCheckedRadioValue("bt_vehicle");
-        if (!workEndTime.value || !returnTime.value || !returnPlace.value.trim()) {
+        console.log("[정산] 저장 버튼 클릭");
+        const vehicleValue = getCheckedRadioValue("bt_vehicle");
+        // 🚨 출발일/이름이 비어 있으면 어떤 건지 모름
+        const trip_date = localStorage.getItem("settleTargetDate") ?? "";
+        const req_name = localStorage.getItem("settleTargetReqName") ?? "";
+        if (!trip_date || !req_name) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
-                title: "입력 확인",
-                message: "정산 필수 항목을 모두 입력하세요.",
+                title: "정산 대상 없음",
+                message: "어떤 출장건에 대한 정산인지 정보가 없습니다.\n먼저 [출장등록]에서 저장 후 [이어 정산 작성]으로 들어와 주세요.",
                 showOk: true,
                 showCancel: false,
             });
             return;
         }
-        if (!vehicle) {
+        // 필수값 체크
+        if (!workEndInput.value) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
                 title: "입력 확인",
-                message: "차량을 선택하세요.",
+                message: "업무 종료시간을 입력해주세요.",
                 showOk: true,
                 showCancel: false,
             });
             return;
         }
-        const payload = {
-            trip_type: "domestic",
-            req_name: draft.req_name,
-            trip_date: draft.start_date,
-            detail_json: {
-                register: draft,
-                settlement: {
-                    work_end_time: workEndTime.value,
-                    return_time: returnTime.value,
-                    return_place: returnPlace.value.trim(),
-                    vehicle,
-                    meals: {
-                        breakfast: { checked: breakfastChk.checked, owner: breakfastOwner.value },
-                        lunch: { checked: lunchChk.checked, owner: lunchOwner.value },
-                        dinner: { checked: dinnerChk.checked, owner: dinnerOwner.value },
-                    },
+        if (!returnTimeInput.value) {
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "입력 확인",
+                message: "복귀시간을 입력해주세요.",
+                showOk: true,
+                showCancel: false,
+            });
+            return;
+        }
+        if (!returnPlaceInput.value.trim()) {
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "입력 확인",
+                message: "복귀지(회사/자택)를 입력해주세요.",
+                showOk: true,
+                showCancel: false,
+            });
+            return;
+        }
+        if (!vehicleValue) {
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "입력 확인",
+                message: "차량(정산용)을 선택해주세요.",
+                showOk: true,
+                showCancel: false,
+            });
+            return;
+        }
+        const settlement = {
+            work_end_time: workEndInput.value,
+            return_time: returnTimeInput.value,
+            return_place: returnPlaceInput.value.trim(),
+            vehicle: vehicleValue,
+            meals: {
+                breakfast: {
+                    checked: mealBreakfastCheck.checked,
+                    owner: mealBreakfastOwner.value,
+                },
+                lunch: {
+                    checked: mealLunchCheck.checked,
+                    owner: mealLunchOwner.value,
+                },
+                dinner: {
+                    checked: mealDinnerCheck.checked,
+                    owner: mealDinnerOwner.value,
                 },
             },
         };
+        // 🧠 백엔드 /settlement 는 req_name, trip_date, detail_json 전체를 받는다.
+        // 여기서는 기존 register 정보는 그대로 두고 settlement만 덮어쓰기 형태로 전달한다고 가정.
+        const detail_json = {
+            settlement,
+        };
         try {
             saveBtn.disabled = true;
-            resultBox.textContent = "정산서 저장 중...";
+            resultBox.textContent = "정산 내용 저장 중...";
             const res = await fetch(`${API_BASE}/api/business-trip/settlement`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    req_name,
+                    trip_date,
+                    detail_json,
+                }),
             });
-            if (!res.ok)
-                throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-            localStorage.removeItem("domesticTripDraft");
-            window.dispatchEvent(new Event("trip-status-refresh"));
-            resultBox.textContent = "✅ 정산서 저장 완료";
+            console.log("[정산] 응답 status =", res.status);
+            if (!res.ok) {
+                const text = await res.text();
+                resultBox.textContent = `❌ 정산 저장 실패: HTTP ${res.status} ${text}`;
+                await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                    type: "alert",
+                    title: "정산 저장 실패",
+                    message: resultBox.textContent,
+                    showOk: true,
+                    showCancel: false,
+                });
+                return;
+            }
+            const data = await res.json().catch(() => null);
+            console.log("[정산] 응답 data =", data);
+            resultBox.textContent = "✅ 정산 정보가 저장되었습니다.";
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
-                title: "저장 완료",
-                message: "출장 정산이 완료되었습니다.",
+                title: "정산 완료",
+                message: "정산 정보가 성공적으로 저장되었습니다.",
                 showOk: true,
                 showCancel: false,
             });
+            // 필요하면 초기화
+            // resetBtn.click();
+            // 대시보드/출장 현황 새로고침용
+            window.dispatchEvent(new Event("trip-status-refresh"));
         }
         catch (err) {
-            console.error(err);
-            resultBox.textContent = `❌ 저장 실패: ${err?.message ?? "알 수 없는 오류"}`;
+            console.error("[정산] 저장 중 오류:", err);
+            resultBox.textContent = `❌ 정산 저장 중 오류: ${err?.message ?? "알 수 없는 오류"}`;
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "정산 저장 오류",
+                message: resultBox.textContent,
+                showOk: true,
+                showCancel: false,
+            });
         }
         finally {
             saveBtn.disabled = false;
         }
+    });
+}
+
+
+/***/ }),
+
+/***/ "./TypeScript/workspace/10_domestic-trip-history.ts":
+/*!**********************************************************!*\
+  !*** ./TypeScript/workspace/10_domestic-trip-history.ts ***!
+  \**********************************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   initDomesticTripHistoryPanel: () => (/* binding */ initDomesticTripHistoryPanel)
+/* harmony export */ });
+// TypeScript/workspace/10_domestic-trip-history.ts
+function getEl(id) {
+    const el = document.getElementById(id);
+    if (!el)
+        throw new Error(`element not found: #${id}`);
+    return el;
+}
+function formatYmd(isoDate) {
+    const d = typeof isoDate === "string" ? new Date(isoDate) : isoDate;
+    if (Number.isNaN(d.getTime()))
+        return "-";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+}
+// 🌟 정산 내역 보기 패널 초기화
+function initDomesticTripHistoryPanel(API_BASE) {
+    const panel = document.getElementById("panel-국내출장-정산서등록");
+    if (!panel)
+        return;
+    const searchBtn = getEl("settle_search");
+    // 중복 바인딩 방지
+    if (searchBtn._bound)
+        return;
+    searchBtn._bound = true;
+    const fromInput = getEl("settle_from");
+    const toInput = getEl("settle_to");
+    const onlyMeCheckbox = getEl("settle_only_me");
+    const resultMsg = getEl("settle_result_msg");
+    const tbody = getEl("settle_result_tbody");
+    // 기본값: 이번 주 정도로 넣고 싶으면 여기서 세팅 가능
+    if (!fromInput.value || !toInput.value) {
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = String(today.getMonth() + 1).padStart(2, "0");
+        const d = String(today.getDate()).padStart(2, "0");
+        const todayStr = `${y}-${m}-${d}`;
+        fromInput.value = todayStr;
+        toInput.value = todayStr;
+    }
+    async function fetchHistory() {
+        const from = fromInput.value;
+        const to = toInput.value;
+        if (!from || !to) {
+            resultMsg.textContent = "시작일과 종료일을 모두 선택하세요.";
+            return;
+        }
+        if (from > to) {
+            resultMsg.textContent = "시작일이 종료일보다 늦을 수 없습니다.";
+            return;
+        }
+        // 로그인 사용자 이름(나의 정산만 체크 시 사용)
+        let reqNameParam = "";
+        if (onlyMeCheckbox.checked) {
+            try {
+                const stored = localStorage.getItem("user");
+                if (stored) {
+                    const user = JSON.parse(stored);
+                    if (user?.name) {
+                        reqNameParam = user.name;
+                    }
+                }
+            }
+            catch {
+                // 무시
+            }
+        }
+        resultMsg.textContent = "정산 내역을 조회 중입니다...";
+        tbody.innerHTML = `
+      <tr>
+        <td colspan="7" class="border px-2 py-3 text-center text-gray-400">
+          조회 중...
+        </td>
+      </tr>
+    `;
+        const qs = new URLSearchParams();
+        qs.set("from", from);
+        qs.set("to", to);
+        if (reqNameParam)
+            qs.set("req_name", reqNameParam);
+        try {
+            const res = await fetch(`${API_BASE}/api/business-trip/settlements-range?${qs.toString()}`, { method: "GET" });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(`HTTP ${res.status} / ${text}`);
+            }
+            const json = await res.json();
+            const rows = json?.data ?? [];
+            if (!rows.length) {
+                tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="border px-2 py-3 text-center text-gray-400">
+              조회된 정산 내역이 없습니다.
+            </td>
+          </tr>
+        `;
+                resultMsg.textContent = "조회된 정산 내역이 없습니다.";
+                return;
+            }
+            // 렌더링
+            tbody.innerHTML = "";
+            rows.forEach((row) => {
+                const r = row.detail_json?.register ?? {};
+                const s = row.detail_json?.settlement ?? {};
+                const dateStr = formatYmd(row.trip_date);
+                const name = row.req_name || "-";
+                const dest = r.destination || "-";
+                const depart = r.depart_time || "-";
+                const arrive = r.arrive_time || "-";
+                const workStart = r.work_start_time || "-";
+                const workEnd = s.work_end_time || "-";
+                const vehicle = s.vehicle || "-";
+                const meals = s.meals || {};
+                const mealStrs = [];
+                if (meals.breakfast?.checked) {
+                    mealStrs.push(`조식(${meals.breakfast.owner === "corp" ? "법인" : "개인"})`);
+                }
+                if (meals.lunch?.checked) {
+                    mealStrs.push(`중식(${meals.lunch.owner === "corp" ? "법인" : "개인"})`);
+                }
+                if (meals.dinner?.checked) {
+                    mealStrs.push(`석식(${meals.dinner.owner === "corp" ? "법인" : "개인"})`);
+                }
+                const mealsText = mealStrs.length ? mealStrs.join(", ") : "-";
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+          <td class="border px-2 py-1 text-center">${dateStr}</td>
+          <td class="border px-2 py-1 text-center">${name}</td>
+          <td class="border px-2 py-1 text-center">${dest}</td>
+          <td class="border px-2 py-1 text-center">${depart} ~ ${arrive}</td>
+          <td class="border px-2 py-1 text-center">${workStart} ~ ${workEnd}</td>
+          <td class="border px-2 py-1 text-center">${vehicle}</td>
+          <td class="border px-2 py-1 text-center">${mealsText}</td>
+        `;
+                tbody.appendChild(tr);
+            });
+            resultMsg.textContent = `총 ${rows.length}건의 정산 내역이 조회되었습니다.`;
+        }
+        catch (err) {
+            console.error(err);
+            resultMsg.textContent = `조회 실패: ${err?.message ?? "알 수 없는 오류"}`;
+            tbody.innerHTML = `
+        <tr>
+          <td colspan="7" class="border px-2 py-3 text-center text-rose-500">
+            조회 실패: ${err?.message ?? "알 수 없는 오류"}
+          </td>
+        </tr>
+      `;
+        }
+    }
+    // 버튼 이벤트 연결
+    searchBtn.addEventListener("click", () => {
+        fetchHistory();
     });
 }
 
@@ -499,14 +780,24 @@ var __webpack_exports__ = {};
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./08_domestic-trip-register */ "./TypeScript/workspace/08_domestic-trip-register.ts");
 /* harmony import */ var _09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./09_domestic-trip-settlement */ "./TypeScript/workspace/09_domestic-trip-settlement.ts");
+/* harmony import */ var _10_domestic_trip_history__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./10_domestic-trip-history */ "./TypeScript/workspace/10_domestic-trip-history.ts");
 //import { initWorkAssignPanel } from "./01_work-assign";
+
 
 
 const API_BASE = location.hostname === "gwoun01.github.io"
     ? "https://outwork.sel3.cloudtype.app"
     : "http://127.0.0.1:5050";
+/** 오늘 날짜 YYYY-MM-DD */
+function getTodayYmd() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+}
 /**
- * ✅ 출장자 현황: 표(tbody)에 로딩
+ * ✅ 출장자 현황: 로컬스토리지에서 읽어서 표(tbody)에 로딩
  * - No | 이름 | 고객사 | 출발시간 | 도착시간 | 상태(출장 고정)
  */
 async function renderTripStatusTable(date) {
@@ -514,6 +805,8 @@ async function renderTripStatusTable(date) {
     const label = document.getElementById("tripStatusDateLabel");
     if (!tbody)
         return;
+    const today = getTodayYmd();
+    const baseDate = date || today;
     if (label)
         label.textContent = date ? date : "오늘";
     tbody.innerHTML = `
@@ -523,20 +816,21 @@ async function renderTripStatusTable(date) {
       </td>
     </tr>
   `;
-    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
-    const res = await fetch(`${API_BASE}/api/business-trip/status${qs}`);
-    if (!res.ok) {
-        tbody.innerHTML = `
-      <tr>
-        <td colspan="6" class="border px-2 py-3 text-center text-xs text-rose-600">
-          불러오기 실패 (HTTP ${res.status})
-        </td>
-      </tr>
-    `;
-        return;
+    // 🔹 1) 로컬에서 리스트 읽기
+    const listKey = "businessTripList";
+    const storedRaw = localStorage.getItem(listKey);
+    let list = [];
+    if (storedRaw) {
+        try {
+            list = JSON.parse(storedRaw);
+        }
+        catch (e) {
+            console.error("[대시보드] businessTripList JSON 파싱 실패:", e);
+            list = [];
+        }
     }
-    const json = await res.json();
-    const items = json?.data ?? [];
+    // 🔹 2) 기준 날짜 + 국내출장만 필터
+    const items = list.filter((t) => t.start_date === baseDate && t.trip_type === "domestic");
     if (items.length === 0) {
         tbody.innerHTML = `
       <tr>
@@ -569,21 +863,28 @@ async function renderTripStatusTable(date) {
 }
 /**
  * ✅ 오늘 출장 인원 KPI 업데이트
- * - /status 결과 개수를 kpiTripToday에 표시
+ * - localStorage businessTripList 기준으로 개수 세기
  */
 async function updateKpiTripToday(date) {
     const elTrip = document.getElementById("kpiTripToday");
     if (!elTrip)
         return;
-    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
-    const res = await fetch(`${API_BASE}/api/business-trip/status${qs}`);
-    if (!res.ok) {
-        elTrip.textContent = "0";
-        return;
+    const today = getTodayYmd();
+    const baseDate = date || today;
+    const listKey = "businessTripList";
+    const storedRaw = localStorage.getItem(listKey);
+    let list = [];
+    if (storedRaw) {
+        try {
+            list = JSON.parse(storedRaw);
+        }
+        catch (e) {
+            console.error("[대시보드] businessTripList JSON 파싱 실패:", e);
+            list = [];
+        }
     }
-    const json = await res.json();
-    const items = json?.data ?? [];
-    elTrip.textContent = String(items.length);
+    const todays = list.filter((t) => t.start_date === baseDate && t.trip_type === "domestic");
+    elTrip.textContent = String(todays.length);
 }
 function initLocalTabNavigation() {
     const navButtons = document.querySelectorAll(".nav-btn");
@@ -605,6 +906,7 @@ function initLocalTabNavigation() {
             titleEl.textContent = curBtn.textContent?.trim() ?? "";
         }
     }
+    // ✅ 기본 패널은 대시보드
     showPanel("panel-dashboard");
     return showPanel;
 }
@@ -614,11 +916,16 @@ function initLocalTabNavigation() {
 document.addEventListener("DOMContentLoaded", async () => {
     console.debug("[INIT] DOMContentLoaded 시작");
     const showPanel = initLocalTabNavigation();
-    // ✅ 정산 저장 성공 후 이벤트가 오면: 표 + KPI 갱신
+    // ✅ 등록/정산 쪽에서
+    //    window.dispatchEvent(new Event("trip-status-refresh"));
+    //    호출하면 여기서 대시보드를 다시 그림
     window.addEventListener("trip-status-refresh", () => {
+        console.debug("[EVENT] trip-status-refresh → 대시보드 갱신");
         renderTripStatusTable();
         updateKpiTripToday();
     });
+    // ❌ (기존에 있던 open-trip-settlement 이벤트는 이제 안 씀)
+    // window.addEventListener("open-trip-settlement", ... ) 부분 제거
     const sidebarButtons = document.querySelectorAll("#sidebar [data-panel]");
     sidebarButtons.forEach((btn) => {
         btn.addEventListener("click", async () => {
@@ -626,13 +933,22 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (!id)
                 return;
             showPanel(id);
+            // ✅ 대시보드 버튼 눌렀을 때도 항상 최신 로컬 데이터 다시 가져오기
+            if (id === "panel-dashboard") {
+                await renderTripStatusTable();
+                await updateKpiTripToday();
+            }
+            // ✅ 국내출장 - 출장등록 클릭 시
+            //    → 등록 + 정산 패널 둘 다 초기화 (이때 bt_save에 이벤트가 걸림)
             if (id === "panel-국내출장-출장등록") {
                 await (0,_08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_0__.initDomesticTripRegisterPanel)(API_BASE);
-                console.log("국내출장-출장등록 init 완료");
-            }
-            if (id === "panel-국내출장-정산서등록") {
                 await (0,_09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_1__.initDomesticTripSettlementPanel)(API_BASE);
-                console.log("국내출장-정산서등록 init 완료");
+                console.log("국내출장-출장등록 & 정산 init 완료");
+            }
+            // ✅ 국내출장 - 출장내역(정산 내역 조회)
+            if (id === "panel-국내출장-정산서등록") {
+                await (0,_10_domestic_trip_history__WEBPACK_IMPORTED_MODULE_2__.initDomesticTripHistoryPanel)(API_BASE);
+                console.log("국내출장-정산내역 조회 init 완료");
             }
         });
     });

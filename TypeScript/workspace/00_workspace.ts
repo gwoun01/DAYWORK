@@ -1,13 +1,25 @@
 //import { initWorkAssignPanel } from "./01_work-assign";
 import { initDomesticTripRegisterPanel } from "./08_domestic-trip-register";
 import { initDomesticTripSettlementPanel } from "./09_domestic-trip-settlement";
+import { initDomesticTripHistoryPanel } from "./10_domestic-trip-history";
 
-type TripStatusItem = {
-  trip_id: string;
+/** 🔹 REGISTER 쪽에서 localStorage에 넣는 구조랑 맞춰줌 */
+type DomesticTripRegisterPayload = {
+  trip_type: "domestic";
   req_name: string;
-  destination: string;   // 고객사
-  depart_time: string;   // 출발시간
-  arrive_time: string;   // 도착시간
+  depart_place: string;      // 출발지
+  destination: string;       // 출장지(고객사/지역)
+  start_date: string;        // YYYY-MM-DD
+  work_start_time: string;   // HH:mm
+  depart_time: string;       // HH:mm
+  arrive_time: string;       // HH:mm
+  purpose: string;
+};
+
+type StoredBusinessTrip = DomesticTripRegisterPayload & {
+  id: number;
+  status: "예정" | "진행중" | "완료";
+  created_at: string;
 };
 
 const API_BASE =
@@ -15,8 +27,17 @@ const API_BASE =
     ? "https://outwork.sel3.cloudtype.app"
     : "http://127.0.0.1:5050";
 
+/** 오늘 날짜 YYYY-MM-DD */
+function getTodayYmd(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 /**
- * ✅ 출장자 현황: 표(tbody)에 로딩
+ * ✅ 출장자 현황: 로컬스토리지에서 읽어서 표(tbody)에 로딩
  * - No | 이름 | 고객사 | 출발시간 | 도착시간 | 상태(출장 고정)
  */
 async function renderTripStatusTable(date?: string) {
@@ -24,6 +45,10 @@ async function renderTripStatusTable(date?: string) {
   const label = document.getElementById("tripStatusDateLabel");
 
   if (!tbody) return;
+
+  const today = getTodayYmd();
+  const baseDate = date || today;
+
   if (label) label.textContent = date ? date : "오늘";
 
   tbody.innerHTML = `
@@ -34,22 +59,24 @@ async function renderTripStatusTable(date?: string) {
     </tr>
   `;
 
-  const qs = date ? `?date=${encodeURIComponent(date)}` : "";
-  const res = await fetch(`${API_BASE}/api/business-trip/status${qs}`);
+  // 🔹 1) 로컬에서 리스트 읽기
+  const listKey = "businessTripList";
+  const storedRaw = localStorage.getItem(listKey);
 
-  if (!res.ok) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="6" class="border px-2 py-3 text-center text-xs text-rose-600">
-          불러오기 실패 (HTTP ${res.status})
-        </td>
-      </tr>
-    `;
-    return;
+  let list: StoredBusinessTrip[] = [];
+  if (storedRaw) {
+    try {
+      list = JSON.parse(storedRaw) as StoredBusinessTrip[];
+    } catch (e) {
+      console.error("[대시보드] businessTripList JSON 파싱 실패:", e);
+      list = [];
+    }
   }
 
-  const json = await res.json();
-  const items: TripStatusItem[] = json?.data ?? [];
+  // 🔹 2) 기준 날짜 + 국내출장만 필터
+  const items = list.filter(
+    (t) => t.start_date === baseDate && t.trip_type === "domestic"
+  );
 
   if (items.length === 0) {
     tbody.innerHTML = `
@@ -91,24 +118,33 @@ async function renderTripStatusTable(date?: string) {
 
 /**
  * ✅ 오늘 출장 인원 KPI 업데이트
- * - /status 결과 개수를 kpiTripToday에 표시
+ * - localStorage businessTripList 기준으로 개수 세기
  */
 async function updateKpiTripToday(date?: string) {
   const elTrip = document.getElementById("kpiTripToday");
   if (!elTrip) return;
 
-  const qs = date ? `?date=${encodeURIComponent(date)}` : "";
-  const res = await fetch(`${API_BASE}/api/business-trip/status${qs}`);
+  const today = getTodayYmd();
+  const baseDate = date || today;
 
-  if (!res.ok) {
-    elTrip.textContent = "0";
-    return;
+  const listKey = "businessTripList";
+  const storedRaw = localStorage.getItem(listKey);
+
+  let list: StoredBusinessTrip[] = [];
+  if (storedRaw) {
+    try {
+      list = JSON.parse(storedRaw) as StoredBusinessTrip[];
+    } catch (e) {
+      console.error("[대시보드] businessTripList JSON 파싱 실패:", e);
+      list = [];
+    }
   }
 
-  const json = await res.json();
-  const items = json?.data ?? [];
+  const todays = list.filter(
+    (t) => t.start_date === baseDate && t.trip_type === "domestic"
+  );
 
-  elTrip.textContent = String(items.length);
+  elTrip.textContent = String(todays.length);
 }
 
 function initLocalTabNavigation() {
@@ -137,6 +173,7 @@ function initLocalTabNavigation() {
     }
   }
 
+  // ✅ 기본 패널은 대시보드
   showPanel("panel-dashboard");
   return showPanel;
 }
@@ -150,11 +187,17 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const showPanel = initLocalTabNavigation();
 
-  // ✅ 정산 저장 성공 후 이벤트가 오면: 표 + KPI 갱신
+  // ✅ 등록/정산 쪽에서
+  //    window.dispatchEvent(new Event("trip-status-refresh"));
+  //    호출하면 여기서 대시보드를 다시 그림
   window.addEventListener("trip-status-refresh", () => {
+    console.debug("[EVENT] trip-status-refresh → 대시보드 갱신");
     renderTripStatusTable();
     updateKpiTripToday();
   });
+
+  // ❌ (기존에 있던 open-trip-settlement 이벤트는 이제 안 씀)
+  // window.addEventListener("open-trip-settlement", ... ) 부분 제거
 
   const sidebarButtons =
     document.querySelectorAll<HTMLButtonElement>("#sidebar [data-panel]");
@@ -166,14 +209,24 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       showPanel(id);
 
-      if (id === "panel-국내출장-출장등록") {
-        await initDomesticTripRegisterPanel(API_BASE);
-        console.log("국내출장-출장등록 init 완료");
+      // ✅ 대시보드 버튼 눌렀을 때도 항상 최신 로컬 데이터 다시 가져오기
+      if (id === "panel-dashboard") {
+        await renderTripStatusTable();
+        await updateKpiTripToday();
       }
 
-      if (id === "panel-국내출장-정산서등록") {
+      // ✅ 국내출장 - 출장등록 클릭 시
+      //    → 등록 + 정산 패널 둘 다 초기화 (이때 bt_save에 이벤트가 걸림)
+      if (id === "panel-국내출장-출장등록") {
+        await initDomesticTripRegisterPanel(API_BASE);
         await initDomesticTripSettlementPanel(API_BASE);
-        console.log("국내출장-정산서등록 init 완료");
+        console.log("국내출장-출장등록 & 정산 init 완료");
+      }
+
+      // ✅ 국내출장 - 출장내역(정산 내역 조회)
+      if (id === "panel-국내출장-정산서등록") {
+        await initDomesticTripHistoryPanel(API_BASE);
+        console.log("국내출장-정산내역 조회 init 완료");
       }
     });
   });

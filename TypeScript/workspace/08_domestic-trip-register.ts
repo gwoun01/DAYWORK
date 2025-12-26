@@ -5,7 +5,7 @@ type DomesticTripRegisterPayload = {
   trip_type: "domestic";
   req_name: string;
   depart_place: string;      // 출발지
-  destination: string;       // 출장지
+  destination: string;       // 출장지(고객사/지역)
   start_date: string;        // YYYY-MM-DD
   work_start_time: string;   // HH:mm
   depart_time: string;       // HH:mm
@@ -24,11 +24,17 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
   if (!panel) return;
 
   const saveBtn = getEl<HTMLButtonElement>("reg_save");
+  // 이미 바인딩 되었으면 재바인딩 방지
   if ((saveBtn as any)._bound) return;
   (saveBtn as any)._bound = true;
 
   const resetBtn = getEl<HTMLButtonElement>("reg_reset");
   const resultBox = getEl<HTMLDivElement>("reg_result");
+
+  // 🔹 이어작성 버튼
+  const continueBtn = document.getElementById("reg_continue") as HTMLButtonElement | null;
+  // 🔹 같은 패널 안의 정산 작성 섹션 (숨겼다가 펼칠 영역)
+  const settlementSection = document.getElementById("bt_settlement_section") as HTMLDivElement | null;
 
   const userNameEl = document.getElementById("userName");
   const reqNameInput = getEl<HTMLInputElement>("bt_req_name");
@@ -43,6 +49,11 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
   // 요청자 자동 채우기
   reqNameInput.value = (userNameEl?.textContent ?? "").trim() || "사용자";
 
+  // 초기: 이어작성 버튼/정산섹션 숨김
+  if (continueBtn) continueBtn.classList.add("hidden");
+  if (settlementSection) settlementSection.classList.add("hidden");
+
+  // 🔹 폼 리셋
   resetBtn.addEventListener("click", () => {
     departPlaceInput.value = "";
     destinationInput.value = "";
@@ -52,8 +63,13 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
     arriveTimeInput.value = "";
     purposeInput.value = "";
     resultBox.textContent = "";
+
+    // 리셋 시 이어작성 버튼/정산영역 숨기기
+    if (continueBtn) continueBtn.classList.add("hidden");
+    if (settlementSection) settlementSection.classList.add("hidden");
   });
 
+  // 🔹 출장 등록
   saveBtn.addEventListener("click", async () => {
     const payload: DomesticTripRegisterPayload = {
       trip_type: "domestic",
@@ -90,32 +106,90 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
 
     try {
       saveBtn.disabled = true;
-      resultBox.textContent = "저장 중...";
+      resultBox.textContent = "서버에 저장 중...";
 
-      localStorage.setItem(
-        "domesticTripDraft",
-        JSON.stringify(payload)
-      );
 
-      resultBox.textContent = "✅ 출장 등록 내용 저장 완료";
+      // ✅ 1) 백엔드에 출장 등록 저장
+      //    (너가 올린 businessTripRouter의 /domestic 이 이걸 받음)
+      const url = `${API_BASE}/api/business-trip/domestic`;
+      console.log("[출장등록] 요청 URL =", url);
+
+      const res = await fetch(`${API_BASE}/api/business-trip/domestic`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("출장등록 실패 응답:", res.status, text);
+        resultBox.textContent = `❌ 서버 저장 실패: HTTP ${res.status}`;
+        await ModalUtil.show({
+          type: "alert",
+          title: "저장 실패",
+          message: `서버 저장에 실패했습니다.\n(HTTP ${res.status})`,
+          showOk: true,
+          showCancel: false,
+        });
+        // 실패 시 이어작성 버튼/정산영역 숨김
+        if (continueBtn) continueBtn.classList.add("hidden");
+        if (settlementSection) settlementSection.classList.add("hidden");
+        return;
+      }
+
+      const data = await res.json().catch(() => null);
+      console.log("출장등록 성공 응답:", data);
+
+      // ✅ 2) 대시보드를 위해 로컬 businessTripList도 갱신 (선택)
+      try {
+        const listKey = "businessTripList";
+        const raw = localStorage.getItem(listKey);
+        let list: any[] = [];
+        if (raw) {
+          list = JSON.parse(raw);
+        }
+        const item = {
+          ...payload,
+          id: Date.now(),
+          status: "예정" as const,
+          created_at: new Date().toISOString(),
+        };
+        list.push(item);
+        localStorage.setItem(listKey, JSON.stringify(list));
+      } catch (e) {
+        console.warn("[출장등록] localStorage businessTripList 갱신 실패:", e);
+      }
+
+      // ✅ 3) 정산 화면에서 참고할 초안 저장
+      localStorage.setItem("domesticTripDraft", JSON.stringify(payload));
+
+      resultBox.textContent = "✅ 출장 등록 완료 (서버 저장 완료)";
 
       await ModalUtil.show({
         type: "alert",
         title: "저장 완료",
-        message: "출장 등록 내용이 저장되었습니다.\n정산 등록 화면에서 이어서 진행하세요.",
+        message:
+          "출장 등록 내용이 서버에 저장되었습니다.\n[이어 정산 작성] 버튼을 눌러 정산을 작성하세요.",
         showOk: true,
         showCancel: false,
       });
 
-      resultBox.textContent = "✅ 출장 등록 완료";
-      await ModalUtil.show({
-        type: "alert",
-        title: "저장 완료",
-        message: "출장 등록이 완료되었습니다.\n정산 등록 화면에서 이어서 진행하세요.",
-        showOk: true,
-        showCancel: false,
-      });
+      // 🔹 여기서는 "버튼만" 보이게 하고, 정산 영역은 그대로 숨겨둔다
+      if (continueBtn) continueBtn.classList.remove("hidden");
+      if (settlementSection) {
+        // 자동으로 펼치지 않는다. (클릭할 때만 열기)
+        settlementSection.classList.add("hidden");
+      }
+
+      // 정산에서 기본값으로 쓰고 싶은 정보 저장
+      localStorage.setItem("settleTargetDate", payload.start_date);
+      localStorage.setItem("settleTargetReqName", payload.req_name);
+
+      // 대시보드 갱신용 이벤트
+      window.dispatchEvent(new Event("trip-status-refresh"));
     } catch (err: any) {
+      console.error("출장등록 중 오류:", err);
       resultBox.textContent = `❌ 저장 실패: ${err?.message ?? "알 수 없는 오류"}`;
       await ModalUtil.show({
         type: "alert",
@@ -124,8 +198,28 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
         showOk: true,
         showCancel: false,
       });
+
+      // 에러 시 이어작성/정산영역 숨김
+      if (continueBtn) continueBtn.classList.add("hidden");
+      if (settlementSection) settlementSection.classList.add("hidden");
     } finally {
       saveBtn.disabled = false;
     }
+  });
+
+  // 🔹 이어작성 버튼 클릭 → 정산 섹션 펼치기
+  continueBtn?.addEventListener("click", () => {
+    const date = startInput.value;
+    const name = reqNameInput.value.trim();
+
+    if (date) localStorage.setItem("settleTargetDate", date);
+    if (name) localStorage.setItem("settleTargetReqName", name);
+
+    if (settlementSection) {
+      settlementSection.classList.remove("hidden");
+      settlementSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    resultBox.textContent = "✏️ 이 출장건에 대한 정산 정보를 아래에서 이어서 작성하세요.";
   });
 }
