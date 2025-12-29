@@ -41,7 +41,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
     const departPlaceInput = getEl("bt_place");
     const destinationInput = getEl("bt_destination");
     const startInput = getEl("bt_start");
-    const workStartTimeInput = getEl("bt_work_start_time");
     const departTimeInput = getEl("bt_depart_time");
     const arriveTimeInput = getEl("bt_arrive_time");
     const purposeInput = getEl("bt_purpose");
@@ -57,7 +56,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
         departPlaceInput.value = "";
         destinationInput.value = "";
         startInput.value = "";
-        workStartTimeInput.value = "";
         departTimeInput.value = "";
         arriveTimeInput.value = "";
         purposeInput.value = "";
@@ -76,17 +74,16 @@ function initDomesticTripRegisterPanel(API_BASE) {
             depart_place: departPlaceInput.value.trim(),
             destination: destinationInput.value.trim(),
             start_date: startInput.value,
-            work_start_time: workStartTimeInput.value,
             depart_time: departTimeInput.value,
             arrive_time: arriveTimeInput.value,
             purpose: purposeInput.value.trim(),
         };
-        // 필수값 체크
+        console.log("[REGISTER] payload =", payload);
+        // 필수값 체크 (이제 work_start_time 없음)
         if (!payload.req_name ||
             !payload.depart_place ||
             !payload.destination ||
             !payload.start_date ||
-            !payload.work_start_time ||
             !payload.depart_time ||
             !payload.arrive_time ||
             !payload.purpose) {
@@ -102,10 +99,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
         try {
             saveBtn.disabled = true;
             resultBox.textContent = "서버에 저장 중...";
-            // ✅ 1) 백엔드에 출장 등록 저장
-            //    (너가 올린 businessTripRouter의 /domestic 이 이걸 받음)
-            const url = `${API_BASE}/api/business-trip/domestic`;
-            console.log("[출장등록] 요청 URL =", url);
             const res = await fetch(`${API_BASE}/api/business-trip/domestic`, {
                 method: "POST",
                 headers: {
@@ -124,7 +117,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
                     showOk: true,
                     showCancel: false,
                 });
-                // 실패 시 이어작성 버튼/정산영역 숨김
                 if (continueBtn)
                     continueBtn.classList.add("hidden");
                 if (settlementSection)
@@ -133,7 +125,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
             }
             const data = await res.json().catch(() => null);
             console.log("출장등록 성공 응답:", data);
-            // ✅ 2) 대시보드를 위해 로컬 businessTripList도 갱신 (선택)
+            // localStorage 갱신 (대시보드용)
             try {
                 const listKey = "businessTripList";
                 const raw = localStorage.getItem(listKey);
@@ -153,7 +145,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
             catch (e) {
                 console.warn("[출장등록] localStorage businessTripList 갱신 실패:", e);
             }
-            // ✅ 3) 정산 화면에서 참고할 초안 저장
+            // 정산 화면에서 참고할 초안 저장
             localStorage.setItem("domesticTripDraft", JSON.stringify(payload));
             resultBox.textContent = "✅ 출장 등록 완료 (서버 저장 완료)";
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
@@ -163,17 +155,13 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 showOk: true,
                 showCancel: false,
             });
-            // 🔹 여기서는 "버튼만" 보이게 하고, 정산 영역은 그대로 숨겨둔다
             if (continueBtn)
                 continueBtn.classList.remove("hidden");
             if (settlementSection) {
-                // 자동으로 펼치지 않는다. (클릭할 때만 열기)
                 settlementSection.classList.add("hidden");
             }
-            // 정산에서 기본값으로 쓰고 싶은 정보 저장
             localStorage.setItem("settleTargetDate", payload.start_date);
             localStorage.setItem("settleTargetReqName", payload.req_name);
-            // 대시보드 갱신용 이벤트
             window.dispatchEvent(new Event("trip-status-refresh"));
         }
         catch (err) {
@@ -186,7 +174,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 showOk: true,
                 showCancel: false,
             });
-            // 에러 시 이어작성/정산영역 숨김
             if (continueBtn)
                 continueBtn.classList.add("hidden");
             if (settlementSection)
@@ -378,7 +365,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
                 body: JSON.stringify({
                     req_name,
                     trip_date,
-                    detail_json,
+                    end_data: settlement,
                 }),
             });
             console.log("[정산] 응답 status =", res.status);

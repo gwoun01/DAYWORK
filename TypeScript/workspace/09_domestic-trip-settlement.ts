@@ -188,7 +188,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
                 body: JSON.stringify({
                     req_name,
                     trip_date,
-                    detail_json,
+                    end_data: settlement,
                 }),
             });
 

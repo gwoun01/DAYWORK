@@ -518,250 +518,204 @@
                                         <code>#fxCnyKrw</code> 값을 환율 API로 채우면 됩니다.
                                     </div>
                     </section>
+                </div> <!-- 🔚 여기서 panel-dashboard 닫기!!! -->
 
-                </div>
-
-                <!-- ✅ 국내출장 - 출장등록 + 정산 작성 패널 -->
                 <section id="panel-국내출장-출장등록" class="hidden p-3">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-4">
+                    <div class="max-w-md mx-auto bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-4">
 
-                        <!-- 🔹 1. 출장등록 영역 -->
-                        <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex flex-col gap-3">
-                            <div class="flex items-center justify-between">
-                                <h3 class="text-sm font-extrabold text-gray-900">출장등록</h3>
-                                <span class="text-[11px] text-red-500 font-semibold">
-                                    필수: 출장자 / 출장지 / 기간(시간)
-                                </span>
+                        <!-- 🔹 숨겨진 필드: 자바스크립트에서 사용하는 값 (반드시 있어야 함!) -->
+                        <input id="bt_req_name" type="hidden" />
+
+                        <!-- 🔹 상단 타이틀 영역 -->
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-base font-extrabold text-gray-900">
+                                국내출장 등록
+                            </h3>
+                            <span
+                                class="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-500">
+                                출발지 · 출장지 · 일정만 입력하면 돼요
+                            </span>
+                        </div>
+
+                        <!-- 🔹 1. 출장등록 입력 영역 -->
+                        <div class="space-y-3">
+                            <div>
+                                <label for="bt_place" class="block text-xs font-semibold text-gray-700 mb-1">
+                                    출발지 (회사/자택) <span class="text-rose-500">*</span>
+                                </label>
+                                <input id="bt_place"
+                                    class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    placeholder="예: 자택, 본사, 공장 등" />
                             </div>
 
-                            <!-- 내용 -->
-                            <div class="space-y-3">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                        출장자(자동) <span class="text-rose-500">*</span>
-                                    </label>
-                                    <input id="bt_req_name"
-                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white"
-                                        readonly />
-                                </div>
+                            <div>
+                                <label for="bt_destination" class="block text-xs font-semibold text-gray-700 mb-1">
+                                    출장지 (고객사/지역) <span class="text-rose-500">*</span>
+                                </label>
+                                <input id="bt_destination"
+                                    class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    placeholder="예: AMKOR-5 송도, 삼성 평택, 대구 ○○고객사" />
+                            </div>
 
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                        출발지(회사/자택) <span class="text-rose-500">*</span>
-                                    </label>
-                                    <input id="bt_place"
-                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white"
-                                        placeholder="예: 자택" />
-                                </div>
-
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                        출장지(고객사/지역) <span class="text-rose-500">*</span>
-                                    </label>
-                                    <input id="bt_destination"
-                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white"
-                                        placeholder="예: AMKOR-5 송도" />
-                                </div>
-
+                            <div class="grid grid-cols-1 gap-2">
                                 <div class="grid grid-cols-2 gap-2">
                                     <div>
-                                        <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                            시작일 <span class="text-rose-500">*</span>
+                                        <label for="bt_start" class="block text-xs font-semibold text-gray-700 mb-1">
+                                            출발일 <span class="text-rose-500">*</span>
                                         </label>
                                         <input id="bt_start" type="date"
-                                            class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white" />
+                                            class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                            업무 시작시간 <span class="text-rose-500">*</span>
-                                        </label>
-                                        <input id="bt_work_start_time" type="time"
-                                            class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white" />
-                                    </div>
-                                </div>
-
-                                <div class="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                        <label for="bt_depart_time"
+                                            class="block text-xs font-semibold text-gray-700 mb-1">
                                             출발시간 <span class="text-rose-500">*</span>
                                         </label>
                                         <input id="bt_depart_time" type="time"
-                                            class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white" />
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                            도착시간 <span class="text-rose-500">*</span>
-                                        </label>
-                                        <input id="bt_arrive_time" type="time"
-                                            class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white" />
+                                            class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
                                     </div>
                                 </div>
 
                                 <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                        출장 목적/내용 <span class="text-rose-500">*</span>
+                                    <label for="bt_arrive_time" class="block text-xs font-semibold text-gray-700 mb-1">
+                                        도착시간 <span class="text-rose-500">*</span>
                                     </label>
-                                    <textarea id="bt_purpose"
-                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm h-28 resize-none bg-white"
-                                        placeholder="예: 설치 지원 / 점검 / 셋업 등"></textarea>
+                                    <input id="bt_arrive_time" type="time"
+                                        class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
                                 </div>
                             </div>
 
-                            <!-- 버튼 -->
-                            <div class="pt-2 flex items-center gap-2">
-                                <div id="reg_result" class="text-xs text-gray-600 flex-1"></div>
-
-                                <button id="reg_reset"
-                                    class="px-3 py-2 rounded-xl border border-gray-300 bg-white text-xs font-semibold hover:bg-gray-50">
-                                    초기화
-                                </button>
-                                <button id="reg_continue"
-                                    class="px-3 py-2 rounded-xl bg-indigo-500 text-white text-xs font-bold hover:bg-indigo-600 active:bg-indigo-700 shadow-sm hidden">
-                                    이어서 정산 작성
-                                </button>
-
-                                <button id="reg_save"
-                                    class="px-4 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 active:bg-red-700 shadow-sm">
-                                    출장 등록
-                                </button>
+                            <div>
+                                <label for="bt_purpose" class="block text-xs font-semibold text-gray-700 mb-1">
+                                    출장 목적 / 내용 <span class="text-rose-500">*</span>
+                                </label>
+                                <textarea id="bt_purpose"
+                                    class="w-full border border-gray-300 rounded-2xl px-3 py-2 text-sm h-24 resize-none bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    placeholder="예: 설비 설치 지원, 점검, 셋업, 교육 등"></textarea>
                             </div>
                         </div>
 
-                        <!-- 🔹 2. 정산 작성 영역 (처음엔 숨김) -->
-                        <div id="bt_settlement_section" class="mt-4 space-y-3 hidden">
+                        <!-- 🔹 버튼 영역 -->
+                        <div class="pt-2 flex items-center gap-2">
+                            <div id="reg_result" class="text-[11px] text-gray-500 flex-1 min-h-[16px]"></div>
 
-                            <!-- 3. 시간 영역 -->
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <!-- 업무 종료시간 -->
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                        업무 종료시간 <span class="text-rose-500">*</span>
-                                    </label>
-                                    <input id="bt_work_end_time" type="time"
-                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white" />
-                                </div>
+                            <button id="reg_reset"
+                                class="px-3 py-2 rounded-xl border border-gray-300 bg-white text-[11px] font-semibold hover:bg-gray-50 active:bg-gray-100">
+                                초기화
+                            </button>
 
-                                <!-- 복귀시간 -->
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                        복귀시간 <span class="text-rose-500">*</span>
-                                    </label>
-                                    <input id="bt_return_time" type="time"
-                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white" />
-                                </div>
-                            </div>
+                            <button id="reg_continue"
+                                class="px-3 py-2 rounded-xl bg-emerald-500 text-white text-[11px] font-bold hover:bg-emerald-600 active:bg-emerald-700 shadow-sm hidden">
+                                이어서 정산
+                            </button>
 
-                            <!-- 3-1. 복귀지 -->
+                            <button id="reg_save"
+                                class="px-4 py-2 rounded-xl bg-indigo-500 text-white text-[11px] font-bold hover:bg-indigo-600 active:bg-indigo-700 shadow-sm">
+                                출장 등록
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ⬇⬇⬇⬇⬇⬇ 여기부터 새로 추가되는 정산 섹션 (hidden 기본값) ⬇⬇⬇⬇⬇⬇ -->
+                    <div id="bt_settlement_section"
+                        class="max-w-md mx-auto mt-4 bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-3 hidden">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-extrabold text-gray-900">정산 작성</h3>
+                            <span class="text-[11px] text-gray-500">출장 후 정산 정보를 입력하세요</span>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
                             <div>
-                                <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                    복귀지(회사/자택) <span class="text-rose-500">*</span>
+                                <label for="bt_work_end_time" class="block text-xs font-semibold text-gray-700 mb-1">
+                                    업무 종료시간 <span class="text-rose-500">*</span>
                                 </label>
-                                <input id="bt_return_place" type="text"
-                                    class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white"
-                                    placeholder="예: 회사 / 자택" />
+                                <input id="bt_work_end_time" type="time"
+                                    class="w-full border border-gray-300 rounded-2xl px-3 py-2 text-sm bg-white" />
+                            </div>
+                            <div>
+                                <label for="bt_return_time" class="block text-xs font-semibold text-gray-700 mb-1">
+                                    복귀시간 <span class="text-rose-500">*</span>
+                                </label>
+                                <input id="bt_return_time" type="time"
+                                    class="w-full border border-gray-300 rounded-2xl px-3 py-2 text-sm bg-white" />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">복귀지 (회사/자택)</label>
+                            <input id="bt_return_place"
+                                class="w-full border border-gray-300 rounded-2xl px-3 py-2 text-sm bg-white"
+                                placeholder="예: 회사, 자택" />
+                        </div>
+
+                        <div>
+                            <span class="block text-xs font-semibold text-gray-700 mb-1">차량 구분</span>
+                            <div class="flex items-center gap-4 text-[11px]">
+                                <label class="inline-flex items-center gap-1">
+                                    <input type="radio" name="bt_vehicle" value="corp" /> 법인차량
+                                </label>
+                                <label class="inline-flex items-center gap-1">
+                                    <input type="radio" name="bt_vehicle" value="personal" /> 개인차량
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <span class="block text-xs font-semibold text-gray-700">식사 정산</span>
+
+                            <div class="flex items-center justify-between text-[11px]">
+                                <label class="inline-flex items-center gap-1">
+                                    <input id="bt_meal_breakfast" type="checkbox" class="accent-indigo-600" /> 조식
+                                </label>
+                                <select id="bt_meal_breakfast_owner"
+                                    class="border border-gray-300 rounded-lg px-2 py-1 text-[11px] bg-white">
+                                    <option value="">선택</option>
+                                    <option value="corp">법인</option>
+                                    <option value="personal">개인</option>
+                                </select>
                             </div>
 
-                            <!-- 차량 -->
-                            <div class="mt-3">
-                                <label class="block text-xs font-semibold text-gray-700 mb-2">
-                                    차량(정산용) <span class="text-rose-500">*</span>
+                            <div class="flex items-center justify-between text-[11px]">
+                                <label class="inline-flex items-center gap-1">
+                                    <input id="bt_meal_lunch" type="checkbox" class="accent-indigo-600" /> 중식
                                 </label>
-                                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                    <label
-                                        class="flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs">
-                                        <input type="radio" name="bt_vehicle" id="bt_vehicle_personal" value="개인차량"
-                                            class="accent-indigo-600" />
-                                        개인차량
-                                    </label>
-                                    <label
-                                        class="flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs">
-                                        <input type="radio" name="bt_vehicle" id="bt_vehicle_other" value="타인차량"
-                                            class="accent-indigo-600" />
-                                        타인차량
-                                    </label>
-                                    <label
-                                        class="flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs">
-                                        <input type="radio" name="bt_vehicle" id="bt_vehicle_corp" value="법인차량"
-                                            class="accent-indigo-600" />
-                                        법인차량
-                                    </label>
-                                    <label
-                                        class="flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs">
-                                        <input type="radio" name="bt_vehicle" id="bt_vehicle_public" value="대중교통"
-                                            class="accent-indigo-600" />
-                                        대중교통
-                                    </label>
-                                </div>
+                                <select id="bt_meal_lunch_owner"
+                                    class="border border-gray-300 rounded-lg px-2 py-1 text-[11px] bg-white">
+                                    <option value="">선택</option>
+                                    <option value="corp">법인</option>
+                                    <option value="personal">개인</option>
+                                </select>
                             </div>
 
-                            <!-- 식사 -->
-                            <div class="mt-3">
-                                <label class="block text-xs font-semibold text-gray-700 mb-2">
-                                    식사 구분(정산용) <span class="text-rose-500">*</span>
+                            <div class="flex items-center justify-between text-[11px]">
+                                <label class="inline-flex items-center gap-1">
+                                    <input id="bt_meal_dinner" type="checkbox" class="accent-indigo-600" /> 석식
                                 </label>
-
-                                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                    <!-- 조식 -->
-                                    <div class="border rounded-xl bg-white p-3 flex flex-col gap-2">
-                                        <label class="flex items-center gap-2 text-xs font-medium text-gray-700">
-                                            <input id="bt_meal_breakfast" type="checkbox" class="accent-indigo-600" />
-                                            조식
-                                        </label>
-                                        <select id="bt_meal_breakfast_owner"
-                                            class="border border-gray-300 rounded-xl px-3 py-1.5 text-xs bg-white">
-                                            <option value="">-- 결제방식 선택 --</option>
-                                            <option value="corp">법인</option>
-                                            <option value="personal">개인</option>
-                                        </select>
-                                    </div>
-
-                                    <!-- 점심 -->
-                                    <div class="border rounded-xl bg-white p-3 flex flex-col gap-2">
-                                        <label class="flex items-center gap-2 text-xs font-medium text-gray-700">
-                                            <input id="bt_meal_lunch" type="checkbox" class="accent-indigo-600" />
-                                            점심
-                                        </label>
-                                        <select id="bt_meal_lunch_owner"
-                                            class="border border-gray-300 rounded-xl px-3 py-1.5 text-xs bg-white">
-                                            <option value="">-- 결제방식 선택 --</option>
-                                            <option value="corp">법인</option>
-                                            <option value="personal">개인</option>
-                                        </select>
-                                    </div>
-
-                                    <!-- 석식 -->
-                                    <div class="border rounded-xl bg-white p-3 flex flex-col gap-2">
-                                        <label class="flex items-center gap-2 text-xs font-medium text-gray-700">
-                                            <input id="bt_meal_dinner" type="checkbox" class="accent-indigo-600" />
-                                            석식
-                                        </label>
-                                        <select id="bt_meal_dinner_owner"
-                                            class="border border-gray-300 rounded-xl px-3 py-1.5 text-xs bg-white">
-                                            <option value="">-- 결제방식 선택 --</option>
-                                            <option value="corp">법인</option>
-                                            <option value="personal">개인</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <!-- 결과/버튼 -->
-                                <div class="mt-3 flex items-center gap-2">
-                                    <div id="bt_result" class="text-xs text-gray-600 flex-1"></div>
-
-                                    <button id="bt_reset"
-                                        class="px-3 py-2 rounded-xl border border-gray-300 bg-white text-xs font-semibold hover:bg-gray-50">
-                                        초기화
-                                    </button>
-                                    <button id="bt_save"
-                                        class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 active:bg-indigo-800 shadow-sm">
-                                        정산서 저장
-                                    </button>
-                                </div>
+                                <select id="bt_meal_dinner_owner"
+                                    class="border border-gray-300 rounded-lg px-2 py-1 text-[11px] bg-white">
+                                    <option value="">선택</option>
+                                    <option value="corp">법인</option>
+                                    <option value="personal">개인</option>
+                                </select>
                             </div>
+                        </div>
+
+                        <!-- 결과 + 버튼 -->
+                        <div class="pt-2 flex items-center gap-2">
+                            <div id="bt_result" class="flex-1 text-[11px] text-gray-500 min-h-[16px]"></div>
+
+                            <button id="bt_reset"
+                                class="px-3 py-2 rounded-xl border border-gray-300 bg-white text-[11px] font-semibold hover:bg-gray-50 active:bg-gray-100">
+                                정산 초기화
+                            </button>
+
+                            <button id="bt_save"
+                                class="px-4 py-2 rounded-xl bg-emerald-500 text-white text-[11px] font-bold hover:bg-emerald-600 active:bg-emerald-700 shadow-sm">
+                                정산 저장
+                            </button>
                         </div>
                     </div>
                 </section>
-
                 <!-- ✅ 국내출장 - 출장내역(정산 내역 보기) 패널 -->
                 <section id="panel-국내출장-정산서등록" class="hidden p-3">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-3">
