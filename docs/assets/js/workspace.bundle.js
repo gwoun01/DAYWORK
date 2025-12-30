@@ -163,6 +163,367 @@ function initDashboardTripStatus(API_BASE) {
 
 /***/ }),
 
+/***/ "./TypeScript/workspace/02_trip-approval.ts":
+/*!**************************************************!*\
+  !*** ./TypeScript/workspace/02_trip-approval.ts ***!
+  \**************************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   initTripApprovalPanel: () => (/* binding */ initTripApprovalPanel)
+/* harmony export */ });
+// src/TypeScript/workspace/02_trip-approval.ts
+function getEl(id) {
+    const el = document.getElementById(id);
+    if (!el)
+        throw new Error(`element not found: #${id}`);
+    return el;
+}
+/** ISO 날짜 또는 문자열 → YYYY-MM-DD */
+function formatDateLabel(value) {
+    if (!value)
+        return "";
+    if (value.length >= 10)
+        return value.slice(0, 10);
+    const d = new Date(value);
+    if (isNaN(d.getTime()))
+        return value;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+/** 특정 날짜가 속한 주(월~일) 구하기 */
+function getWeekRange(dateStr) {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) {
+        return { start: formatDateLabel(dateStr), end: formatDateLabel(dateStr) };
+    }
+    const day = (d.getDay() + 6) % 7; // 월=0
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - day);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return {
+        start: monday.toISOString().slice(0, 10),
+        end: sunday.toISOString().slice(0, 10),
+    };
+}
+/** TripRow[] 를 직원+주간 단위로 묶기 */
+function buildWeeklyGroups(rows) {
+    const map = new Map();
+    for (const row of rows) {
+        const { start, end } = getWeekRange(row.trip_date);
+        const company_part = row.company_part ?? "-";
+        const key = `${row.req_name}__${company_part}__${start}`;
+        let group = map.get(key);
+        if (!group) {
+            group = {
+                key,
+                weekStart: start,
+                weekEnd: end,
+                req_name: row.req_name,
+                company_part,
+                rows: [],
+            };
+            map.set(key, group);
+        }
+        group.rows.push(row);
+    }
+    // 보기 좋게 정렬
+    return Array.from(map.values()).sort((a, b) => {
+        if (a.weekStart !== b.weekStart) {
+            return a.weekStart.localeCompare(b.weekStart);
+        }
+        if (a.company_part !== b.company_part) {
+            return a.company_part.localeCompare(b.company_part);
+        }
+        return a.req_name.localeCompare(b.req_name);
+    });
+}
+const API_BASE = location.hostname === "gwoun01.github.io"
+    ? "https://outwork.sel3.cloudtype.app"
+    : "http://127.0.0.1:5050";
+let currentGroup = null;
+function initTripApprovalPanel(_panelId) {
+    const fromInput = getEl("appr_from");
+    const toInput = getEl("appr_to");
+    const statusSelect = getEl("appr_status");
+    const searchBtn = getEl("appr_search");
+    const resultMsg = getEl("appr_result_msg");
+    const tbody = getEl("approve_result_tbody");
+    // 기본 조회 기간: 이번 주
+    const today = new Date();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    fromInput.value = monday.toISOString().slice(0, 10);
+    toInput.value = sunday.toISOString().slice(0, 10);
+    // 🔍 조회 버튼
+    searchBtn.addEventListener("click", async () => {
+        const from = fromInput.value;
+        const to = toInput.value;
+        const status = statusSelect.value;
+        if (!from || !to) {
+            alert("시작일과 종료일을 모두 선택해주세요.");
+            return;
+        }
+        resultMsg.textContent = "조회 중입니다...";
+        tbody.innerHTML = `
+      <tr>
+        <td colspan="5" class="border px-2 py-3 text-center text-gray-400">
+          조회 중...
+        </td>
+      </tr>`;
+        try {
+            const url = new URL("/api/business-trip/settlements-range-admin", API_BASE);
+            url.searchParams.set("from", from);
+            url.searchParams.set("to", to);
+            url.searchParams.set("status", status);
+            const res = await fetch(url.toString(), { credentials: "include" });
+            const json = await res.json();
+            if (!json.ok) {
+                resultMsg.textContent = json.message ?? "조회 실패";
+                tbody.innerHTML = `
+          <tr>
+            <td colspan="5" class="border px-2 py-3 text-center text-gray-400">
+              조회 실패: ${json.message ?? "알 수 없는 오류"}
+            </td>
+          </tr>`;
+                return;
+            }
+            const rows = json.data ?? [];
+            if (rows.length === 0) {
+                resultMsg.textContent = "해당 기간에 조회된 출장 내역이 없습니다.";
+                tbody.innerHTML = `
+          <tr>
+            <td colspan="5" class="border px-2 py-3 text-center text-gray-400">
+              조회된 출장 내역이 없습니다.
+            </td>
+          </tr>`;
+                return;
+            }
+            const groups = buildWeeklyGroups(rows);
+            resultMsg.textContent = `총 ${groups.length}개 주간 묶음 / ${rows.length}건 조회되었습니다.`;
+            tbody.innerHTML = "";
+            groups.forEach((g) => {
+                const tr = document.createElement("tr");
+                // 기간
+                const tdPeriod = document.createElement("td");
+                tdPeriod.className = "border px-2 py-1 text-center";
+                tdPeriod.textContent = `${formatDateLabel(g.weekStart)} ~ ${formatDateLabel(g.weekEnd)}`;
+                tr.appendChild(tdPeriod);
+                // 소속팀
+                const tdTeam = document.createElement("td");
+                tdTeam.className = "border px-2 py-1 text-center";
+                tdTeam.textContent = g.company_part;
+                tr.appendChild(tdTeam);
+                // 이름
+                const tdName = document.createElement("td");
+                tdName.className = "border px-2 py-1 text-center";
+                tdName.textContent = g.req_name;
+                tr.appendChild(tdName);
+                // 건수
+                const tdCount = document.createElement("td");
+                tdCount.className = "border px-2 py-1 text-center";
+                tdCount.textContent = String(g.rows.length);
+                tr.appendChild(tdCount);
+                // 상세 버튼
+                const tdDetail = document.createElement("td");
+                tdDetail.className = "border px-2 py-1 text-center";
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.textContent = "주간 상세";
+                btn.className =
+                    "px-2 py-1 rounded-lg bg-indigo-500 text-white text-[11px] hover:bg-indigo-600";
+                btn.addEventListener("click", () => openWeeklyDetailModal(g));
+                tdDetail.appendChild(btn);
+                tr.appendChild(tdDetail);
+                tbody.appendChild(tr);
+            });
+        }
+        catch (err) {
+            console.error(err);
+            resultMsg.textContent = "서버 오류가 발생했습니다.";
+            tbody.innerHTML = `
+        <tr>
+          <td colspan="5" class="border px-2 py-3 text-center text-gray-400">
+            서버 오류가 발생했습니다.
+          </td>
+        </tr>`;
+        }
+    });
+    // 모달 관련 이벤트
+    const modal = getEl("appr_modal");
+    const modalCloseBtn = getEl("appr_modal_close");
+    const btnApprove = getEl("appr_btn_approve");
+    const btnReject = getEl("appr_btn_reject");
+    modalCloseBtn.addEventListener("click", () => {
+        modal.classList.add("hidden");
+        modal.classList.remove("flex");
+    });
+    // ✅ 주간 승인
+    btnApprove.addEventListener("click", async () => {
+        if (!currentGroup)
+            return;
+        const comment = getEl("appr_comment").value.trim();
+        if (!confirm("이 주간의 모든 출장 건을 승인하시겠습니까?"))
+            return;
+        try {
+            const approver = window.CURRENT_USER_NAME ?? null;
+            let failed = 0;
+            for (const row of currentGroup.rows) {
+                if (row.approve_status === "approved")
+                    continue; // 이미 승인된 건은 패스
+                const res = await fetch(`${API_BASE}/api/business-trip/${encodeURIComponent(row.trip_id)}/approve`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ approver, comment }),
+                });
+                const json = await res.json();
+                if (!json.ok) {
+                    failed++;
+                    console.error("승인 실패", row.trip_id, json);
+                }
+            }
+            if (failed > 0) {
+                alert(`일부(${failed}건)는 승인에 실패했습니다. 콘솔을 확인해주세요.`);
+            }
+            else {
+                alert("해당 주간 출장 건이 모두 승인되었습니다.");
+            }
+            modal.classList.add("hidden");
+            modal.classList.remove("flex");
+            getEl("appr_search").click();
+        }
+        catch (e) {
+            console.error(e);
+            alert("서버 오류로 승인에 실패했습니다.");
+        }
+    });
+    // ✅ 주간 반려
+    btnReject.addEventListener("click", async () => {
+        if (!currentGroup)
+            return;
+        const comment = getEl("appr_comment").value.trim();
+        if (!comment) {
+            if (!confirm("반려 사유가 없습니다. 그래도 반려하시겠습니까?"))
+                return;
+        }
+        try {
+            const approver = window.CURRENT_USER_NAME ?? null;
+            let failed = 0;
+            for (const row of currentGroup.rows) {
+                if (row.approve_status === "rejected")
+                    continue; // 이미 반려된 건은 패스
+                const res = await fetch(`${API_BASE}/api/business-trip/${encodeURIComponent(row.trip_id)}/reject`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ approver, comment }),
+                });
+                const json = await res.json();
+                if (!json.ok) {
+                    failed++;
+                    console.error("반려 실패", row.trip_id, json);
+                }
+            }
+            if (failed > 0) {
+                alert(`일부(${failed}건)는 반려에 실패했습니다. 콘솔을 확인해주세요.`);
+            }
+            else {
+                alert("해당 주간 출장 건이 모두 반려되었습니다.");
+            }
+            modal.classList.add("hidden");
+            modal.classList.remove("flex");
+            getEl("appr_search").click();
+        }
+        catch (e) {
+            console.error(e);
+            alert("서버 오류로 반려에 실패했습니다.");
+        }
+    });
+}
+/** 🔍 주간 상세 모달 */
+function openWeeklyDetailModal(group) {
+    currentGroup = group;
+    const modal = getEl("appr_modal");
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+    // 첫 번째 행 기준으로 출장지/차량 상단 요약
+    const firstRow = group.rows[0];
+    const firstReg = (firstRow.detail_json?.register || firstRow.start_data || {});
+    const firstSet = (firstRow.detail_json?.settlement || firstRow.end_data || {});
+    getEl("appr_d_name").textContent = group.req_name;
+    getEl("appr_d_date").textContent = `${formatDateLabel(group.weekStart)} ~ ${formatDateLabel(group.weekEnd)}`;
+    // 본문 테이블: 주간 전체 행
+    const tbody = getEl("appr_detail_tbody");
+    tbody.innerHTML = "";
+    // 일자순 정렬
+    const sorted = [...group.rows].sort((a, b) => a.trip_date.localeCompare(b.trip_date));
+    function td(text, cls = "border px-2 py-1 text-center") {
+        const el = document.createElement("td");
+        el.className = cls;
+        el.textContent = text || "";
+        return el;
+    }
+    const mealText = (m) => {
+        if (!m || !m.checked)
+            return "-";
+        if (m.owner === "corp")
+            return "법인";
+        if (m.owner === "personal")
+            return "개인";
+        return "사용";
+    };
+    for (const row of sorted) {
+        const reg = (row.detail_json?.register || row.start_data || {});
+        const set = (row.detail_json?.settlement || row.end_data || {});
+        const workTime = reg.depart_time && set.work_end_time ? `${reg.depart_time} ~ ${set.work_end_time}` : "";
+        const meals = set.meals || {};
+        const tr = document.createElement("tr");
+        tr.appendChild(td(formatDateLabel(row.trip_date))); // 일자
+        tr.appendChild(td(reg.depart_place ?? "")); // 출발지
+        tr.appendChild(td(reg.destination ?? "")); // 출장지
+        tr.appendChild(td(reg.depart_time ?? "")); // 출발시간
+        tr.appendChild(td(reg.arrive_time ?? "")); // 도착시간
+        tr.appendChild(td(workTime)); // 업무시간
+        tr.appendChild(td(set.return_place ?? "")); // 복귀지
+        tr.appendChild(td(set.vehicle === "corp" ? "법인" : set.vehicle === "personal" ? "개인" : "-")); // 차량
+        tr.appendChild(td(mealText(meals.breakfast))); // 조식
+        tr.appendChild(td(mealText(meals.lunch))); // 중식
+        tr.appendChild(td(mealText(meals.dinner))); // 석식
+        tr.appendChild(td(reg.purpose ?? "", "border px-2 py-1 text-left whitespace-pre-wrap")); // 목적
+        tbody.appendChild(tr);
+    }
+    // 💰 금액 요약 (주간 전체 합계)
+    let totalMealsAmount = 0;
+    let totalFuelAmount = 0;
+    for (const row of group.rows) {
+        const set = (row.detail_json?.settlement || row.end_data || {});
+        const c = set.calc || {};
+        totalMealsAmount += c.meals_personal_amount ?? 0;
+        totalFuelAmount += c.fuel_amount ?? 0;
+    }
+    const amountBox = getEl("appr_amount_box"); // HTML에 div 하나 만들어두기
+    const sum = totalMealsAmount + totalFuelAmount;
+    amountBox.textContent = `식대(개인) ${totalMealsAmount.toLocaleString()}원 / 유류비 ${totalFuelAmount.toLocaleString()}원 / 합계 ${sum.toLocaleString()}원`;
+    // 승인/반려 상태 요약
+    const total = group.rows.length;
+    const pending = group.rows.filter((r) => !r.approve_status || r.approve_status === "pending")
+        .length;
+    const approved = group.rows.filter((r) => r.approve_status === "approved").length;
+    const rejected = group.rows.filter((r) => r.approve_status === "rejected").length;
+    const footer = getEl("appr_footer_info");
+    footer.textContent = `총 ${total}건 / 대기 ${pending}건 / 승인 ${approved}건 / 반려 ${rejected}건`;
+    // 의견 초기화
+    getEl("appr_comment").value =
+        group.rows[0]?.approve_comment ?? "";
+}
+
+
+/***/ }),
+
 /***/ "./TypeScript/workspace/04_user-manage.ts":
 /*!************************************************!*\
   !*** ./TypeScript/workspace/04_user-manage.ts ***!
@@ -174,7 +535,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   initUserManagePanel: () => (/* binding */ initUserManagePanel)
 /* harmony export */ });
 // 04_user-manage.ts
-const PERM_KEYS = ["출장승인", "출장내역관리", "출장등록", "출장내역"];
+const PERM_KEYS = ["출장승인", "출장내역관리", "출장등록", "출장내역", "사용자관리"];
 /** 서버에서 온 row(any 형태)를 InnomaxUser 로 변환 */
 function mapRawUser(row) {
     return {
@@ -201,6 +562,11 @@ function mapRawUser(row) {
             }
             return null;
         })(),
+        home_place_code: row.home_place_code ?? null,
+        vehicle_fuel_type: row.vehicle_fuel_type ?? null,
+        fuel_efficiency: row.fuel_efficiency !== undefined && row.fuel_efficiency !== null
+            ? Number(row.fuel_efficiency)
+            : null,
     };
 }
 /** 폼의 permission select 값들 → 객체로 모으기 */
@@ -248,6 +614,10 @@ function initUserManagePanel(API_BASE) {
     const inputPassword = document.getElementById("modalPassword");
     const inputEmail = document.getElementById("modalEmail");
     const inputCompany = document.getElementById("modalCompanyPart");
+    // 🔹 새로 추가한 필드들
+    const inputHomePlace = document.getElementById("modalHomePlace");
+    const inputVehicleType = document.getElementById("modalVehicleType");
+    const inputFuelEff = document.getElementById("modalFuelEff");
     const btnAdd = document.getElementById("userAddBtn");
     const btnModalClose = document.getElementById("userModalCancelBtn"); // 모달 안 "취소" 버튼
     // 필수 DOM 없으면 초기화 스킵
@@ -268,6 +638,7 @@ function initUserManagePanel(API_BASE) {
             return;
         modalMode.value = mode;
         if (mode === "add") {
+            // 🔹 추가 모드 기본값
             modalTitle.textContent = "사용자 추가";
             if (modalNo)
                 modalNo.value = "";
@@ -281,9 +652,16 @@ function initUserManagePanel(API_BASE) {
                 inputEmail.value = "";
             if (inputCompany)
                 inputCompany.value = "이노맥스";
+            if (inputHomePlace)
+                inputHomePlace.value = "";
+            if (inputVehicleType)
+                inputVehicleType.value = "";
+            if (inputFuelEff)
+                inputFuelEff.value = "";
             fillPermissionSelects(null);
         }
         else {
+            // 🔹 수정 모드: 기존 사용자 값 채우기
             modalTitle.textContent = "사용자 수정";
             if (user && modalNo)
                 modalNo.value = String(user.no);
@@ -297,6 +675,15 @@ function initUserManagePanel(API_BASE) {
                 inputEmail.value = user?.email ?? "";
             if (inputCompany)
                 inputCompany.value = user?.company_part ?? "이노맥스";
+            if (inputHomePlace)
+                inputHomePlace.value = user?.home_place_code ?? "";
+            if (inputVehicleType)
+                inputVehicleType.value = user?.vehicle_fuel_type ?? "";
+            if (inputFuelEff)
+                inputFuelEff.value =
+                    user?.fuel_efficiency !== null && user?.fuel_efficiency !== undefined
+                        ? String(user.fuel_efficiency)
+                        : "";
             fillPermissionSelects(user?.permissions ?? {});
         }
         userModal.classList.remove("hidden");
@@ -454,6 +841,12 @@ function initUserManagePanel(API_BASE) {
         const email = inputEmail?.value.trim() || null;
         const company_part = inputCompany?.value.trim() || null;
         const permissions = collectPermissionsFromForm();
+        // 🔹 새 필드 값들
+        const home_place_code = inputHomePlace?.value || null;
+        const vehicle_fuel_type = inputVehicleType?.value || null;
+        const fuel_efficiency = inputFuelEff?.value
+            ? Number(inputFuelEff.value)
+            : null;
         if (!id || !name || (mode === "add" && !password)) {
             alert("ID, 이름, 비밀번호(추가 시)는 필수입니다.");
             return;
@@ -464,13 +857,16 @@ function initUserManagePanel(API_BASE) {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        // ⚠️ 백엔드가 아직 Name/ID를 기대할 수 있어서 그대로 유지
+                        // 백엔드가 기대하는 필드명
                         Name: name,
                         ID: id,
                         password,
                         email,
                         company_part,
                         permissions,
+                        home_place_code,
+                        vehicle_fuel_type,
+                        fuel_efficiency,
                     }),
                 });
                 const json = await res.json();
@@ -490,6 +886,9 @@ function initUserManagePanel(API_BASE) {
                     email,
                     company_part,
                     permissions,
+                    home_place_code,
+                    vehicle_fuel_type,
+                    fuel_efficiency,
                 };
                 if (password)
                     payload.password = password; // 비밀번호 입력했을 때만 변경
@@ -1272,11 +1671,13 @@ var __webpack_exports__ = {};
   \**********************************************/
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _01_dashboard_trip_status__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./01_dashboard-trip-status */ "./TypeScript/workspace/01_dashboard-trip-status.ts");
-/* harmony import */ var _04_user_manage__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./04_user-manage */ "./TypeScript/workspace/04_user-manage.ts");
-/* harmony import */ var _08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./08_domestic-trip-register */ "./TypeScript/workspace/08_domestic-trip-register.ts");
-/* harmony import */ var _09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ./09_domestic-trip-settlement */ "./TypeScript/workspace/09_domestic-trip-settlement.ts");
-/* harmony import */ var _10_domestic_trip_history__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./10_domestic-trip-history */ "./TypeScript/workspace/10_domestic-trip-history.ts");
+/* harmony import */ var _02_trip_approval__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./02_trip-approval */ "./TypeScript/workspace/02_trip-approval.ts");
+/* harmony import */ var _04_user_manage__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./04_user-manage */ "./TypeScript/workspace/04_user-manage.ts");
+/* harmony import */ var _08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ./08_domestic-trip-register */ "./TypeScript/workspace/08_domestic-trip-register.ts");
+/* harmony import */ var _09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./09_domestic-trip-settlement */ "./TypeScript/workspace/09_domestic-trip-settlement.ts");
+/* harmony import */ var _10_domestic_trip_history__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ./10_domestic-trip-history */ "./TypeScript/workspace/10_domestic-trip-history.ts");
 // TypeScript/workspace/00_workspace.ts
+
 
 
 
@@ -1291,45 +1692,31 @@ function getLoginUserId() {
     const id = localStorage.getItem("loginUserId");
     return id || "사용자"; // 없으면 기본 텍스트
 }
-/** localStorage 에서 로그인 유저 전체 정보 가져오기 */
+/** localStorage.user 에서 전체 로그인 유저 정보 가져오기 */
 function getLoginUser() {
     const raw = localStorage.getItem("user");
     if (!raw)
         return null;
     try {
-        return JSON.parse(raw);
+        const obj = JSON.parse(raw);
+        return {
+            id: obj.id ?? "",
+            name: obj.name ?? "",
+            permissions: obj.permissions ?? null,
+        };
     }
     catch {
         return null;
     }
 }
-/** 현재 로그인 유저의 권한 맵만 뽑기 */
-function getUserPermissions() {
-    const user = getLoginUser();
-    return user?.permissions ?? {};
-}
-/** 패널 ID → permissions 키 매핑 */
-const PANEL_PERM_MAP = {
-    "panel-출장승인": "출장승인",
-    "panel-출장내역-관리": "출장내역관리",
-    "panel-국내출장-출장등록": "출장등록",
-    "panel-국내출장-정산서등록": "출장내역",
-    // 👉 대시보드, 사용자 관리 등은 여기 안 넣으면 권한 체크 안 함 (모두 접근 가능)
-};
-/** 이 패널에 들어갈 수 있는지? (localStorage.permissions 기준) */
-function canAccessPanel(panelId) {
-    const permKey = PANEL_PERM_MAP[panelId];
-    // 매핑 안 되어 있으면(대시보드, 사용자관리 등) 권한 체크 없이 통과
-    if (!permKey)
-        return true;
-    const perms = getUserPermissions();
-    const value = perms[permKey]; // "ReadWrite" | "ReadOnly" | "NoAccess" | undefined
-    // 값이 없거나 NoAccess 면 막기
-    if (!value || value === "NoAccess") {
-        return false;
-    }
-    // ReadOnly / ReadWrite → 화면 들어가는 건 허용
-    return true;
+/** permissions 객체에서 해당 키의 권한값 가져오기 (없으면 "NoAccess") */
+function getPermValue(perms, key) {
+    if (!perms)
+        return "NoAccess";
+    const v = perms[key];
+    if (!v)
+        return "NoAccess";
+    return v;
 }
 /**
  * 패널 전환(사이드 메뉴 → 메인 패널, 제목 바꾸기)
@@ -1367,16 +1754,41 @@ function initLocalTabNavigation() {
 // ==============================================================
 document.addEventListener("DOMContentLoaded", async () => {
     console.debug("[INIT] workspace DOMContentLoaded");
+    // 0) 로그인 유저 / 권한 정보 가져오기
+    const loginUser = getLoginUser();
+    const perms = loginUser?.permissions ?? null;
+    const hasPermInfo = !!perms && Object.keys(perms).length > 0;
+    // 기본값: 권한 정보가 아예 없으면(옛날 데이터) 일단 전부 허용
+    let canAdmin = true;
+    let canTripRegister = true;
+    let canTripHistory = true;
+    if (hasPermInfo) {
+        const tripApprove = getPermValue(perms, "출장승인");
+        const tripManage = getPermValue(perms, "출장내역관리");
+        const tripRegister = getPermValue(perms, "출장등록");
+        const tripHistory = getPermValue(perms, "출장내역");
+        const userManage = getPermValue(perms, "사용자관리");
+        // ✅ 관리자 전용: 출장승인 또는 출장내역관리 중 하나라도 NoAccess 가 아니면 관리자
+        canAdmin =
+            tripApprove !== "NoAccess" || tripManage !== "NoAccess";
+        // ✅ 국내출장 → 출장등록
+        canTripRegister = tripRegister !== "NoAccess";
+        // ✅ 국내출장 → 출장내역
+        canTripHistory = tripHistory !== "NoAccess";
+    }
     // 1) 로그인한 아이디 헤더에 표시 + 아바타 텍스트
     const userId = getLoginUserId(); // 예) "권택선"
     const userNameEl = document.getElementById("userName");
     const avatarEl = document.getElementById("avatar");
     const logoutBtn = document.getElementById("logoutBtn");
     if (userNameEl) {
-        userNameEl.textContent = userId; // 🔹 헤더에 "사용자" 대신 아이디
+        // 이름이 따로 있으면 이름, 없으면 아이디
+        const displayName = loginUser?.name || userId;
+        userNameEl.textContent = displayName;
     }
     if (avatarEl) {
-        avatarEl.textContent = userId.slice(0, 2); // 앞 2글자 정도만 동그라미 안에
+        const base = loginUser?.name || userId;
+        avatarEl.textContent = base.slice(0, 2); // 앞 2글자 정도만 동그라미 안에
     }
     // 2) 로그아웃 버튼
     logoutBtn?.addEventListener("click", async () => {
@@ -1403,36 +1815,69 @@ document.addEventListener("DOMContentLoaded", async () => {
     (0,_01_dashboard_trip_status__WEBPACK_IMPORTED_MODULE_0__.initDashboardTripStatus)(API_BASE);
     // 5) 사이드바에서 패널 이동
     const sidebarButtons = document.querySelectorAll("#sidebar [data-panel]");
+    // 🔒 관리자 전용 그룹 자체를 숨기기 (버튼/내용 둘 다)
+    if (!canAdmin && hasPermInfo) {
+        const adminBtn = document.getElementById("btnAdminGroup");
+        const adminContent = document.getElementById("adminGroupContent");
+        adminBtn?.classList.add("hidden");
+        adminContent?.classList.add("hidden");
+    }
     sidebarButtons.forEach((btn) => {
         btn.addEventListener("click", async () => {
             const id = btn.dataset.panel;
             if (!id)
                 return;
-            // ✅  먼저 권한 체크
-            if (!canAccessPanel(id)) {
-                alert("이 메뉴에 대한 접근 권한이 없습니다.");
-                return;
+            // ==========================
+            // 🔒 권한 체크
+            // ==========================
+            if (hasPermInfo) {
+                // 1) 관리자 전용 패널들
+                if (id === "panel-출장승인" ||
+                    id === "panel-출장내역-관리" ||
+                    id === "panel-사용자-관리") {
+                    if (!canAdmin) {
+                        alert("관리자 권한이 필요합니다.");
+                        return;
+                    }
+                }
+                // 2) 국내출장 - 출장등록
+                if (id === "panel-국내출장-출장등록" && !canTripRegister) {
+                    alert("출장등록 권한이 없습니다.");
+                    return;
+                }
+                // 3) 국내출장 - 출장내역(정산 내역)
+                if (id === "panel-국내출장-정산서등록" && !canTripHistory) {
+                    alert("출장내역 조회 권한이 없습니다.");
+                    return;
+                }
             }
-            // ✅ 권한 OK → 패널 전환
+            // ==========================
+            // 🔁 패널 전환 + 초기화
+            // ==========================
             showPanel(id);
             // 대시보드 탭 클릭 → 항상 최신 데이터로 새로고침
             if (id === "panel-dashboard") {
                 window.dispatchEvent(new Event("trip-status-refresh"));
             }
-            // 사용자 관리 탭
+            // 사용자 관리 탭 (관리자 전용)
             if (id === "panel-사용자-관리") {
-                await (0,_04_user_manage__WEBPACK_IMPORTED_MODULE_1__.initUserManagePanel)(API_BASE);
+                await (0,_04_user_manage__WEBPACK_IMPORTED_MODULE_2__.initUserManagePanel)(API_BASE);
                 console.log("[INIT] 사용자-관리 init 완료");
+            }
+            // 관리자 전용 - 출장 승인
+            if (id === "panel-출장승인") {
+                await (0,_02_trip_approval__WEBPACK_IMPORTED_MODULE_1__.initTripApprovalPanel)(API_BASE);
+                console.log("[INIT] 출장승인 패널 init 완료");
             }
             // 국내출장 - 출장등록 패널 → 등록 + 정산 패널 초기화
             if (id === "panel-국내출장-출장등록") {
-                await (0,_08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_2__.initDomesticTripRegisterPanel)(API_BASE);
-                await (0,_09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_3__.initDomesticTripSettlementPanel)(API_BASE);
+                await (0,_08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_3__.initDomesticTripRegisterPanel)(API_BASE);
+                await (0,_09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_4__.initDomesticTripSettlementPanel)(API_BASE);
                 console.log("[INIT] 국내출장-출장등록 & 정산 패널 init 완료");
             }
             // 국내출장 - 출장내역(정산 내역 조회)
             if (id === "panel-국내출장-정산서등록") {
-                await (0,_10_domestic_trip_history__WEBPACK_IMPORTED_MODULE_4__.initDomesticTripHistoryPanel)(API_BASE);
+                await (0,_10_domestic_trip_history__WEBPACK_IMPORTED_MODULE_5__.initDomesticTripHistoryPanel)(API_BASE);
                 console.log("[INIT] 국내출장-정산 내역 조회 패널 init 완료");
             }
         });

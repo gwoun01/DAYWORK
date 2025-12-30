@@ -716,6 +716,9 @@ video {
 .min-h-\[16px\] {
   min-height: 16px;
 }
+.min-h-\[70px\] {
+  min-height: 70px;
+}
 .min-h-screen {
   min-height: 100vh;
 }
@@ -739,6 +742,9 @@ video {
 }
 .w-32 {
   width: 8rem;
+}
+.w-40 {
+  width: 10rem;
 }
 .w-52 {
   width: 13rem;
@@ -1025,6 +1031,9 @@ video {
 .whitespace-pre-line {
   white-space: pre-line;
 }
+.whitespace-pre-wrap {
+  white-space: pre-wrap;
+}
 .break-all {
   word-break: break-all;
 }
@@ -1202,6 +1211,10 @@ video {
 .bg-rose-50 {
   --tw-bg-opacity: 1;
   background-color: rgb(255 241 242 / var(--tw-bg-opacity, 1));
+}
+.bg-rose-500 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(244 63 94 / var(--tw-bg-opacity, 1));
 }
 .bg-white {
   --tw-bg-opacity: 1;
@@ -1677,6 +1690,10 @@ video {
   --tw-bg-opacity: 1;
   background-color: rgb(67 56 202 / var(--tw-bg-opacity, 1));
 }
+.hover\:bg-rose-600:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(225 29 72 / var(--tw-bg-opacity, 1));
+}
 .hover\:bg-white\/30:hover {
   background-color: rgb(255 255 255 / 0.3);
 }
@@ -1726,16 +1743,32 @@ video {
   --tw-bg-opacity: 1;
   background-color: rgb(55 48 163 / var(--tw-bg-opacity, 1));
 }
+.active\:bg-rose-700:active {
+  --tw-bg-opacity: 1;
+  background-color: rgb(190 18 60 / var(--tw-bg-opacity, 1));
+}
 .active\:bg-white\/40:active {
   background-color: rgb(255 255 255 / 0.4);
 }
 @media (min-width: 640px) {
+
+  .sm\:grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 
   .sm\:grid-cols-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 @media (min-width: 768px) {
+
+  .md\:grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .md\:grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 
   .md\:grid-cols-5 {
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1751,14 +1784,6 @@ video {
 
   .md\:grid-cols-\[auto_auto_minmax\(0\2c 1fr\)\] {
     grid-template-columns: auto auto minmax(0,1fr);
-  }
-
-  .md\:grid-cols-2 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .md\:grid-cols-3 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 @media (min-width: 1024px) {

@@ -19,7 +19,10 @@ export default function userRouter(pool: Pool) {
           password_hash,
           email,
           company_part,
-          permissions
+          permissions,
+          home_place_code,
+          vehicle_fuel_type,
+          fuel_efficiency
         FROM innomax_users
         ORDER BY no ASC
       `;
@@ -52,7 +55,10 @@ export default function userRouter(pool: Pool) {
           password_hash,
           email,
           company_part,
-          permissions
+          permissions,
+          home_place_code,
+          vehicle_fuel_type,
+          fuel_efficiency
         FROM innomax_users
         WHERE no = $1
         LIMIT 1
@@ -75,10 +81,21 @@ export default function userRouter(pool: Pool) {
   /* ======================================
    *  ✅ 사용자 추가
    *  POST /api/users
-   *  body: { Name, ID, password, email, company_part, permissions }
+   *  body: { Name, ID, password, email, company_part, permissions,
+   *          home_place_code, vehicle_fuel_type, fuel_efficiency }
    * ====================================== */
   router.post("/", async (req: Request, res: Response) => {
-    const { Name, ID, password, email, company_part, permissions } = req.body ?? {};
+    const {
+      Name,
+      ID,
+      password,
+      email,
+      company_part,
+      permissions,
+      home_place_code,
+      vehicle_fuel_type,
+      fuel_efficiency,
+    } = req.body ?? {};
 
     if (!Name || !ID || !password) {
       return res.status(400).json({
@@ -95,16 +112,25 @@ export default function userRouter(pool: Pool) {
           password_hash,
           email,
           company_part,
-          permissions
+          permissions,
+          home_place_code,
+          vehicle_fuel_type,
+          fuel_efficiency
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING no, id, name, email, company_part, permissions
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING no, id, name, email, company_part, permissions,
+                  home_place_code, vehicle_fuel_type, fuel_efficiency
       `;
 
       const permsValue =
         permissions && Object.keys(permissions).length > 0
           ? JSON.stringify(permissions)
           : null;
+
+      const fuelEffNum =
+        fuel_efficiency === undefined || fuel_efficiency === null || fuel_efficiency === ""
+          ? null
+          : Number(fuel_efficiency);
 
       const result = await pool.query(insertQuery, [
         ID,
@@ -113,6 +139,9 @@ export default function userRouter(pool: Pool) {
         email ?? null,
         company_part ?? null,
         permsValue,
+        home_place_code ?? null,
+        vehicle_fuel_type ?? null,
+        fuelEffNum,
       ]);
 
       return res.json({
@@ -130,7 +159,8 @@ export default function userRouter(pool: Pool) {
   /* ======================================
    *  ✅ 사용자 수정
    *  PUT /api/users/:no
-   *  body: { Name, ID, email, company_part, permissions, password? }
+   *  body: { Name, ID, email, company_part, permissions, password?,
+   *          home_place_code, vehicle_fuel_type, fuel_efficiency }
    * ====================================== */
   router.put("/:no", async (req: Request, res: Response) => {
     const no = parseInt(req.params.no, 10);
@@ -138,7 +168,18 @@ export default function userRouter(pool: Pool) {
       return res.status(400).json({ ok: false, error: "잘못된 사용자 번호입니다." });
     }
 
-    const { Name, ID, email, company_part, permissions, password } = req.body ?? {};
+    const {
+      Name,
+      ID,
+      email,
+      company_part,
+      permissions,
+      password,
+      home_place_code,
+      vehicle_fuel_type,
+      fuel_efficiency,
+    } = req.body ?? {};
+
     if (!Name || !ID) {
       return res
         .status(400)
@@ -151,6 +192,11 @@ export default function userRouter(pool: Pool) {
           ? JSON.stringify(permissions)
           : null;
 
+      const fuelEffNum =
+        fuel_efficiency === undefined || fuel_efficiency === null || fuel_efficiency === ""
+          ? null
+          : Number(fuel_efficiency);
+
       // 비밀번호를 수정할지 여부에 따라 쿼리 분기
       if (password && String(password).trim() !== "") {
         const updateWithPw = `
@@ -162,9 +208,13 @@ export default function userRouter(pool: Pool) {
             email = $4,
             company_part = $5,
             permissions = $6,
+            home_place_code = $7,
+            vehicle_fuel_type = $8,
+            fuel_efficiency = $9,
             updated_at = NOW()
-          WHERE no = $7
-          RETURNING no, id, name, email, company_part, permissions
+          WHERE no = $10
+          RETURNING no, id, name, email, company_part, permissions,
+                    home_place_code, vehicle_fuel_type, fuel_efficiency
         `;
         const result = await pool.query(updateWithPw, [
           ID,
@@ -173,6 +223,9 @@ export default function userRouter(pool: Pool) {
           email ?? null,
           company_part ?? null,
           permsValue,
+          home_place_code ?? null,
+          vehicle_fuel_type ?? null,
+          fuelEffNum,
           no,
         ]);
 
@@ -192,9 +245,13 @@ export default function userRouter(pool: Pool) {
             email = $3,
             company_part = $4,
             permissions = $5,
+            home_place_code = $6,
+            vehicle_fuel_type = $7,
+            fuel_efficiency = $8,
             updated_at = NOW()
-          WHERE no = $6
-          RETURNING no, id, name, email, company_part, permissions
+          WHERE no = $9
+          RETURNING no, id, name, email, company_part, permissions,
+                    home_place_code, vehicle_fuel_type, fuel_efficiency
         `;
         const result = await pool.query(updateWithoutPw, [
           ID,
@@ -202,6 +259,9 @@ export default function userRouter(pool: Pool) {
           email ?? null,
           company_part ?? null,
           permsValue,
+          home_place_code ?? null,
+          vehicle_fuel_type ?? null,
+          fuelEffNum,
           no,
         ]);
 

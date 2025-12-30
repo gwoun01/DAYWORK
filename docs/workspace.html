@@ -553,6 +553,186 @@
                     </section>
                 </div>
                 <!-- 🔚 panel-dashboard 끝 -->
+                <!-- ✅ 관리자 전용 - 출장승인 패널 -->
+                <section id="panel-출장승인" class="hidden p-3">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-4">
+
+                        <!-- 헤더 -->
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-sm font-extrabold text-gray-900">출장 승인</h3>
+                                <p class="mt-1 text-[11px] text-gray-500">
+                                    직원 전용 &gt; 출장등록 / 정산에서 올라온 내역을 주 단위로 확인하고 승인·반려합니다.
+                                </p>
+                            </div>
+                            <!-- 필요하면 추가 필터 버튼 등 배치 가능 -->
+                        </div>
+
+                        <!-- 🔎 조회 조건 박스 -->
+                        <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                        시작일 <span class="text-rose-500">*</span>
+                                    </label>
+                                    <!-- ✅ TS: getEl('appr_from') -->
+                                    <input id="appr_from" type="date"
+                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs bg-white" />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                        종료일 <span class="text-rose-500">*</span>
+                                    </label>
+                                    <!-- ✅ TS: getEl('appr_to') -->
+                                    <input id="appr_to" type="date"
+                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs bg-white" />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                        상태 필터
+                                    </label>
+                                    <!-- ✅ TS: getEl('appr_status') -->
+                                    <select id="appr_status"
+                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs bg-white">
+                                        <option value="">전체</option>
+                                        <option value="pending">대기</option>
+                                        <option value="approved">승인</option>
+                                        <option value="rejected">반려</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center gap-2 mt-1">
+                                <!-- ✅ TS: getEl('appr_result_msg') -->
+                                <div id="appr_result_msg" class="flex-1 text-[11px] text-gray-600">
+                                    조회 기간을 선택한 뒤 <span class="font-semibold">[조회하기]</span>를 눌러주세요.
+                                </div>
+                                <!-- ✅ TS: getEl('appr_search') -->
+                                <button id="appr_search"
+                                    class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 active:bg-indigo-800 shadow-sm">
+                                    조회하기
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 결과 테이블 -->
+                        <div class="border rounded-xl overflow-hidden">
+                            <table class="w-full text-[11px] text-gray-700 border-collapse">
+                                <thead class="bg-gray-100">
+                                    <tr>
+                                        <th class="border px-2 py-1 w-40 text-center">기간 (주간)</th>
+                                        <th class="border px-2 py-1 w-32 text-center">소속팀</th>
+                                        <th class="border px-2 py-1 w-24 text-center">이름</th>
+                                        <th class="border px-2 py-1 w-20 text-center">건수</th>
+                                        <th class="border px-2 py-1 w-20 text-center">상세</th>
+                                    </tr>
+                                </thead>
+                                <!-- ✅ 주간 그룹용 tbody -->
+                                <tbody id="approve_result_tbody">
+                                    <tr>
+                                        <td colspan="5" class="border px-2 py-3 text-center text-gray-400">
+                                            조회된 출장 내역이 없습니다.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 🔽 상세보기 + 승인/반려 모달 -->
+                        <div id="appr_modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
+                            <div class="bg-white rounded-2xl shadow-xl w-full max-w-5xl p-5 space-y-4">
+                                <div class="flex items-center justify-between">
+                                    <h3 class="text-sm font-extrabold text-gray-900">
+                                        출장 신청 및 정산 상세
+                                    </h3>
+                                    <button id="appr_modal_close"
+                                        class="px-2 py-1 rounded-lg bg-gray-200 text-xs text-gray-700 hover:bg-gray-300">
+                                        닫기
+                                    </button>
+                                </div>
+
+                                <!-- 🔹 상단 요약 영역 -->
+                                <div
+                                    class="border border-gray-300 rounded-xl overflow-hidden text-[11px] text-gray-800">
+                                    <!-- 🔹 상단 요약: 성명 / 기간만 -->
+                                    <div class="grid grid-cols-2 border-b bg-gray-50">
+                                        <div class="border-r px-2 py-1">
+                                            <div class="text-[10px] text-gray-500">성명</div>
+                                            <div id="appr_d_name" class="font-semibold"></div>
+                                        </div>
+                                        <div class="px-2 py-1">
+                                            <div class="text-[10px] text-gray-500">기간</div>
+                                            <div id="appr_d_date"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 🔹 본문 : 엑셀표 느낌 테이블 -->
+                                    <div class="bg-white">
+                                        <table class="w-full text-[11px] text-gray-800 border-collapse">
+                                            <thead class="bg-gray-100">
+                                                <tr>
+                                                    <th class="border px-2 py-1 w-28 text-center">일자</th>
+                                                    <th class="border px-2 py-1 w-20 text-center">출발지</th>
+                                                    <th class="border px-2 py-1 w-32 text-center">
+                                                        출장지(고객사)
+                                                    </th>
+                                                    <th class="border px-2 py-1 w-28 text-center">출발시간</th>
+                                                    <th class="border px-2 py-1 w-28 text-center">도착시간</th>
+                                                    <th class="border px-2 py-1 w-28 text-center">업무시간</th>
+                                                    <th class="border px-2 py-1 w-24 text-center">복귀지</th>
+                                                    <th class="border px-2 py-1 w-20 text-center">차량</th>
+                                                    <th class="border px-2 py-1 w-24 text-center">조식</th>
+                                                    <th class="border px-2 py-1 w-24 text-center">중식</th>
+                                                    <th class="border px-2 py-1 w-24 text-center">석식</th>
+                                                    <th class="border px-2 py-1 w-64 text-center">
+                                                        출장 목적 / 내용
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="appr_detail_tbody">
+                                                <tr>
+                                                    <td colspan="12" class="border px-2 py-3 text-center text-gray-400">
+                                                        데이터 로딩 중...
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- 💰 금액 요약 영역 (JS에서 텍스트 채움) -->
+                                <div id="appr_amount_box" class="mt-2 text-[11px] text-gray-800">
+                                    <!-- 예: 식대(개인) 24,000원 / 유류비 18,000원 / 합계 42,000원 -->
+                                </div>
+
+                                <!-- 🔹 승인/반려 의견 + 버튼 -->
+                                <div class="space-y-2">
+                                    <label class="block text-[11px] font-semibold text-gray-700">
+                                        승인/반려 의견 (선택)
+                                    </label>
+                                    <textarea id="appr_comment"
+                                        class="w-full border rounded-lg px-3 py-2 text-xs min-h-[70px]"
+                                        placeholder="예: 일정 및 내용 확인했습니다. / 일정 조정 후 재등록 부탁드립니다."></textarea>
+
+                                    <div class="flex justify-between items-center pt-2 text-[10px] text-gray-500">
+                                        <div id="appr_footer_info"></div>
+                                        <div class="flex gap-2">
+                                            <button id="appr_btn_reject"
+                                                class="px-4 py-2 rounded-xl bg-rose-500 text-white text-xs font-bold hover:bg-rose-600 active:bg-rose-700 shadow-sm">
+                                                반려
+                                            </button>
+                                            <button id="appr_btn_approve"
+                                                class="px-4 py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 active:bg-emerald-700 shadow-sm">
+                                                승인
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
 
                 <!-- ✅ 국내출장 - 출장등록 패널 (웹용 레이아웃) -->
                 <section id="panel-국내출장-출장등록" class="hidden px-4 py-3">
@@ -1020,22 +1200,38 @@
                                                     접근 불가
                                                 </option>
                                             </select>
+                                            <div>
+
+                                                <div>
+                                                    <label>사용자관리</label>
+                                                    <select id="사용자관리" class="w-full border rounded px-2 py-1 mt-1">
+                                                        <option value="ReadWrite">
+                                                            읽고 쓰기 가능
+                                                        </option>
+                                                        <option value="ReadOnly">
+                                                            읽기 전용
+                                                        </option>
+                                                        <option value="NoAccess">
+                                                            접근 불가
+                                                        </option>
+
+                                                    </select>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                </div>
 
-                                <!-- 버튼 영역 -->
-                                <div class="flex justify-end space-x-2 pt-2">
-                                    <button id="userModalCancelBtn" type="button"
-                                        class="px-3 py-2 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300">
-                                        취소
-                                    </button>
+                                        <!-- 버튼 영역 -->
+                                        <div class="flex justify-end space-x-2 pt-2">
+                                            <button id="userModalCancelBtn" type="button"
+                                                class="px-3 py-2 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300">
+                                                취소
+                                            </button>
 
-                                    <button type="submit"
-                                        class="px-3 py-2 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">
-                                        저장
-                                    </button>
-                                </div>
+                                            <button type="submit"
+                                                class="px-3 py-2 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">
+                                                저장
+                                            </button>
+                                        </div>
                             </form>
                         </div>
                     </div>
