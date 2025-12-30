@@ -1,6 +1,8 @@
 // 04_user-manage.ts
 
 // ✅ 서버에서 오는 데이터를 내부에서 쓸 형태로 정리한 타입
+//   - DB/백엔드에서 no / No, id / ID, name / Name 어떤 걸 보내든
+//     아래에서 한 번 변환해서 이 타입으로만 쓰게 만들 거야.
 type InnomaxUser = {
   no: number;
   id: string;
@@ -8,9 +10,6 @@ type InnomaxUser = {
   email: string | null;
   company_part: string | null;
   permissions: Record<string, string> | null;
-  home_place_code: string | null;      // 🔹 기본 출발지 코드 (HOME / COMPANY 등)
-  vehicle_fuel_type: string | null;    // 🔹 차량 기종 (diesel / gasoline / electric)
-  fuel_efficiency: number | null;      // 🔹 연비
 };
 
 const PERM_KEYS = ["출장승인", "출장내역관리", "출장등록", "출장내역", "사용자관리"];
@@ -39,12 +38,6 @@ function mapRawUser(row: any): InnomaxUser {
       }
       return null;
     })(),
-    home_place_code: row.home_place_code ?? null,
-    vehicle_fuel_type: row.vehicle_fuel_type ?? null,
-    fuel_efficiency:
-      row.fuel_efficiency !== undefined && row.fuel_efficiency !== null
-        ? Number(row.fuel_efficiency)
-        : null,
   };
 }
 
@@ -65,7 +58,7 @@ function fillPermissionSelects(perms: any) {
     if (!el) return;
     const v = perms?.[key];
     if (v) el.value = v;
-    else el.value = "ReadWrite"; // 기본값
+    else el.value = "접근 불가"; // 기본값(너가 쓰던 기본값으로 바꿔도 됨)
   });
 }
 
@@ -95,11 +88,6 @@ export function initUserManagePanel(API_BASE: string) {
   const inputEmail = document.getElementById("modalEmail") as HTMLInputElement | null;
   const inputCompany = document.getElementById("modalCompanyPart") as HTMLInputElement | null;
 
-  // 🔹 새로 추가한 필드들
-  const inputHomePlace = document.getElementById("modalHomePlace") as HTMLSelectElement | null;
-  const inputVehicleType = document.getElementById("modalVehicleType") as HTMLSelectElement | null;
-  const inputFuelEff = document.getElementById("modalFuelEff") as HTMLInputElement | null;
-
   const btnAdd = document.getElementById("userAddBtn") as HTMLButtonElement | null;
   const btnModalClose = document.getElementById(
     "userModalCancelBtn"
@@ -128,7 +116,6 @@ export function initUserManagePanel(API_BASE: string) {
 
     modalMode.value = mode;
     if (mode === "add") {
-      // 🔹 추가 모드 기본값
       modalTitle.textContent = "사용자 추가";
       if (modalNo) modalNo.value = "";
       if (inputID) inputID.value = "";
@@ -136,12 +123,8 @@ export function initUserManagePanel(API_BASE: string) {
       if (inputPassword) inputPassword.value = "";
       if (inputEmail) inputEmail.value = "";
       if (inputCompany) inputCompany.value = "이노맥스";
-      if (inputHomePlace) inputHomePlace.value = "";
-      if (inputVehicleType) inputVehicleType.value = "";
-      if (inputFuelEff) inputFuelEff.value = "";
       fillPermissionSelects(null);
     } else {
-      // 🔹 수정 모드: 기존 사용자 값 채우기
       modalTitle.textContent = "사용자 수정";
       if (user && modalNo) modalNo.value = String(user.no);
       if (inputID) inputID.value = user?.id ?? "";
@@ -149,16 +132,6 @@ export function initUserManagePanel(API_BASE: string) {
       if (inputPassword) inputPassword.value = ""; // 수정 시에만 입력
       if (inputEmail) inputEmail.value = user?.email ?? "";
       if (inputCompany) inputCompany.value = user?.company_part ?? "이노맥스";
-
-      if (inputHomePlace)
-        inputHomePlace.value = user?.home_place_code ?? "";
-      if (inputVehicleType)
-        inputVehicleType.value = user?.vehicle_fuel_type ?? "";
-      if (inputFuelEff)
-        inputFuelEff.value =
-          user?.fuel_efficiency !== null && user?.fuel_efficiency !== undefined
-            ? String(user.fuel_efficiency)
-            : "";
 
       fillPermissionSelects(user?.permissions ?? {});
     }
@@ -332,13 +305,6 @@ export function initUserManagePanel(API_BASE: string) {
     const company_part = inputCompany?.value.trim() || null;
     const permissions = collectPermissionsFromForm();
 
-    // 🔹 새 필드 값들
-    const home_place_code = inputHomePlace?.value || null;
-    const vehicle_fuel_type = inputVehicleType?.value || null;
-    const fuel_efficiency = inputFuelEff?.value
-      ? Number(inputFuelEff.value)
-      : null;
-
     if (!id || !name || (mode === "add" && !password)) {
       alert("ID, 이름, 비밀번호(추가 시)는 필수입니다.");
       return;
@@ -357,9 +323,6 @@ export function initUserManagePanel(API_BASE: string) {
             email,
             company_part,
             permissions,
-            home_place_code,
-            vehicle_fuel_type,
-            fuel_efficiency,
           }),
         });
         const json = await res.json();
@@ -378,9 +341,6 @@ export function initUserManagePanel(API_BASE: string) {
           email,
           company_part,
           permissions,
-          home_place_code,
-          vehicle_fuel_type,
-          fuel_efficiency,
         };
         if (password) payload.password = password; // 비밀번호 입력했을 때만 변경
 

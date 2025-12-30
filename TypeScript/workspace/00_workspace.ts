@@ -3,6 +3,7 @@
 import { initDashboardTripStatus } from "./01_dashboard-trip-status";
 import { initTripApprovalPanel } from "./02_trip-approval";
 import { initUserManagePanel } from "./04_user-manage";
+import { initBusinessMasterPanel } from "./05_business-master";
 import { initDomesticTripRegisterPanel } from "./08_domestic-trip-register";
 import { initDomesticTripSettlementPanel } from "./09_domestic-trip-settlement";
 import { initDomesticTripHistoryPanel } from "./10_domestic-trip-history";
@@ -228,6 +229,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (id === "panel-출장승인") {
         await initTripApprovalPanel(API_BASE);
         console.log("[INIT] 출장승인 패널 init 완료");
+      }
+        // 관리자 전용 - 출장업무 관리
+      if (id === "panel-출장업무-관리") {
+        await initBusinessMasterPanel(API_BASE);
+        console.log("[INIT] 출장업무관리 패널 init 완료");
       }
 
       // 국내출장 - 출장등록 패널 → 등록 + 정산 패널 초기화

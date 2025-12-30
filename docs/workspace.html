@@ -80,6 +80,12 @@
                             data-panel="panel-사용자-관리">
                             사용자 관리
                         </button>
+
+                        <button
+                            class="nav-btn w-full text-left px-4 py-2 rounded-lg text-[13px] font-bold text-gray-700 hover:bg-gray-100"
+                            data-panel-target="panel-출장업무-관리">
+                            출장업무 관리
+                        </button>
                     </div>
                 </div>
 
@@ -1040,6 +1046,125 @@
                         </div>
                     </div>
                 </section>
+                <!-- =========================
+     🚗 출장업무 관리 패널
+     id: panel-출장업무-관리
+========================= -->
+                <section id="panel-출장업무-관리" class="hidden h-full flex flex-col gap-4">
+                    <!-- 상단 제목 -->
+                    <div class="flex items-center justify-between">
+                        <h1 class="text-base font-bold text-gray-900">
+                            🚗 출장업무 관리 (거리/유류/환율 설정)
+                        </h1>
+                    </div>
+
+                    <!-- 내용: 좌측 거리 마스터 / 우측 설정 폼 -->
+                    <div class="flex flex-col lg:flex-row gap-4 h-full">
+                        <!-- 좌측: 거리 마스터 -->
+                        <div class="flex-1 bg-white rounded-xl shadow p-4 flex flex-col min-h-[260px]">
+                            <div class="flex items-center justify-between mb-3">
+                                <h2 class="text-sm font-semibold text-gray-800">거리 마스터</h2>
+                                <div class="flex gap-2">
+                                    <button id="btnDistanceAddRow" type="button"
+                                        class="px-3 py-1 rounded-md border text-xs bg-white hover:bg-gray-50">
+                                        + 행 추가
+                                    </button>
+                                    <button id="btnDistanceSave" type="button"
+                                        class="px-3 py-1 rounded-md text-xs bg-blue-600 text-white hover:bg-blue-700">
+                                        거리 저장
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="border rounded-lg overflow-auto max-h-[420px] text-xs">
+                                <table class="min-w-full border-collapse">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="border px-2 py-1 w-[4rem]">NO</th>
+                                            <th class="border px-2 py-1">출발지</th>
+                                            <th class="border px-2 py-1">도착지</th>
+                                            <th class="border px-2 py-1 w-[7rem]">거리(km)</th>
+                                            <th class="border px-2 py-1">비고</th>
+                                            <th class="border px-2 py-1 w-[4rem]">삭제</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="distanceTbody">
+                                        <!-- TS에서 동적으로 채움 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 우측: 유류/환율/수당 설정 -->
+                        <div class="w-full lg:w-[360px] bg-white rounded-xl shadow p-4 flex flex-col">
+                            <div class="flex items-center justify-between mb-3">
+                                <h2 class="text-sm font-semibold text-gray-800">기본 설정</h2>
+                                <button id="btnConfigSave" type="button"
+                                    class="px-3 py-1 rounded-md text-xs bg-emerald-600 text-white hover:bg-emerald-700">
+                                    설정 저장
+                                </button>
+                            </div>
+
+                            <div class="space-y-3 text-xs">
+                                <!-- 유류 -->
+                                <div class="border rounded-lg p-3 space-y-2">
+                                    <div class="font-semibold text-gray-700 mb-1">유류 설정</div>
+                                    <div class="grid grid-cols-2 gap-2 items-center">
+                                        <label class="text-[11px] text-gray-600">리터당 유류비 (원)</label>
+                                        <input id="cfgFuelPrice" type="number"
+                                            class="border rounded px-2 py-1 text-right" placeholder="예: 1850" />
+                                        <label class="text-[11px] text-gray-600">평균 연비 (km/L)</label>
+                                        <input id="cfgKmPerLiter" type="number" step="0.1"
+                                            class="border rounded px-2 py-1 text-right" placeholder="예: 12.5" />
+                                        <label class="text-[11px] text-gray-600">기본 유종</label>
+                                        <select id="cfgOilType" class="border rounded px-2 py-1">
+                                            <option value="휘발유">휘발유</option>
+                                            <option value="경유">경유</option>
+                                            <option value="LPG">LPG</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- 환율 -->
+                                <div class="border rounded-lg p-3 space-y-2">
+                                    <div class="font-semibold text-gray-700 mb-1">환율 설정</div>
+                                    <div class="grid grid-cols-2 gap-2 items-center">
+                                        <label class="text-[11px] text-gray-600">USD (1달러당 원)</label>
+                                        <input id="cfgUsd" type="number" step="0.01"
+                                            class="border rounded px-2 py-1 text-right" placeholder="예: 1350" />
+                                        <label class="text-[11px] text-gray-600">JPY (100엔당 원)</label>
+                                        <input id="cfgJpy" type="number" step="0.01"
+                                            class="border rounded px-2 py-1 text-right" placeholder="예: 950" />
+                                        <label class="text-[11px] text-gray-600">CNY (1위안당 원)</label>
+                                        <input id="cfgCny" type="number" step="0.01"
+                                            class="border rounded px-2 py-1 text-right" placeholder="예: 190" />
+                                    </div>
+                                </div>
+
+                                <!-- 당직 수당 -->
+                                <div class="border rounded-lg p-3 space-y-2">
+                                    <div class="font-semibold text-gray-700 mb-1">당직 수당</div>
+                                    <div class="grid grid-cols-2 gap-2 items-center">
+                                        <label class="text-[11px] text-gray-600">평일 당직 (원)</label>
+                                        <input id="cfgDutyWeekday" type="number"
+                                            class="border rounded px-2 py-1 text-right" placeholder="예: 30000" />
+                                        <label class="text-[11px] text-gray-600">주말/휴일 당직 (원)</label>
+                                        <input id="cfgDutyWeekend" type="number"
+                                            class="border rounded px-2 py-1 text-right" placeholder="예: 50000" />
+                                    </div>
+                                </div>
+
+                                <!-- 메모 -->
+                                <div class="border rounded-lg p-3 space-y-2">
+                                    <div class="font-semibold text-gray-700 mb-1">기타 메모</div>
+                                    <textarea id="cfgNote"
+                                        class="border rounded w-full px-2 py-1 min-h-[60px] resize-none"
+                                        placeholder="예: 2025년 기준 유류/환율/수당 단가"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>  
 
                 <!-- 📌 진행상황 패널 (앞으로 확장용) -->
                 <section id="panel-진행상황-한눈에보기"
@@ -1079,162 +1204,136 @@
                         </table>
                     </div>
 
+
+
                     <!-- 사용자 추가/수정 모달 -->
-                    <div id="userModal"
-                        class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-                        <div class="bg-white rounded-lg shadow-lg w-full max-w-lg p-5 space-y-3">
-                            <h3 id="modalTitle" class="text-base font-bold text-gray-900">
+                    <div id="userModal" class="fixed inset-0 z-50 bg-black/40 hidden items-center justify-center">
+                        <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6">
+                            <h2 id="modalTitle" class="text-base font-bold text-gray-900 mb-4">
                                 사용자 추가
-                            </h3>
+                            </h2>
 
-                            <form id="userForm" class="space-y-3">
+                            <form id="userForm" class="space-y-4">
+                                <!-- 모드/NO hidden -->
                                 <input type="hidden" id="modalMode" value="add" />
-                                <input type="hidden" id="modalNo" value="" />
+                                <input type="hidden" id="modalNo" />
 
-                                <!-- 이름 -->
-                                <div class="pb-2 border-b">
-                                    <label class="block text-xs font-medium text-gray-700">Name</label>
-                                    <input id="modalName" type="text"
-                                        class="w-full border rounded px-3 py-2 mt-1 text-sm" required />
-                                </div>
+                                <!-- 기본 정보 -->
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                            Name (이름)
+                                        </label>
+                                        <input id="modalName" type="text"
+                                            class="w-full border rounded-lg px-3 py-2 text-xs" placeholder="예: 홍길동" />
+                                    </div>
 
-                                <!-- ID -->
-                                <div class="pb-2 border-b">
-                                    <label class="block text-xs font-medium text-gray-700">ID</label>
-                                    <input id="modalID" type="text" class="w-full border rounded px-3 py-2 mt-1 text-sm"
-                                        required />
-                                </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                            ID (로그인 아이디)
+                                        </label>
+                                        <input id="modalID" type="text"
+                                            class="w-full border rounded-lg px-3 py-2 text-xs"
+                                            placeholder="예: hkdong" />
+                                    </div>
 
-                                <!-- 비밀번호 -->
-                                <div class="pb-2 border-b">
-                                    <label class="block text-xs font-medium text-gray-700">비밀번호</label>
-                                    <div class="flex items-center space-x-2">
-                                        <input id="modalPassword" type="password"
-                                            class="w-full border rounded px-3 py-2 mt-1 text-sm"
-                                            placeholder="추가 시 필수, 수정 시에만 입력" />
-                                        <button type="button" onclick="togglePassword()"
-                                            class="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300 text-xs">
-                                            👁
-                                        </button>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                            비밀번호
+                                        </label>
+                                        <div class="flex gap-2">
+                                            <input id="modalPassword" type="password"
+                                                class="flex-1 border rounded-lg px-3 py-2 text-xs"
+                                                placeholder="추가 시 필수, 수정 시 입력 시에만 변경" />
+                                            <button type="button" class="px-2 py-1 text-[11px] border rounded-lg"
+                                                onclick="togglePassword()">
+                                                표시
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                            이메일
+                                        </label>
+                                        <input id="modalEmail" type="email"
+                                            class="w-full border rounded-lg px-3 py-2 text-xs"
+                                            placeholder="예: user@example.com" />
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                            회사파트 (company_part)
+                                        </label>
+                                        <input id="modalCompanyPart" type="text"
+                                            class="w-full border rounded-lg px-3 py-2 text-xs"
+                                            placeholder="예: 관리부 / S/W" />
                                     </div>
                                 </div>
 
-                                <!-- 이메일 -->
-                                <div class="pb-2 border-b">
-                                    <label class="block text-xs font-medium text-gray-700">이메일</label>
-                                    <input id="modalEmail" type="email"
-                                        class="w-full border rounded px-3 py-2 mt-1 text-sm" />
+                                <!-- 권한 설정 -->
+                                <div class="mt-4 border-t pt-3">
+                                    <h3 class="text-xs font-bold text-gray-800 mb-2">권한 (각 탭별)</h3>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <span class="text-gray-700">출장승인</span>
+                                            <select id="출장승인" class="border rounded-lg px-2 py-1 text-[11px]">
+                                                <option value="ReadWrite">접근 가능</option>
+                                                <option value="ReadOnly">읽기만</option>
+                                                <option value="None">접근 불가</option>
+                                            </select>
+                                        </div>
+                                        <div class="flex items-center justify-between gap-2">
+                                            <span class="text-gray-700">출장내역관리</span>
+                                            <select id="출장내역관리" class="border rounded-lg px-2 py-1 text-[11px]">
+                                                <option value="ReadWrite">접근 가능</option>
+                                                <option value="ReadOnly">읽기만</option>
+                                                <option value="None">접근 불가</option>
+                                            </select>
+                                        </div>
+                                        <div class="flex items-center justify-between gap-2">
+                                            <span class="text-gray-700">출장등록</span>
+                                            <select id="출장등록" class="border rounded-lg px-2 py-1 text-[11px]">
+                                                <option value="ReadWrite">접근 가능</option>
+                                                <option value="ReadOnly">읽기만</option>
+                                                <option value="None">접근 불가</option>
+                                            </select>
+                                        </div>
+                                        <div class="flex items-center justify-between gap-2">
+                                            <span class="text-gray-700">출장내역</span>
+                                            <select id="출장내역" class="border rounded-lg px-2 py-1 text-[11px]">
+                                                <option value="ReadWrite">접근 가능</option>
+                                                <option value="ReadOnly">읽기만</option>
+                                                <option value="None">접근 불가</option>
+                                            </select>
+                                        </div>
+                                        <div class="flex items-center justify-between gap-2">
+                                            <span class="text-gray-700">사용자관리</span>
+                                            <select id="사용자관리" class="border rounded-lg px-2 py-1 text-[11px]">
+                                                <option value="ReadWrite">접근 가능</option>
+                                                <option value="ReadOnly">읽기만</option>
+                                                <option value="None">접근 불가</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                <!-- 회사파트 -->
-                                <div class="pb-2 border-b">
-                                    <label class="block text-xs font-medium text-gray-700">
-                                        회사파트 (company_part)
-                                    </label>
-                                    <input id="modalCompanyPart" type="text"
-                                        class="w-full border rounded px-3 py-2 mt-1 text-sm" value="이노맥스" />
+                                <!-- 버튼 영역 -->
+                                <div class="mt-5 flex justify-end gap-2">
+                                    <button type="button" id="userModalCancelBtn"
+                                        class="px-4 py-2 rounded-xl border text-xs text-gray-700 bg-gray-50 hover:bg-gray-100">
+                                        취소
+                                    </button>
+                                    <button type="submit"
+                                        class="px-4 py-2 rounded-xl bg-indigo-600 text-xs font-bold text-white hover:bg-indigo-700">
+                                        저장
+                                    </button>
                                 </div>
-
-                                <!-- 권한 -->
-                                <div class="pb-2 border-b">
-                                    <label class="block text-xs font-medium text-gray-700">
-                                        권한 (각 탭별)
-                                    </label>
-
-                                    <div id="permissionContainer" class="grid grid-cols-2 gap-2 mt-2 text-[11px]">
-                                        <div>
-                                            <label>출장승인</label>
-                                            <select id="출장승인" class="w-full border rounded px-2 py-1 mt-1">
-                                                <option value="ReadWrite">
-                                                    읽고 쓰기 가능
-                                                </option>
-                                                <option value="ReadOnly">
-                                                    읽기 전용
-                                                </option>
-                                                <option value="NoAccess">
-                                                    접근 불가
-                                                </option>
-                                            </select>
-                                        </div>
-
-                                        <div>
-                                            <label>출장내역관리</label>
-                                            <select id="출장내역관리" class="w-full border rounded px-2 py-1 mt-1">
-                                                <option value="ReadWrite">
-                                                    읽고 쓰기 가능
-                                                </option>
-                                                <option value="ReadOnly">
-                                                    읽기 전용
-                                                </option>
-                                                <option value="NoAccess">
-                                                    접근 불가
-                                                </option>
-                                            </select>
-                                        </div>
-
-                                        <div>
-                                            <label>출장등록</label>
-                                            <select id="출장등록" class="w-full border rounded px-2 py-1 mt-1">
-                                                <option value="ReadWrite">
-                                                    읽고 쓰기 가능
-                                                </option>
-                                                <option value="ReadOnly">
-                                                    읽기 전용
-                                                </option>
-                                                <option value="NoAccess">
-                                                    접근 불가
-                                                </option>
-                                            </select>
-                                        </div>
-
-                                        <div>
-                                            <label>출장내역</label>
-                                            <select id="출장내역" class="w-full border rounded px-2 py-1 mt-1">
-                                                <option value="ReadWrite">
-                                                    읽고 쓰기 가능
-                                                </option>
-                                                <option value="ReadOnly">
-                                                    읽기 전용
-                                                </option>
-                                                <option value="NoAccess">
-                                                    접근 불가
-                                                </option>
-                                            </select>
-                                            <div>
-
-                                                <div>
-                                                    <label>사용자관리</label>
-                                                    <select id="사용자관리" class="w-full border rounded px-2 py-1 mt-1">
-                                                        <option value="ReadWrite">
-                                                            읽고 쓰기 가능
-                                                        </option>
-                                                        <option value="ReadOnly">
-                                                            읽기 전용
-                                                        </option>
-                                                        <option value="NoAccess">
-                                                            접근 불가
-                                                        </option>
-
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- 버튼 영역 -->
-                                        <div class="flex justify-end space-x-2 pt-2">
-                                            <button id="userModalCancelBtn" type="button"
-                                                class="px-3 py-2 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300">
-                                                취소
-                                            </button>
-
-                                            <button type="submit"
-                                                class="px-3 py-2 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">
-                                                저장
-                                            </button>
-                                        </div>
                             </form>
                         </div>
                     </div>
+
+
                 </section>
             </section>
         </main>
