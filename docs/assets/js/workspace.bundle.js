@@ -891,7 +891,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   initBusinessMasterPanel: () => (/* binding */ initBusinessMasterPanel)
 /* harmony export */ });
 // 10_business-master.ts
-// 🚗 출장업무 관리 (거리 마스터 + 유류/환율/수당 설정) 프론트 코드
+// 🚗 출장업무 관리 (거리 마스터 + 유류/환율/당직자 설정) 프론트 코드
 // ======================
 // 유틸 함수
 // ======================
@@ -901,12 +901,18 @@ function parseNumberOrNull(value) {
     const n = Number(value.replace(/,/g, ""));
     return Number.isFinite(n) ? n : null;
 }
+/** 서버 row → DistanceRow 로 매핑 */
 function mapRawDistance(row) {
     return {
         id: row.id != null ? Number(row.id) : null,
-        from_place: String(row.from_place ?? ""),
-        to_place: String(row.to_place ?? ""),
-        distance_km: row.distance_km != null ? Number(row.distance_km) : null,
+        region: String(row.region ?? ""),
+        client_name: String(row.client_name ?? ""),
+        site_company: String(row.site_company ?? ""),
+        travel_time_text: String(row.travel_time_text ?? ""),
+        person_name: String(row.person_name ?? ""),
+        home_distance_km: row.home_distance_km != null ? Number(row.home_distance_km) : null,
+        office_distance_km: row.office_distance_km != null ? Number(row.office_distance_km) : null,
+        fuel_type: String(row.fuel_type ?? ""),
         remark: String(row.remark ?? ""),
     };
 }
@@ -927,16 +933,15 @@ function initBusinessMasterPanel(API_BASE) {
     const inputUsd = document.getElementById("cfgUsd");
     const inputJpy = document.getElementById("cfgJpy");
     const inputCny = document.getElementById("cfgCny");
-    const inputDutyWeekday = document.getElementById("cfgDutyWeekday");
-    const inputDutyWeekend = document.getElementById("cfgDutyWeekend");
     const selectOilType = document.getElementById("cfgOilType");
+    const textareaDutyMembers = document.getElementById("cfgDutyMembers");
     const textareaNote = document.getElementById("cfgNote");
     // 필수 DOM 없으면 초기화 스킵 (다른 페이지에서 불려도 안전)
     if (!panel || !distanceTbodyEl) {
-        console.warn("[출장업무관리] 필수 DOM 요소(panel-business-master, distanceTbody)를 찾지 못했습니다.");
+        console.warn("[출장업무관리] 필수 DOM 요소(panel-출장업무-관리, distanceTbody)를 찾지 못했습니다.");
         return;
     }
-    // ✅ 여기서부터는 distanceTbodyEl 이 null 아님을 확정해서 새 변수에 담음
+    // distanceTbodyEl 이 null 아님을 확정해서 새 변수에 담음
     const distanceTbody = distanceTbodyEl;
     // 이미 초기화된 경우 다시 초기화하지 않기 (사이드바 이동 시 중복 방지)
     if (panel._bound) {
@@ -973,14 +978,10 @@ function initBusinessMasterPanel(API_BASE) {
                 inputJpy.value = data.exchange_rate_jpy?.toString() ?? "";
             if (inputCny)
                 inputCny.value = data.exchange_rate_cny?.toString() ?? "";
-            if (inputDutyWeekday)
-                inputDutyWeekday.value =
-                    data.duty_allowance_weekday?.toString() ?? "";
-            if (inputDutyWeekend)
-                inputDutyWeekend.value =
-                    data.duty_allowance_weekend?.toString() ?? "";
             if (selectOilType)
                 selectOilType.value = data.default_oil_type || "휘발유";
+            if (textareaDutyMembers)
+                textareaDutyMembers.value = data.duty_members_text ?? "";
             if (textareaNote)
                 textareaNote.value = data.note || "";
         }
@@ -995,9 +996,8 @@ function initBusinessMasterPanel(API_BASE) {
             exchange_rate_usd: parseNumberOrNull(inputUsd?.value ?? ""),
             exchange_rate_jpy: parseNumberOrNull(inputJpy?.value ?? ""),
             exchange_rate_cny: parseNumberOrNull(inputCny?.value ?? ""),
-            duty_allowance_weekday: parseNumberOrNull(inputDutyWeekday?.value ?? ""),
-            duty_allowance_weekend: parseNumberOrNull(inputDutyWeekend?.value ?? ""),
             default_oil_type: selectOilType?.value || "휘발유",
+            duty_members_text: textareaDutyMembers?.value ?? "",
             note: textareaNote?.value ?? "",
         };
         try {
@@ -1026,7 +1026,7 @@ function initBusinessMasterPanel(API_BASE) {
     async function loadDistances() {
         distanceTbody.innerHTML = `
       <tr>
-        <td colspan="6" class="border px-2 py-2 text-center text-xs text-gray-400">
+        <td colspan="11" class="border px-2 py-2 text-center text-xs text-gray-400">
           거리 목록 로딩 중...
         </td>
       </tr>
@@ -1057,7 +1057,7 @@ function initBusinessMasterPanel(API_BASE) {
         if (!distanceRows.length) {
             distanceTbody.innerHTML = `
         <tr>
-          <td colspan="6" class="border px-2 py-2 text-center text-xs text-gray-400">
+          <td colspan="11" class="border px-2 py-2 text-center text-xs text-gray-400">
             등록된 거리 정보가 없습니다. [+ 행 추가] 버튼으로 추가하세요.
           </td>
         </tr>
@@ -1072,23 +1072,59 @@ function initBusinessMasterPanel(API_BASE) {
         <td class="border px-1 py-1">
           <input
             type="text"
-            class="w-full border rounded px-1 py-[2px] text-xs from-input"
-            value="${row.from_place ?? ""}"
+            class="w-full border rounded px-1 py-[2px] text-xs region-input"
+            value="${row.region ?? ""}"
           />
         </td>
         <td class="border px-1 py-1">
           <input
             type="text"
-            class="w-full border rounded px-1 py-[2px] text-xs to-input"
-            value="${row.to_place ?? ""}"
+            class="w-full border rounded px-1 py-[2px] text-xs client-input"
+            value="${row.client_name ?? ""}"
+          />
+        </td>
+        <td class="border px-1 py-1">
+          <input
+            type="text"
+            class="w-full border rounded px-1 py-[2px] text-xs site-company-input"
+            value="${row.site_company ?? ""}"
+          />
+        </td>
+        <td class="border px-1 py-1">
+          <input
+            type="text"
+            class="w-full border rounded px-1 py-[2px] text-xs travel-time-input"
+            value="${row.travel_time_text ?? ""}"
+          />
+        </td>
+        <td class="border px-1 py-1">
+          <input
+            type="text"
+            class="w-full border rounded px-1 py-[2px] text-xs person-input"
+            value="${row.person_name ?? ""}"
           />
         </td>
         <td class="border px-1 py-1">
           <input
             type="number"
             step="0.1"
-            class="w-full border rounded px-1 py-[2px] text-right text-xs km-input"
-            value="${row.distance_km ?? ""}"
+            class="w-full border rounded px-1 py-[2px] text-right text-xs home-km-input"
+            value="${row.home_distance_km ?? ""}"
+          />
+        </td>
+        <td class="border px-1 py-1">
+          <input
+            type="number"
+            step="0.1"
+            class="w-full border rounded px-1 py-[2px] text-right text-xs office-km-input"
+            value="${row.office_distance_km ?? ""}"
+          />
+        </td>
+        <td class="border px-1 py-1">
+          <input
+            type="text"
+            class="w-full border rounded px-1 py-[2px] text-xs fuel-input"
+            value="${row.fuel_type ?? ""}"
           />
         </td>
         <td class="border px-1 py-1">
@@ -1121,13 +1157,23 @@ function initBusinessMasterPanel(API_BASE) {
             const row = distanceRows[idx];
             if (!row)
                 return;
-            const fromInput = tr.querySelector(".from-input");
-            const toInput = tr.querySelector(".to-input");
-            const kmInput = tr.querySelector(".km-input");
+            const regionInput = tr.querySelector(".region-input");
+            const clientInput = tr.querySelector(".client-input");
+            const siteCompanyInput = tr.querySelector(".site-company-input");
+            const travelTimeInput = tr.querySelector(".travel-time-input");
+            const personInput = tr.querySelector(".person-input");
+            const homeKmInput = tr.querySelector(".home-km-input");
+            const officeKmInput = tr.querySelector(".office-km-input");
+            const fuelInput = tr.querySelector(".fuel-input");
             const remarkInput = tr.querySelector(".remark-input");
-            row.from_place = fromInput?.value ?? "";
-            row.to_place = toInput?.value ?? "";
-            row.distance_km = parseNumberOrNull(kmInput?.value ?? "");
+            row.region = regionInput?.value ?? "";
+            row.client_name = clientInput?.value ?? "";
+            row.site_company = siteCompanyInput?.value ?? "";
+            row.travel_time_text = travelTimeInput?.value ?? "";
+            row.person_name = personInput?.value ?? "";
+            row.home_distance_km = parseNumberOrNull(homeKmInput?.value ?? "");
+            row.office_distance_km = parseNumberOrNull(officeKmInput?.value ?? "");
+            row.fuel_type = fuelInput?.value ?? "";
             row.remark = remarkInput?.value ?? "";
         });
     }
@@ -1136,8 +1182,8 @@ function initBusinessMasterPanel(API_BASE) {
         syncDistanceFromTable();
         // 필수값 체크
         for (const row of distanceRows) {
-            if (!row.from_place || !row.to_place || row.distance_km == null) {
-                alert("출발지, 도착지, 거리(km)는 모두 입력해야 합니다.");
+            if (!row.client_name || !row.person_name || row.home_distance_km == null) {
+                alert("거래처, 직원 이름, 자택→출장지 거리(km)는 모두 입력해야 합니다.");
                 return;
             }
         }
@@ -1158,9 +1204,14 @@ function initBusinessMasterPanel(API_BASE) {
             // 2) 새 행 / 기존 행 저장
             for (const row of distanceRows) {
                 const payload = {
-                    from_place: row.from_place,
-                    to_place: row.to_place,
-                    distance_km: row.distance_km,
+                    region: row.region,
+                    client_name: row.client_name,
+                    site_company: row.site_company,
+                    travel_time_text: row.travel_time_text,
+                    person_name: row.person_name,
+                    home_distance_km: row.home_distance_km,
+                    office_distance_km: row.office_distance_km,
+                    fuel_type: row.fuel_type,
                     remark: row.remark,
                 };
                 if (row.id == null) {
@@ -1197,9 +1248,14 @@ function initBusinessMasterPanel(API_BASE) {
     function addEmptyRow() {
         distanceRows.push({
             id: null,
-            from_place: "",
-            to_place: "",
-            distance_km: null,
+            region: "",
+            client_name: "",
+            site_company: "",
+            travel_time_text: "",
+            person_name: "",
+            home_distance_km: null,
+            office_distance_km: null,
+            fuel_type: "",
             remark: "",
         });
         renderDistanceTable();
