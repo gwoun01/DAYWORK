@@ -171,7 +171,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
         };
 
         // 🧠 백엔드 /settlement 는 req_name, trip_date, detail_json 전체를 받는다.
-        // 여기서는 기존 register 정보는 그대로 두고 settlement만 덮어쓰기 형태로 전달한다고 가정.
+        // detail_json 안에 settlement 를 넣어서 보내야 함.
         const detail_json = {
             settlement,
         };
@@ -188,7 +188,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
                 body: JSON.stringify({
                     req_name,
                     trip_date,
-                    end_data: settlement,
+                    detail_json, // ✅ 백엔드가 기대하는 구조
                 }),
             });
 

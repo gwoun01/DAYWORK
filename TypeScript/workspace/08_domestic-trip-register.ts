@@ -132,25 +132,7 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
       const data = await res.json().catch(() => null);
       console.log("출장등록 성공 응답:", data);
 
-      // localStorage 갱신 (대시보드용)
-      try {
-        const listKey = "businessTripList";
-        const raw = localStorage.getItem(listKey);
-        let list: any[] = [];
-        if (raw) {
-          list = JSON.parse(raw);
-        }
-        const item = {
-          ...payload,
-          id: Date.now(),
-          status: "예정" as const,
-          created_at: new Date().toISOString(),
-        };
-        list.push(item);
-        localStorage.setItem(listKey, JSON.stringify(list));
-      } catch (e) {
-        console.warn("[출장등록] localStorage businessTripList 갱신 실패:", e);
-      }
+
 
       // 정산 화면에서 참고할 초안 저장
       localStorage.setItem("domesticTripDraft", JSON.stringify(payload));
@@ -185,7 +167,7 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
         showOk: true,
         showCancel: false,
       });
-
+      window.dispatchEvent(new Event("trip-status-refresh"));
       if (continueBtn) continueBtn.classList.add("hidden");
       if (settlementSection) settlementSection.classList.add("hidden");
     } finally {

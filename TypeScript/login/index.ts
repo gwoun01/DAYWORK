@@ -123,10 +123,23 @@ loginForm?.addEventListener("submit", async (e) => {
     }
 
     const data = await res.json();
+    // 백엔드 응답: { id, name, permissions }
+    const id = data.id as string;
+    const name = (data.name as string) ?? "사용자";
+    const permissions: Record<string, string> =
+      (data.permissions as Record<string, string>) ?? {};
+
+    // 전체 유저 정보 저장 (workspace에서 사용)
     localStorage.setItem(
       "user",
-      JSON.stringify({ id: data.id, name: data.name, loginTime: Date.now() })
+      JSON.stringify({
+        id,
+        name,
+        permissions,      // ⬅⬅⬅ 권한 추가
+        loginTime: Date.now(),
+      })
     );
+    // 예전 코드 호환용 (헤더/아바타 표시)
     localStorage.setItem("loginUserId", data.id);
     localStorage.setItem("loginUserName", data.name);
 

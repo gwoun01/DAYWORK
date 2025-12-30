@@ -111,7 +111,18 @@ loginForm?.addEventListener("submit", async (e) => {
             return;
         }
         const data = await res.json();
-        localStorage.setItem("user", JSON.stringify({ id: data.id, name: data.name, loginTime: Date.now() }));
+        // 백엔드 응답: { id, name, permissions }
+        const id = data.id;
+        const name = data.name ?? "사용자";
+        const permissions = data.permissions ?? {};
+        // 전체 유저 정보 저장 (workspace에서 사용)
+        localStorage.setItem("user", JSON.stringify({
+            id,
+            name,
+            permissions, // ⬅⬅⬅ 권한 추가
+            loginTime: Date.now(),
+        }));
+        // 예전 코드 호환용 (헤더/아바타 표시)
         localStorage.setItem("loginUserId", data.id);
         localStorage.setItem("loginUserName", data.name);
         // ✅ 선택된 모드에 따라 페이지 분기

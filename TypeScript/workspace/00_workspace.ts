@@ -1,163 +1,101 @@
-//import { initWorkAssignPanel } from "./01_work-assign";
+// TypeScript/workspace/00_workspace.ts
+
+import { initDashboardTripStatus } from "./01_dashboard-trip-status";
+import { initUserManagePanel } from "./04_user-manage";
 import { initDomesticTripRegisterPanel } from "./08_domestic-trip-register";
 import { initDomesticTripSettlementPanel } from "./09_domestic-trip-settlement";
 import { initDomesticTripHistoryPanel } from "./10_domestic-trip-history";
-
-/** 🔹 REGISTER 쪽에서 localStorage에 넣는 구조랑 맞춰줌 */
-type DomesticTripRegisterPayload = {
-  trip_type: "domestic";
-  req_name: string;
-  depart_place: string;      // 출발지
-  destination: string;       // 출장지(고객사/지역)
-  start_date: string;        // YYYY-MM-DD
-  work_start_time: string;   // HH:mm
-  depart_time: string;       // HH:mm
-  arrive_time: string;       // HH:mm
-  purpose: string;
-};
-
-type StoredBusinessTrip = DomesticTripRegisterPayload & {
-  id: number;
-  status: "예정" | "진행중" | "완료";
-  created_at: string;
-};
 
 const API_BASE =
   location.hostname === "gwoun01.github.io"
     ? "https://outwork.sel3.cloudtype.app"
     : "http://127.0.0.1:5050";
 
-/** 오늘 날짜 YYYY-MM-DD */
-function getTodayYmd(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+// ✅ 로그인할 때 login.ts에서 넣어둔 값 사용
+//   localStorage.setItem("loginUserId", data.id);
+function getLoginUserId(): string {
+  const id = localStorage.getItem("loginUserId");
+  return id || "사용자"; // 없으면 기본 텍스트
+}
+
+/* =====================================================
+   🔹 권한 관련 유틸 (localStorage.user 사용)
+   - login.ts에서 이렇게 저장한다고 가정
+     localStorage.setItem("user", JSON.stringify({
+       id, name, permissions, loginTime
+     }))
+===================================================== */
+
+type LoginUser = {
+  id: string;
+  name?: string;
+  permissions?: Record<string, string>;
+};
+
+/** localStorage 에서 로그인 유저 전체 정보 가져오기 */
+function getLoginUser(): LoginUser | null {
+  const raw = localStorage.getItem("user");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as LoginUser;
+  } catch {
+    return null;
+  }
+}
+
+/** 현재 로그인 유저의 권한 맵만 뽑기 */
+function getUserPermissions(): Record<string, string> {
+  const user = getLoginUser();
+  return user?.permissions ?? {};
+}
+
+/** 패널 ID → permissions 키 매핑 */
+const PANEL_PERM_MAP: Record<string, string> = {
+  "panel-출장승인": "출장승인",
+  "panel-출장내역-관리": "출장내역관리",
+  "panel-국내출장-출장등록": "출장등록",
+  "panel-국내출장-정산서등록": "출장내역",
+  // 👉 대시보드, 사용자 관리 등은 여기 안 넣으면 권한 체크 안 함 (모두 접근 가능)
+};
+
+/** 이 패널에 들어갈 수 있는지? (localStorage.permissions 기준) */
+function canAccessPanel(panelId: string): boolean {
+  const permKey = PANEL_PERM_MAP[panelId];
+
+  // 매핑 안 되어 있으면(대시보드, 사용자관리 등) 권한 체크 없이 통과
+  if (!permKey) return true;
+
+  const perms = getUserPermissions();
+  const value = perms[permKey]; // "ReadWrite" | "ReadOnly" | "NoAccess" | undefined
+
+  // 값이 없거나 NoAccess 면 막기
+  if (!value || value === "NoAccess") {
+    return false;
+  }
+
+  // ReadOnly / ReadWrite → 화면 들어가는 건 허용
+  return true;
 }
 
 /**
- * ✅ 출장자 현황: 로컬스토리지에서 읽어서 표(tbody)에 로딩
- * - No | 이름 | 고객사 | 출발시간 | 도착시간 | 상태(출장 고정)
+ * 패널 전환(사이드 메뉴 → 메인 패널, 제목 바꾸기)
  */
-async function renderTripStatusTable(date?: string) {
-  const tbody = document.getElementById("tripStatusTbody");
-  const label = document.getElementById("tripStatusDateLabel");
-
-  if (!tbody) return;
-
-  const today = getTodayYmd();
-  const baseDate = date || today;
-
-  if (label) label.textContent = date ? date : "오늘";
-
-  tbody.innerHTML = `
-    <tr>
-      <td colspan="6" class="border px-2 py-3 text-center text-xs text-gray-400">
-        데이터 로딩 중...
-      </td>
-    </tr>
-  `;
-
-  // 🔹 1) 로컬에서 리스트 읽기
-  const listKey = "businessTripList";
-  const storedRaw = localStorage.getItem(listKey);
-
-  let list: StoredBusinessTrip[] = [];
-  if (storedRaw) {
-    try {
-      list = JSON.parse(storedRaw) as StoredBusinessTrip[];
-    } catch (e) {
-      console.error("[대시보드] businessTripList JSON 파싱 실패:", e);
-      list = [];
-    }
-  }
-
-  // 🔹 2) 기준 날짜 + 국내출장만 필터
-  const items = list.filter(
-    (t) => t.start_date === baseDate && t.trip_type === "domestic"
-  );
-
-  if (items.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="6" class="border px-2 py-3 text-center text-xs text-gray-400">
-          등록된 출장 데이터가 없습니다.
-        </td>
-      </tr>
-    `;
-    return;
-  }
-
-  tbody.innerHTML = "";
-
-  items.forEach((it, idx) => {
-    const tr = document.createElement("tr");
-    tr.className = "border-t text-xs text-gray-700";
-
-    const customer = it.destination || "-";
-    const depart = it.depart_time || "-";
-    const arrive = it.arrive_time || "-";
-
-    // ✅ 상태는 "출장" 고정
-    const statusHtml =
-      `<span class="px-2 py-[2px] rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-bold">출장</span>`;
-
-    tr.innerHTML = `
-      <td class="border px-2 py-2 text-center">${idx + 1}</td>
-      <td class="border px-2 py-2 text-center font-semibold">${it.req_name || "-"}</td>
-      <td class="border px-2 py-2 text-center">${customer}</td>
-      <td class="border px-2 py-2 text-center">${depart}</td>
-      <td class="border px-2 py-2 text-center">${arrive}</td>
-      <td class="border px-2 py-2 text-center">${statusHtml}</td>
-    `;
-
-    tbody.appendChild(tr);
-  });
-}
-
-/**
- * ✅ 오늘 출장 인원 KPI 업데이트
- * - localStorage businessTripList 기준으로 개수 세기
- */
-async function updateKpiTripToday(date?: string) {
-  const elTrip = document.getElementById("kpiTripToday");
-  if (!elTrip) return;
-
-  const today = getTodayYmd();
-  const baseDate = date || today;
-
-  const listKey = "businessTripList";
-  const storedRaw = localStorage.getItem(listKey);
-
-  let list: StoredBusinessTrip[] = [];
-  if (storedRaw) {
-    try {
-      list = JSON.parse(storedRaw) as StoredBusinessTrip[];
-    } catch (e) {
-      console.error("[대시보드] businessTripList JSON 파싱 실패:", e);
-      list = [];
-    }
-  }
-
-  const todays = list.filter(
-    (t) => t.start_date === baseDate && t.trip_type === "domestic"
-  );
-
-  elTrip.textContent = String(todays.length);
-}
-
 function initLocalTabNavigation() {
   const navButtons = document.querySelectorAll<HTMLButtonElement>(".nav-btn");
   const panels = document.querySelectorAll<HTMLElement>('[id^="panel-"]');
-  const titleEl = document.getElementById("wsTitle") as HTMLHeadingElement | null;
+  const titleEl = document.getElementById("wsTitle") as
+    | HTMLHeadingElement
+    | null;
 
   function showPanel(id: string) {
+    // 모든 패널 숨기고
     panels.forEach((p) => p.classList.add("hidden"));
 
+    // 대상 패널만 보이기
     const target = document.getElementById(id);
     if (target) target.classList.remove("hidden");
 
+    // 사이드 버튼 스타일 토글
     navButtons.forEach((btn) => {
       const active = btn.dataset.panel === id;
       btn.classList.toggle("bg-[#7ce92f]", active);
@@ -165,6 +103,7 @@ function initLocalTabNavigation() {
       btn.classList.toggle("font-bold", active);
     });
 
+    // 상단 제목 변경
     const curBtn = document.querySelector<HTMLButtonElement>(
       `.nav-btn[data-panel="${id}"]`
     );
@@ -173,7 +112,7 @@ function initLocalTabNavigation() {
     }
   }
 
-  // ✅ 기본 패널은 대시보드
+  // 기본은 대시보드
   showPanel("panel-dashboard");
   return showPanel;
 }
@@ -181,24 +120,50 @@ function initLocalTabNavigation() {
 // ==============================================================
 // 🔵 메인 초기화
 // ==============================================================
-
 document.addEventListener("DOMContentLoaded", async () => {
-  console.debug("[INIT] DOMContentLoaded 시작");
+  console.debug("[INIT] workspace DOMContentLoaded");
 
-  const showPanel = initLocalTabNavigation();
+  // 1) 로그인한 아이디 헤더에 표시 + 아바타 텍스트
+  const userId = getLoginUserId(); // 예) "권택선"
 
-  // ✅ 등록/정산 쪽에서
-  //    window.dispatchEvent(new Event("trip-status-refresh"));
-  //    호출하면 여기서 대시보드를 다시 그림
-  window.addEventListener("trip-status-refresh", () => {
-    console.debug("[EVENT] trip-status-refresh → 대시보드 갱신");
-    renderTripStatusTable();
-    updateKpiTripToday();
+  const userNameEl = document.getElementById("userName");
+  const avatarEl = document.getElementById("avatar");
+  const logoutBtn = document.getElementById("logoutBtn");
+
+  if (userNameEl) {
+    userNameEl.textContent = userId; // 🔹 헤더에 "사용자" 대신 아이디
+  }
+  if (avatarEl) {
+    avatarEl.textContent = userId.slice(0, 2); // 앞 2글자 정도만 동그라미 안에
+  }
+
+  // 2) 로그아웃 버튼
+  logoutBtn?.addEventListener("click", async () => {
+    try {
+      // 세션 쿠키 정리용 (백엔드에 /api/logout 있으면 사용, 없으면 그냥 넘어감)
+      await fetch(`${API_BASE}/api/logout`, {
+        method: "POST",
+        credentials: "include",
+      }).catch(() => {});
+    } finally {
+      // 로컬 저장된 로그인 정보 삭제
+      localStorage.removeItem("loginUserId");
+      localStorage.removeItem("loginUserName");
+      localStorage.removeItem("user");
+      sessionStorage.clear();
+
+      // 로그인 페이지로 이동 (파일 이름에 맞게 수정)
+      window.location.href = "index.html";
+    }
   });
 
-  // ❌ (기존에 있던 open-trip-settlement 이벤트는 이제 안 씀)
-  // window.addEventListener("open-trip-settlement", ... ) 부분 제거
+  // 3) 패널 네비게이션 세팅
+  const showPanel = initLocalTabNavigation();
 
+  // 4) 대시보드(출장자 현황 + KPI) 초기화 → 서버와 연결
+  initDashboardTripStatus(API_BASE);
+
+  // 5) 사이드바에서 패널 이동
   const sidebarButtons =
     document.querySelectorAll<HTMLButtonElement>("#sidebar [data-panel]");
 
@@ -207,33 +172,44 @@ document.addEventListener("DOMContentLoaded", async () => {
       const id = btn.dataset.panel;
       if (!id) return;
 
-      showPanel(id);
-
-      // ✅ 대시보드 버튼 눌렀을 때도 항상 최신 로컬 데이터 다시 가져오기
-      if (id === "panel-dashboard") {
-        await renderTripStatusTable();
-        await updateKpiTripToday();
+      // ✅  먼저 권한 체크
+      if (!canAccessPanel(id)) {
+        alert("이 메뉴에 대한 접근 권한이 없습니다.");
+        return;
       }
 
-      // ✅ 국내출장 - 출장등록 클릭 시
-      //    → 등록 + 정산 패널 둘 다 초기화 (이때 bt_save에 이벤트가 걸림)
+      // ✅ 권한 OK → 패널 전환
+      showPanel(id);
+
+      // 대시보드 탭 클릭 → 항상 최신 데이터로 새로고침
+      if (id === "panel-dashboard") {
+        window.dispatchEvent(new Event("trip-status-refresh"));
+      }
+
+      // 사용자 관리 탭
+      if (id === "panel-사용자-관리") {
+        await initUserManagePanel(API_BASE);
+        console.log("[INIT] 사용자-관리 init 완료");
+      }
+
+      // 국내출장 - 출장등록 패널 → 등록 + 정산 패널 초기화
       if (id === "panel-국내출장-출장등록") {
         await initDomesticTripRegisterPanel(API_BASE);
         await initDomesticTripSettlementPanel(API_BASE);
-        console.log("국내출장-출장등록 & 정산 init 완료");
+        console.log("[INIT] 국내출장-출장등록 & 정산 패널 init 완료");
       }
 
-      // ✅ 국내출장 - 출장내역(정산 내역 조회)
+      // 국내출장 - 출장내역(정산 내역 조회)
       if (id === "panel-국내출장-정산서등록") {
         await initDomesticTripHistoryPanel(API_BASE);
-        console.log("국내출장-정산내역 조회 init 완료");
+        console.log("[INIT] 국내출장-정산 내역 조회 패널 init 완료");
       }
     });
   });
 
-  // ✅ 최초 로딩(오늘 기준): 표 + KPI
-  await renderTripStatusTable();
-  await updateKpiTripToday();
+  // 6) 처음 진입: 대시보드 패널 + 오늘 데이터 로딩
+  showPanel("panel-dashboard");
+  window.dispatchEvent(new Event("trip-status-refresh"));
 
   console.debug("[INIT] workspace 초기화 완료");
 });

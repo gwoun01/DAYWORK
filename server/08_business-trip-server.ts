@@ -1,3 +1,4 @@
+// src/routers/businessTripRouter.ts (예시 경로)
 import express from "express";
 import type { Pool } from "pg";
 
@@ -5,7 +6,7 @@ export default function businessTripRouter(pool: Pool) {
   const router = express.Router();
 
   /* ============================
-    국내출장 등록 저장 → start_data + detail_json.register
+    1) 국내출장 등록 → start_data + detail_json.register
   =============================*/
   router.post("/domestic", async (req, res) => {
     const {
@@ -60,6 +61,7 @@ export default function businessTripRouter(pool: Pool) {
           req_name,
           trip_date,
           start_data,
+          end_data,
           detail_json,
           created_at
         )
@@ -68,6 +70,7 @@ export default function businessTripRouter(pool: Pool) {
           $2,
           $3,
           $4::jsonb,
+          NULL,
           jsonb_build_object('register', $4::jsonb),
           NOW()
         )
@@ -84,12 +87,7 @@ export default function businessTripRouter(pool: Pool) {
         RETURNING *;
       `;
 
-      const params = [
-        trip_id,
-        req_name,
-        trip_date,
-        JSON.stringify(startData),
-      ];
+      const params = [trip_id, req_name, trip_date, JSON.stringify(startData)];
 
       console.log("[DOMESTIC] SQL params =", params);
 
@@ -105,14 +103,10 @@ export default function businessTripRouter(pool: Pool) {
   });
 
   /* ============================
-     이어 정산 저장 → end_data + detail_json.settlement
-     - 09_domestic-trip-settlement.ts 에서
-       body: { req_name, trip_date, detail_json: { settlement: {...} } }
-       형태로 보내는 것과 맞춤
+      2) 이어 정산 저장 → end_data + detail_json(= start + end 합본)
   =============================*/
   router.post("/settlement", async (req, res) => {
     const { req_name, trip_date, detail_json } = req.body ?? {};
-
     const settlement = detail_json?.settlement;
 
     if (!req_name || !trip_date || !settlement) {
@@ -122,8 +116,6 @@ export default function businessTripRouter(pool: Pool) {
     }
 
     const trip_id = `${req_name}|${trip_date}`;
-
-    // 👉 end_data 에는 settlement 내용 그대로
     const endData = settlement;
 
     try {
@@ -132,6 +124,7 @@ export default function businessTripRouter(pool: Pool) {
           trip_id,
           req_name,
           trip_date,
+          start_data,
           end_data,
           detail_json,
           created_at
@@ -140,29 +133,26 @@ export default function businessTripRouter(pool: Pool) {
           $1,
           $2,
           $3,
+          '{}'::jsonb,
           $4::jsonb,
-          jsonb_build_object('settlement', $4::jsonb),
+          jsonb_build_object(
+            'register', '{}'::jsonb,
+            'settlement', $4::jsonb
+          ),
           NOW()
         )
         ON CONFLICT (req_name, trip_date)
         DO UPDATE SET
           trip_id  = EXCLUDED.trip_id,
           end_data = EXCLUDED.end_data,
-          detail_json = jsonb_set(
-            COALESCE(business_trips.detail_json, '{}'::jsonb),
-            '{settlement}',
-            EXCLUDED.end_data,
-            true
+          detail_json = jsonb_build_object(
+            'register', COALESCE(business_trips.start_data, '{}'::jsonb),
+            'settlement', EXCLUDED.end_data
           )
         RETURNING *;
       `;
 
-      const params = [
-        trip_id,
-        req_name,
-        trip_date,
-        JSON.stringify(endData),
-      ];
+      const params = [trip_id, req_name, trip_date, JSON.stringify(endData)];
 
       console.log("[SETTLEMENT] SQL params =", params);
 
@@ -178,8 +168,7 @@ export default function businessTripRouter(pool: Pool) {
   });
 
   /* =====================================================
-     날짜로 출장정보 불러오기 (조회용)
-     - 등록/정산 다시 불러올 때 사용 가능
+     3) 날짜로 출장정보 1건 조회 (등록/정산 화면에서 재조회용)
   ===================================================== */
   router.get("/by-date", async (req, res) => {
     const date = String(req.query.date ?? "").trim();
@@ -216,12 +205,11 @@ export default function businessTripRouter(pool: Pool) {
   });
 
   /* =====================================================
-     출장자 현황 조회 (목록)
-     - 대시보드에서 /api/business-trip/status 호출
-     - detail_json.register, detail_json.settlement 기준
+     4) 대시보드용 출장자 현황 (/api/business-trip/status)
+        👉 여기서 **start_data** 값만 써서
+           고객사/출발시간/도착시간/출발지 를 내려줌
   ===================================================== */
   router.get("/status", async (req, res) => {
-    // ?date=YYYY-MM-DD (없으면 오늘)
     const date = String(req.query.date ?? "").trim();
 
     try {
@@ -231,6 +219,8 @@ export default function businessTripRouter(pool: Pool) {
           trip_id,
           req_name,
           trip_date,
+          start_data,
+          end_data,
           detail_json,
           created_at
         FROM business_trips
@@ -240,26 +230,37 @@ export default function businessTripRouter(pool: Pool) {
         [date || null]
       );
 
-      // 화면에서 쓰기 좋게 가공
-      const items = result.rows.map((row) => {
-        const register = row.detail_json?.register ?? {};
-        const settlement = row.detail_json?.settlement ?? {};
+      console.log("[STATUS] raw rows =", result.rows);
 
-        return {
+      const items = result.rows.map((row) => {
+        // ✅ start_data 우선, 없으면 detail_json.register
+        const start =
+          row.start_data && Object.keys(row.start_data).length > 0
+            ? row.start_data
+            : row.detail_json?.register ?? {};
+
+        // ✅ end_data 우선, 없으면 detail_json.settlement
+        const end =
+          row.end_data && Object.keys(row.end_data).length > 0
+            ? row.end_data
+            : row.detail_json?.settlement ?? {};
+
+        const item = {
           trip_id: row.trip_id,
           req_name: row.req_name,
           trip_date: row.trip_date,
-          depart_place: register.depart_place ?? "",
-          destination: register.destination ?? "",
-          depart_time: register.depart_time ?? "",
-          // work_start_time 은 이제 안 쓰지만, 타입 맞추기용으로 남겨둠
-          work_start_time: register.work_start_time ?? "",
-          arrive_time: register.arrive_time ?? "",
+
+          depart_place: start.depart_place ?? "",
+          destination:  start.destination  ?? "",
+          depart_time:  start.depart_time  ?? "",
+          arrive_time:  start.arrive_time  ?? "",
+
           status:
-            Object.keys(settlement).length > 0
-              ? "SETTLED"
-              : "REGISTERED",
+            end && Object.keys(end).length > 0 ? "SETTLED" : "REGISTERED",
         };
+
+        console.log("[STATUS] mapped item =", item);
+        return item;
       });
 
       return res.json({ ok: true, data: items });
@@ -270,15 +271,12 @@ export default function businessTripRouter(pool: Pool) {
   });
 
   /* =====================================================
-     ✅ 정산 내역 기간 조회
-     - GET /api/business-trip/settlements-range
-       ?from=YYYY-MM-DD&to=YYYY-MM-DD&req_name=홍길동(옵션)
-     - 10_domestic-trip-history.ts 에서 사용
+     5) 정산 내역 기간 조회
   ===================================================== */
   router.get("/settlements-range", async (req, res) => {
     const from = String(req.query.from ?? "").trim();
     const to = String(req.query.to ?? "").trim();
-    const reqName = String(req.query.req_name ?? "").trim(); // 옵션: 특정 직원만
+    const reqName = String(req.query.req_name ?? "").trim(); // 옵션
 
     if (!from || !to) {
       return res.status(400).json({
@@ -302,6 +300,8 @@ export default function businessTripRouter(pool: Pool) {
           trip_id,
           req_name,
           trip_date,
+          start_data,
+          end_data,
           detail_json,
           created_at
         FROM business_trips

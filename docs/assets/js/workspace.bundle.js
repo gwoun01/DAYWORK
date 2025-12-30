@@ -2,6 +2,523 @@
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
+/***/ "./TypeScript/workspace/01_dashboard-trip-status.ts":
+/*!**********************************************************!*\
+  !*** ./TypeScript/workspace/01_dashboard-trip-status.ts ***!
+  \**********************************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   initDashboardTripStatus: () => (/* binding */ initDashboardTripStatus)
+/* harmony export */ });
+// TypeScript/workspace/01_dashboard-trip-status.ts
+/**
+ * 📌 대시보드 - 출장자 현황 + 오늘 출장 인원
+ *  - 백엔드 /api/business-trip/status 에서 읽어옴
+ *  - 08 / 09 파일에서 window.dispatchEvent("trip-status-refresh") 날리면 여기서 다시 로딩
+ */
+function initDashboardTripStatus(API_BASE) {
+    const kpiTripEl = document.getElementById("kpiTripToday");
+    const tbody = document.getElementById("tripStatusTbody");
+    const dateLabel = document.getElementById("tripStatusDateLabel");
+    const searchInput = document.getElementById("tripSearchInput");
+    const filterSelect = document.getElementById("tripFilterType");
+    const reloadBtn = document.getElementById("btnTripReload");
+    // 🔹 필수 DOM 없으면 그냥 종료
+    if (!kpiTripEl || !tbody) {
+        console.warn("[대시보드] 출장자 현황용 요소를 찾지 못했습니다.");
+        return;
+    }
+    // 👉 여기서부터는 tbody 가 null 이 아니라고 확정된 상태
+    const tbodyEl = tbody;
+    let lastItems = [];
+    let currentDate; // YYYY-MM-DD (없으면 오늘)
+    // -----------------------------
+    // 🔹 테이블 렌더 함수
+    // -----------------------------
+    function renderTable() {
+        const keyword = (searchInput?.value ?? "").trim().toLowerCase();
+        const filter = filterSelect?.value ?? "all";
+        let items = lastItems.slice();
+        // (1) 종류 필터: 지금은 전부 국내 출장이라 all/domestic 만 사용
+        if (filter === "overseas" || filter === "inhouse") {
+            items = [];
+        }
+        // (2) 검색어 필터: 이름 / 고객사 / 출발지
+        if (keyword) {
+            items = items.filter((it) => {
+                const name = it.req_name?.toLowerCase() ?? "";
+                const dest = it.destination?.toLowerCase() ?? "";
+                const place = it.depart_place?.toLowerCase() ?? "";
+                return (name.includes(keyword) ||
+                    dest.includes(keyword) ||
+                    place.includes(keyword));
+            });
+        }
+        if (items.length === 0) {
+            tbodyEl.innerHTML = `
+        <tr>
+          <td colspan="6" class="border px-2 py-3 text-center text-xs text-gray-400">
+            등록된 출장 데이터가 없습니다.
+          </td>
+        </tr>
+      `;
+            return;
+        }
+        tbodyEl.innerHTML = "";
+        items.forEach((it, idx) => {
+            const tr = document.createElement("tr");
+            tr.className = "border-t text-xs text-gray-700";
+            const customer = it.destination || "-";
+            const depart = it.depart_time || "-";
+            const arrive = it.arrive_time || "-";
+            const statusLabel = it.status === "SETTLED"
+                ? `<span class="px-2 py-[2px] rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold">정산완료</span>`
+                : `<span class="px-2 py-[2px] rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-bold">출장중</span>`;
+            tr.innerHTML = `
+        <td class="border px-2 py-2 text-center">${idx + 1}</td>
+        <td class="border px-2 py-2 text-center font-semibold">${it.req_name || "-"}</td>
+        <td class="border px-2 py-2 text-center">${customer}</td>
+        <td class="border px-2 py-2 text-center">${depart}</td>
+        <td class="border px-2 py-2 text-center">${arrive}</td>
+        <td class="border px-2 py-2 text-center">${statusLabel}</td>
+      `;
+            tbodyEl.appendChild(tr);
+        });
+    }
+    // -----------------------------
+    // 🔹 서버에서 데이터 로딩
+    // -----------------------------
+    async function loadTripStatus(date) {
+        currentDate = date;
+        if (dateLabel) {
+            dateLabel.textContent = date ?? "오늘";
+        }
+        tbodyEl.innerHTML = `
+      <tr>
+        <td colspan="6" class="border px-2 py-3 text-center text-xs text-gray-400">
+          데이터 로딩 중...
+        </td>
+      </tr>
+    `;
+        try {
+            const params = new URLSearchParams();
+            if (date)
+                params.set("date", date);
+            const url = params.toString().length > 0
+                ? `${API_BASE}/api/business-trip/status?${params.toString()}`
+                : `${API_BASE}/api/business-trip/status`;
+            const res = await fetch(url);
+            if (!res.ok) {
+                console.error("[대시보드] /status 응답 오류:", res.status);
+                tbodyEl.innerHTML = `
+          <tr>
+            <td colspan="6" class="border px-2 py-3 text-center text-xs text-red-500">
+              서버 오류: HTTP ${res.status}
+            </td>
+          </tr>
+        `;
+                return;
+            }
+            const json = await res.json().catch(() => null);
+            console.log("[대시보드] status 응답 =", json);
+            const rows = json?.data ?? [];
+            lastItems = rows;
+            // KPI: 오늘 출장 인원 = 행 개수
+            kpiTripEl.textContent = String(rows.length);
+            renderTable();
+        }
+        catch (err) {
+            console.error("[대시보드] 출장자 현황 로딩 실패:", err);
+            tbodyEl.innerHTML = `
+        <tr>
+          <td colspan="6" class="border px-2 py-3 text-center text-xs text-red-500">
+            데이터 로딩 중 오류가 발생했습니다.
+          </td>
+        </tr>
+      `;
+        }
+    }
+    // -----------------------------
+    // 🔹 이벤트 바인딩
+    // -----------------------------
+    searchInput?.addEventListener("input", () => {
+        renderTable();
+    });
+    filterSelect?.addEventListener("change", () => {
+        renderTable();
+    });
+    reloadBtn?.addEventListener("click", () => {
+        loadTripStatus(currentDate);
+    });
+    // ✅ 다른 화면(등록/정산)에서 이벤트 쏘면 여기서 다시 로딩
+    window.addEventListener("trip-status-refresh", () => {
+        loadTripStatus(currentDate);
+    });
+    // ✅ 최초 한 번 로딩 (오늘 기준)
+    loadTripStatus();
+}
+
+
+/***/ }),
+
+/***/ "./TypeScript/workspace/04_user-manage.ts":
+/*!************************************************!*\
+  !*** ./TypeScript/workspace/04_user-manage.ts ***!
+  \************************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   initUserManagePanel: () => (/* binding */ initUserManagePanel)
+/* harmony export */ });
+// 04_user-manage.ts
+const PERM_KEYS = ["출장승인", "출장내역관리", "출장등록", "출장내역"];
+/** 서버에서 온 row(any 형태)를 InnomaxUser 로 변환 */
+function mapRawUser(row) {
+    return {
+        no: Number(row.no ?? row.No ?? 0),
+        id: String(row.id ?? row.ID ?? ""),
+        name: String(row.name ?? row.Name ?? ""),
+        email: row.email ?? null,
+        company_part: row.company_part ?? null,
+        // permissions: jsonb / text / null 어떤 형태로 와도 처리
+        permissions: (() => {
+            let perms = row.permissions ?? null;
+            if (!perms)
+                return null;
+            if (typeof perms === "string") {
+                try {
+                    perms = JSON.parse(perms);
+                }
+                catch {
+                    return null;
+                }
+            }
+            if (typeof perms === "object" && !Array.isArray(perms)) {
+                return perms;
+            }
+            return null;
+        })(),
+    };
+}
+/** 폼의 permission select 값들 → 객체로 모으기 */
+function collectPermissionsFromForm() {
+    const perms = {};
+    PERM_KEYS.forEach((key) => {
+        const el = document.getElementById(key);
+        if (el)
+            perms[key] = el.value;
+    });
+    return perms;
+}
+/** 폼 select 들을 주어진 permission 값으로 채우기 */
+function fillPermissionSelects(perms) {
+    PERM_KEYS.forEach((key) => {
+        const el = document.getElementById(key);
+        if (!el)
+            return;
+        const v = perms?.[key];
+        if (v)
+            el.value = v;
+        else
+            el.value = "ReadWrite"; // 기본값
+    });
+}
+/** 👁 버튼용 비밀번호 표시/숨기기 */
+function togglePassword() {
+    const input = document.getElementById("modalPassword");
+    if (!input)
+        return;
+    input.type = input.type === "password" ? "text" : "password";
+}
+// HTML에서 onclick="togglePassword()" 쓸 수 있게 전역에 올리기
+window.togglePassword = togglePassword;
+function initUserManagePanel(API_BASE) {
+    console.log("[사용자관리] initUserManagePanel 시작");
+    const tbodyEl = document.getElementById("userTableBody");
+    const userModal = document.getElementById("userModal");
+    const userForm = document.getElementById("userForm");
+    const modalTitle = document.getElementById("modalTitle");
+    const modalMode = document.getElementById("modalMode"); // add / edit
+    const modalNo = document.getElementById("modalNo");
+    const inputName = document.getElementById("modalName");
+    const inputID = document.getElementById("modalID");
+    const inputPassword = document.getElementById("modalPassword");
+    const inputEmail = document.getElementById("modalEmail");
+    const inputCompany = document.getElementById("modalCompanyPart");
+    const btnAdd = document.getElementById("userAddBtn");
+    const btnModalClose = document.getElementById("userModalCancelBtn"); // 모달 안 "취소" 버튼
+    // 필수 DOM 없으면 초기화 스킵
+    if (!tbodyEl || !userModal || !userForm) {
+        console.warn("[사용자관리] 필수 DOM 요소를 찾지 못했습니다. (tbodyEl, userModal, userForm 중 하나 없음)");
+        return;
+    }
+    const tbody = tbodyEl;
+    // 이미 초기화된 경우 또 하지 않기 (사이드바 이동 시 중복 방지)
+    if (tbody._bound) {
+        console.debug("[사용자관리] 이미 초기화된 상태이므로 다시 바인딩하지 않음");
+        return;
+    }
+    tbody._bound = true;
+    /** 모달 열기 */
+    function openModal(mode, user) {
+        if (!userModal || !modalMode || !modalTitle)
+            return;
+        modalMode.value = mode;
+        if (mode === "add") {
+            modalTitle.textContent = "사용자 추가";
+            if (modalNo)
+                modalNo.value = "";
+            if (inputID)
+                inputID.value = "";
+            if (inputName)
+                inputName.value = "";
+            if (inputPassword)
+                inputPassword.value = "";
+            if (inputEmail)
+                inputEmail.value = "";
+            if (inputCompany)
+                inputCompany.value = "이노맥스";
+            fillPermissionSelects(null);
+        }
+        else {
+            modalTitle.textContent = "사용자 수정";
+            if (user && modalNo)
+                modalNo.value = String(user.no);
+            if (inputID)
+                inputID.value = user?.id ?? "";
+            if (inputName)
+                inputName.value = user?.name ?? "";
+            if (inputPassword)
+                inputPassword.value = ""; // 수정 시에만 입력
+            if (inputEmail)
+                inputEmail.value = user?.email ?? "";
+            if (inputCompany)
+                inputCompany.value = user?.company_part ?? "이노맥스";
+            fillPermissionSelects(user?.permissions ?? {});
+        }
+        userModal.classList.remove("hidden");
+    }
+    /** 모달 닫기 */
+    function closeModal() {
+        if (!userModal)
+            return;
+        userModal.classList.add("hidden");
+    }
+    // 모달 "취소" 버튼
+    btnModalClose?.addEventListener("click", () => {
+        closeModal();
+    });
+    // 상단 "사용자 추가" 버튼
+    console.log("[사용자관리] userAddBtn =", btnAdd);
+    btnAdd?.addEventListener("click", () => {
+        console.log("[사용자관리] 추가 버튼 클릭");
+        openModal("add");
+    });
+    /** 사용자 목록 다시 로딩 */
+    async function loadUsers() {
+        tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="px-3 py-2 text-center text-xs text-gray-400">
+          사용자 목록 로딩 중...
+        </td>
+      </tr>
+    `;
+        try {
+            const res = await fetch(`${API_BASE}/api/users`, {
+                credentials: "include",
+            });
+            if (!res.ok) {
+                throw new Error(`status = ${res.status}`);
+            }
+            const rows = await res.json();
+            console.log("[사용자관리] 서버 응답 =", rows);
+            const users = Array.isArray(rows)
+                ? rows.map(mapRawUser)
+                : [];
+            if (!users.length) {
+                tbody.innerHTML = `
+          <tr>
+            <td colspan="8" class="px-3 py-2 text-center text-xs text-gray-400">
+              등록된 사용자가 없습니다.
+            </td>
+          </tr>
+        `;
+                return;
+            }
+            tbody.innerHTML = "";
+            users.forEach((u, idx) => {
+                const tr = document.createElement("tr");
+                tr.className = "divide-y divide-gray-200 text-xs";
+                // 권한 텍스트 만들기
+                let permText = "권한없음";
+                if (u.permissions) {
+                    const parts = Object.entries(u.permissions).map(([k, v]) => `${k}:${v}`);
+                    permText = parts.join(", ");
+                }
+                tr.innerHTML = `
+          <td class="px-3 py-2">${idx + 1}</td>
+          <td class="px-3 py-2">${u.name}</td>
+          <td class="px-3 py-2">${u.id}</td>
+          <td class="px-3 py-2">****</td>
+          <td class="px-3 py-2">${u.email ?? ""}</td>
+          <td class="px-3 py-2">${u.company_part ?? ""}</td>
+          <td class="px-3 py-2 text-center">${permText}</td>
+          <td class="px-3 py-2 text-center space-x-1">
+            <button 
+              class="px-2 py-1 rounded bg-indigo-500 text-white text-[11px] btn-edit-user"
+              data-no="${u.no}">
+              수정
+            </button>
+            <button 
+              class="px-2 py-1 rounded bg-red-500 text-white text-[11px] btn-del-user"
+              data-no="${u.no}">
+              삭제
+            </button>
+          </td>
+        `;
+                tbody.appendChild(tr);
+            });
+        }
+        catch (err) {
+            console.error("[사용자관리] 목록 로딩 실패:", err);
+            tbody.innerHTML = `
+        <tr>
+          <td colspan="8" class="px-3 py-2 text-center text-xs text-red-500">
+            목록 로딩 중 오류가 발생했습니다.
+          </td>
+        </tr>
+      `;
+        }
+    }
+    /** 테이블에서 수정/삭제 버튼 클릭 처리 (이벤트 위임) */
+    tbody.addEventListener("click", async (e) => {
+        const target = e.target;
+        if (!target)
+            return;
+        // 수정 버튼
+        if (target.classList.contains("btn-edit-user")) {
+            const no = target.dataset.no;
+            if (!no)
+                return;
+            try {
+                const res = await fetch(`${API_BASE}/api/users/${no}`, {
+                    credentials: "include",
+                });
+                if (!res.ok) {
+                    alert("사용자 정보를 불러올 수 없습니다.");
+                    return;
+                }
+                const raw = await res.json();
+                const user = mapRawUser(raw);
+                openModal("edit", user);
+            }
+            catch (err) {
+                console.error("[사용자관리] 단일 조회 실패:", err);
+            }
+        }
+        // 삭제 버튼
+        if (target.classList.contains("btn-del-user")) {
+            const no = target.dataset.no;
+            if (!no)
+                return;
+            if (!confirm("정말 이 사용자를 삭제하시겠습니까?"))
+                return;
+            try {
+                const res = await fetch(`${API_BASE}/api/users/${no}`, {
+                    method: "DELETE",
+                    credentials: "include",
+                });
+                if (!res.ok) {
+                    alert("삭제 실패");
+                    return;
+                }
+                await loadUsers();
+            }
+            catch (err) {
+                console.error("[사용자관리] 삭제 실패:", err);
+                alert("삭제 중 오류가 발생했습니다.");
+            }
+        }
+    });
+    /** 모달 안의 form submit → 추가 또는 수정 */
+    userForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const mode = modalMode?.value === "edit" ? "edit" : "add";
+        const no = modalNo?.value;
+        const id = inputID?.value.trim() ?? "";
+        const name = inputName?.value.trim() ?? "";
+        const password = inputPassword?.value.trim() ?? "";
+        const email = inputEmail?.value.trim() || null;
+        const company_part = inputCompany?.value.trim() || null;
+        const permissions = collectPermissionsFromForm();
+        if (!id || !name || (mode === "add" && !password)) {
+            alert("ID, 이름, 비밀번호(추가 시)는 필수입니다.");
+            return;
+        }
+        try {
+            if (mode === "add") {
+                const res = await fetch(`${API_BASE}/api/users`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        // ⚠️ 백엔드가 아직 Name/ID를 기대할 수 있어서 그대로 유지
+                        Name: name,
+                        ID: id,
+                        password,
+                        email,
+                        company_part,
+                        permissions,
+                    }),
+                });
+                const json = await res.json();
+                if (!res.ok || json.ok === false) {
+                    alert(json.error || "사용자 추가 실패");
+                    return;
+                }
+            }
+            else {
+                if (!no) {
+                    alert("수정 대상 사용자를 찾을 수 없습니다.");
+                    return;
+                }
+                const payload = {
+                    Name: name,
+                    ID: id,
+                    email,
+                    company_part,
+                    permissions,
+                };
+                if (password)
+                    payload.password = password; // 비밀번호 입력했을 때만 변경
+                const res = await fetch(`${API_BASE}/api/users/${no}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                const json = await res.json();
+                if (!res.ok || json.ok === false) {
+                    alert(json.error || "사용자 수정 실패");
+                    return;
+                }
+            }
+            closeModal();
+            await loadUsers();
+        }
+        catch (err) {
+            console.error("[사용자관리] 저장 실패:", err);
+            alert("저장 중 오류가 발생했습니다.");
+        }
+    });
+    // 처음 한 번 목록 로딩
+    loadUsers();
+}
+
+
+/***/ }),
+
 /***/ "./TypeScript/workspace/08_domestic-trip-register.ts":
 /*!***********************************************************!*\
   !*** ./TypeScript/workspace/08_domestic-trip-register.ts ***!
@@ -125,26 +642,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
             }
             const data = await res.json().catch(() => null);
             console.log("출장등록 성공 응답:", data);
-            // localStorage 갱신 (대시보드용)
-            try {
-                const listKey = "businessTripList";
-                const raw = localStorage.getItem(listKey);
-                let list = [];
-                if (raw) {
-                    list = JSON.parse(raw);
-                }
-                const item = {
-                    ...payload,
-                    id: Date.now(),
-                    status: "예정",
-                    created_at: new Date().toISOString(),
-                };
-                list.push(item);
-                localStorage.setItem(listKey, JSON.stringify(list));
-            }
-            catch (e) {
-                console.warn("[출장등록] localStorage businessTripList 갱신 실패:", e);
-            }
             // 정산 화면에서 참고할 초안 저장
             localStorage.setItem("domesticTripDraft", JSON.stringify(payload));
             resultBox.textContent = "✅ 출장 등록 완료 (서버 저장 완료)";
@@ -174,6 +671,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 showOk: true,
                 showCancel: false,
             });
+            window.dispatchEvent(new Event("trip-status-refresh"));
             if (continueBtn)
                 continueBtn.classList.add("hidden");
             if (settlementSection)
@@ -350,7 +848,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
             },
         };
         // 🧠 백엔드 /settlement 는 req_name, trip_date, detail_json 전체를 받는다.
-        // 여기서는 기존 register 정보는 그대로 두고 settlement만 덮어쓰기 형태로 전달한다고 가정.
+        // detail_json 안에 settlement 를 넣어서 보내야 함.
         const detail_json = {
             settlement,
         };
@@ -365,7 +863,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
                 body: JSON.stringify({
                     req_name,
                     trip_date,
-                    end_data: settlement,
+                    detail_json, // ✅ 백엔드가 기대하는 구조
                 }),
             });
             console.log("[정산] 응답 status =", res.status);
@@ -454,10 +952,9 @@ function initDomesticTripHistoryPanel(API_BASE) {
     searchBtn._bound = true;
     const fromInput = getEl("settle_from");
     const toInput = getEl("settle_to");
-    const onlyMeCheckbox = getEl("settle_only_me");
     const resultMsg = getEl("settle_result_msg");
     const tbody = getEl("settle_result_tbody");
-    // 기본값: 이번 주 정도로 넣고 싶으면 여기서 세팅 가능
+    // 기본 날짜: 오늘
     if (!fromInput.value || !toInput.value) {
         const today = new Date();
         const y = today.getFullYear();
@@ -466,6 +963,19 @@ function initDomesticTripHistoryPanel(API_BASE) {
         const todayStr = `${y}-${m}-${d}`;
         fromInput.value = todayStr;
         toInput.value = todayStr;
+    }
+    // ✅ localStorage.user 에서 로그인한 사람의 name 가져오기
+    function getLoginUserName() {
+        try {
+            const stored = localStorage.getItem("user");
+            if (!stored)
+                return null;
+            const user = JSON.parse(stored);
+            return user?.name ?? null;
+        }
+        catch {
+            return null;
+        }
     }
     async function fetchHistory() {
         const from = fromInput.value;
@@ -478,21 +988,18 @@ function initDomesticTripHistoryPanel(API_BASE) {
             resultMsg.textContent = "시작일이 종료일보다 늦을 수 없습니다.";
             return;
         }
-        // 로그인 사용자 이름(나의 정산만 체크 시 사용)
-        let reqNameParam = "";
-        if (onlyMeCheckbox.checked) {
-            try {
-                const stored = localStorage.getItem("user");
-                if (stored) {
-                    const user = JSON.parse(stored);
-                    if (user?.name) {
-                        reqNameParam = user.name;
-                    }
-                }
-            }
-            catch {
-                // 무시
-            }
+        // ✅ 항상 로그인한 사람 이름으로만 조회
+        const reqNameParam = getLoginUserName();
+        if (!reqNameParam) {
+            resultMsg.textContent = "로그인 정보에서 사용자 이름을 찾을 수 없습니다.";
+            tbody.innerHTML = `
+        <tr>
+          <td colspan="7" class="border px-2 py-3 text-center text-rose-500">
+            로그인 정보가 없어 정산 내역을 조회할 수 없습니다.
+          </td>
+        </tr>
+      `;
+            return;
         }
         resultMsg.textContent = "정산 내역을 조회 중입니다...";
         tbody.innerHTML = `
@@ -505,8 +1012,7 @@ function initDomesticTripHistoryPanel(API_BASE) {
         const qs = new URLSearchParams();
         qs.set("from", from);
         qs.set("to", to);
-        if (reqNameParam)
-            qs.set("req_name", reqNameParam);
+        qs.set("req_name", reqNameParam); // 👈 항상 로그인 사용자 이름
         try {
             const res = await fetch(`${API_BASE}/api/business-trip/settlements-range?${qs.toString()}`, { method: "GET" });
             if (!res.ok) {
@@ -765,135 +1271,94 @@ var __webpack_exports__ = {};
   !*** ./TypeScript/workspace/00_workspace.ts ***!
   \**********************************************/
 __webpack_require__.r(__webpack_exports__);
-/* harmony import */ var _08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./08_domestic-trip-register */ "./TypeScript/workspace/08_domestic-trip-register.ts");
-/* harmony import */ var _09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./09_domestic-trip-settlement */ "./TypeScript/workspace/09_domestic-trip-settlement.ts");
-/* harmony import */ var _10_domestic_trip_history__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./10_domestic-trip-history */ "./TypeScript/workspace/10_domestic-trip-history.ts");
-//import { initWorkAssignPanel } from "./01_work-assign";
+/* harmony import */ var _01_dashboard_trip_status__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./01_dashboard-trip-status */ "./TypeScript/workspace/01_dashboard-trip-status.ts");
+/* harmony import */ var _04_user_manage__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./04_user-manage */ "./TypeScript/workspace/04_user-manage.ts");
+/* harmony import */ var _08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./08_domestic-trip-register */ "./TypeScript/workspace/08_domestic-trip-register.ts");
+/* harmony import */ var _09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ./09_domestic-trip-settlement */ "./TypeScript/workspace/09_domestic-trip-settlement.ts");
+/* harmony import */ var _10_domestic_trip_history__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./10_domestic-trip-history */ "./TypeScript/workspace/10_domestic-trip-history.ts");
+// TypeScript/workspace/00_workspace.ts
+
+
 
 
 
 const API_BASE = location.hostname === "gwoun01.github.io"
     ? "https://outwork.sel3.cloudtype.app"
     : "http://127.0.0.1:5050";
-/** 오늘 날짜 YYYY-MM-DD */
-function getTodayYmd() {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
+// ✅ 로그인할 때 login.ts에서 넣어둔 값 사용
+//   localStorage.setItem("loginUserId", data.id);
+function getLoginUserId() {
+    const id = localStorage.getItem("loginUserId");
+    return id || "사용자"; // 없으면 기본 텍스트
+}
+/** localStorage 에서 로그인 유저 전체 정보 가져오기 */
+function getLoginUser() {
+    const raw = localStorage.getItem("user");
+    if (!raw)
+        return null;
+    try {
+        return JSON.parse(raw);
+    }
+    catch {
+        return null;
+    }
+}
+/** 현재 로그인 유저의 권한 맵만 뽑기 */
+function getUserPermissions() {
+    const user = getLoginUser();
+    return user?.permissions ?? {};
+}
+/** 패널 ID → permissions 키 매핑 */
+const PANEL_PERM_MAP = {
+    "panel-출장승인": "출장승인",
+    "panel-출장내역-관리": "출장내역관리",
+    "panel-국내출장-출장등록": "출장등록",
+    "panel-국내출장-정산서등록": "출장내역",
+    // 👉 대시보드, 사용자 관리 등은 여기 안 넣으면 권한 체크 안 함 (모두 접근 가능)
+};
+/** 이 패널에 들어갈 수 있는지? (localStorage.permissions 기준) */
+function canAccessPanel(panelId) {
+    const permKey = PANEL_PERM_MAP[panelId];
+    // 매핑 안 되어 있으면(대시보드, 사용자관리 등) 권한 체크 없이 통과
+    if (!permKey)
+        return true;
+    const perms = getUserPermissions();
+    const value = perms[permKey]; // "ReadWrite" | "ReadOnly" | "NoAccess" | undefined
+    // 값이 없거나 NoAccess 면 막기
+    if (!value || value === "NoAccess") {
+        return false;
+    }
+    // ReadOnly / ReadWrite → 화면 들어가는 건 허용
+    return true;
 }
 /**
- * ✅ 출장자 현황: 로컬스토리지에서 읽어서 표(tbody)에 로딩
- * - No | 이름 | 고객사 | 출발시간 | 도착시간 | 상태(출장 고정)
+ * 패널 전환(사이드 메뉴 → 메인 패널, 제목 바꾸기)
  */
-async function renderTripStatusTable(date) {
-    const tbody = document.getElementById("tripStatusTbody");
-    const label = document.getElementById("tripStatusDateLabel");
-    if (!tbody)
-        return;
-    const today = getTodayYmd();
-    const baseDate = date || today;
-    if (label)
-        label.textContent = date ? date : "오늘";
-    tbody.innerHTML = `
-    <tr>
-      <td colspan="6" class="border px-2 py-3 text-center text-xs text-gray-400">
-        데이터 로딩 중...
-      </td>
-    </tr>
-  `;
-    // 🔹 1) 로컬에서 리스트 읽기
-    const listKey = "businessTripList";
-    const storedRaw = localStorage.getItem(listKey);
-    let list = [];
-    if (storedRaw) {
-        try {
-            list = JSON.parse(storedRaw);
-        }
-        catch (e) {
-            console.error("[대시보드] businessTripList JSON 파싱 실패:", e);
-            list = [];
-        }
-    }
-    // 🔹 2) 기준 날짜 + 국내출장만 필터
-    const items = list.filter((t) => t.start_date === baseDate && t.trip_type === "domestic");
-    if (items.length === 0) {
-        tbody.innerHTML = `
-      <tr>
-        <td colspan="6" class="border px-2 py-3 text-center text-xs text-gray-400">
-          등록된 출장 데이터가 없습니다.
-        </td>
-      </tr>
-    `;
-        return;
-    }
-    tbody.innerHTML = "";
-    items.forEach((it, idx) => {
-        const tr = document.createElement("tr");
-        tr.className = "border-t text-xs text-gray-700";
-        const customer = it.destination || "-";
-        const depart = it.depart_time || "-";
-        const arrive = it.arrive_time || "-";
-        // ✅ 상태는 "출장" 고정
-        const statusHtml = `<span class="px-2 py-[2px] rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-bold">출장</span>`;
-        tr.innerHTML = `
-      <td class="border px-2 py-2 text-center">${idx + 1}</td>
-      <td class="border px-2 py-2 text-center font-semibold">${it.req_name || "-"}</td>
-      <td class="border px-2 py-2 text-center">${customer}</td>
-      <td class="border px-2 py-2 text-center">${depart}</td>
-      <td class="border px-2 py-2 text-center">${arrive}</td>
-      <td class="border px-2 py-2 text-center">${statusHtml}</td>
-    `;
-        tbody.appendChild(tr);
-    });
-}
-/**
- * ✅ 오늘 출장 인원 KPI 업데이트
- * - localStorage businessTripList 기준으로 개수 세기
- */
-async function updateKpiTripToday(date) {
-    const elTrip = document.getElementById("kpiTripToday");
-    if (!elTrip)
-        return;
-    const today = getTodayYmd();
-    const baseDate = date || today;
-    const listKey = "businessTripList";
-    const storedRaw = localStorage.getItem(listKey);
-    let list = [];
-    if (storedRaw) {
-        try {
-            list = JSON.parse(storedRaw);
-        }
-        catch (e) {
-            console.error("[대시보드] businessTripList JSON 파싱 실패:", e);
-            list = [];
-        }
-    }
-    const todays = list.filter((t) => t.start_date === baseDate && t.trip_type === "domestic");
-    elTrip.textContent = String(todays.length);
-}
 function initLocalTabNavigation() {
     const navButtons = document.querySelectorAll(".nav-btn");
     const panels = document.querySelectorAll('[id^="panel-"]');
     const titleEl = document.getElementById("wsTitle");
     function showPanel(id) {
+        // 모든 패널 숨기고
         panels.forEach((p) => p.classList.add("hidden"));
+        // 대상 패널만 보이기
         const target = document.getElementById(id);
         if (target)
             target.classList.remove("hidden");
+        // 사이드 버튼 스타일 토글
         navButtons.forEach((btn) => {
             const active = btn.dataset.panel === id;
             btn.classList.toggle("bg-[#7ce92f]", active);
             btn.classList.toggle("text-[#000000]", active);
             btn.classList.toggle("font-bold", active);
         });
+        // 상단 제목 변경
         const curBtn = document.querySelector(`.nav-btn[data-panel="${id}"]`);
         if (curBtn && titleEl) {
             titleEl.textContent = curBtn.textContent?.trim() ?? "";
         }
     }
-    // ✅ 기본 패널은 대시보드
+    // 기본은 대시보드
     showPanel("panel-dashboard");
     return showPanel;
 }
@@ -901,47 +1366,80 @@ function initLocalTabNavigation() {
 // 🔵 메인 초기화
 // ==============================================================
 document.addEventListener("DOMContentLoaded", async () => {
-    console.debug("[INIT] DOMContentLoaded 시작");
-    const showPanel = initLocalTabNavigation();
-    // ✅ 등록/정산 쪽에서
-    //    window.dispatchEvent(new Event("trip-status-refresh"));
-    //    호출하면 여기서 대시보드를 다시 그림
-    window.addEventListener("trip-status-refresh", () => {
-        console.debug("[EVENT] trip-status-refresh → 대시보드 갱신");
-        renderTripStatusTable();
-        updateKpiTripToday();
+    console.debug("[INIT] workspace DOMContentLoaded");
+    // 1) 로그인한 아이디 헤더에 표시 + 아바타 텍스트
+    const userId = getLoginUserId(); // 예) "권택선"
+    const userNameEl = document.getElementById("userName");
+    const avatarEl = document.getElementById("avatar");
+    const logoutBtn = document.getElementById("logoutBtn");
+    if (userNameEl) {
+        userNameEl.textContent = userId; // 🔹 헤더에 "사용자" 대신 아이디
+    }
+    if (avatarEl) {
+        avatarEl.textContent = userId.slice(0, 2); // 앞 2글자 정도만 동그라미 안에
+    }
+    // 2) 로그아웃 버튼
+    logoutBtn?.addEventListener("click", async () => {
+        try {
+            // 세션 쿠키 정리용 (백엔드에 /api/logout 있으면 사용, 없으면 그냥 넘어감)
+            await fetch(`${API_BASE}/api/logout`, {
+                method: "POST",
+                credentials: "include",
+            }).catch(() => { });
+        }
+        finally {
+            // 로컬 저장된 로그인 정보 삭제
+            localStorage.removeItem("loginUserId");
+            localStorage.removeItem("loginUserName");
+            localStorage.removeItem("user");
+            sessionStorage.clear();
+            // 로그인 페이지로 이동 (파일 이름에 맞게 수정)
+            window.location.href = "index.html";
+        }
     });
-    // ❌ (기존에 있던 open-trip-settlement 이벤트는 이제 안 씀)
-    // window.addEventListener("open-trip-settlement", ... ) 부분 제거
+    // 3) 패널 네비게이션 세팅
+    const showPanel = initLocalTabNavigation();
+    // 4) 대시보드(출장자 현황 + KPI) 초기화 → 서버와 연결
+    (0,_01_dashboard_trip_status__WEBPACK_IMPORTED_MODULE_0__.initDashboardTripStatus)(API_BASE);
+    // 5) 사이드바에서 패널 이동
     const sidebarButtons = document.querySelectorAll("#sidebar [data-panel]");
     sidebarButtons.forEach((btn) => {
         btn.addEventListener("click", async () => {
             const id = btn.dataset.panel;
             if (!id)
                 return;
+            // ✅  먼저 권한 체크
+            if (!canAccessPanel(id)) {
+                alert("이 메뉴에 대한 접근 권한이 없습니다.");
+                return;
+            }
+            // ✅ 권한 OK → 패널 전환
             showPanel(id);
-            // ✅ 대시보드 버튼 눌렀을 때도 항상 최신 로컬 데이터 다시 가져오기
+            // 대시보드 탭 클릭 → 항상 최신 데이터로 새로고침
             if (id === "panel-dashboard") {
-                await renderTripStatusTable();
-                await updateKpiTripToday();
+                window.dispatchEvent(new Event("trip-status-refresh"));
             }
-            // ✅ 국내출장 - 출장등록 클릭 시
-            //    → 등록 + 정산 패널 둘 다 초기화 (이때 bt_save에 이벤트가 걸림)
+            // 사용자 관리 탭
+            if (id === "panel-사용자-관리") {
+                await (0,_04_user_manage__WEBPACK_IMPORTED_MODULE_1__.initUserManagePanel)(API_BASE);
+                console.log("[INIT] 사용자-관리 init 완료");
+            }
+            // 국내출장 - 출장등록 패널 → 등록 + 정산 패널 초기화
             if (id === "panel-국내출장-출장등록") {
-                await (0,_08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_0__.initDomesticTripRegisterPanel)(API_BASE);
-                await (0,_09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_1__.initDomesticTripSettlementPanel)(API_BASE);
-                console.log("국내출장-출장등록 & 정산 init 완료");
+                await (0,_08_domestic_trip_register__WEBPACK_IMPORTED_MODULE_2__.initDomesticTripRegisterPanel)(API_BASE);
+                await (0,_09_domestic_trip_settlement__WEBPACK_IMPORTED_MODULE_3__.initDomesticTripSettlementPanel)(API_BASE);
+                console.log("[INIT] 국내출장-출장등록 & 정산 패널 init 완료");
             }
-            // ✅ 국내출장 - 출장내역(정산 내역 조회)
+            // 국내출장 - 출장내역(정산 내역 조회)
             if (id === "panel-국내출장-정산서등록") {
-                await (0,_10_domestic_trip_history__WEBPACK_IMPORTED_MODULE_2__.initDomesticTripHistoryPanel)(API_BASE);
-                console.log("국내출장-정산내역 조회 init 완료");
+                await (0,_10_domestic_trip_history__WEBPACK_IMPORTED_MODULE_4__.initDomesticTripHistoryPanel)(API_BASE);
+                console.log("[INIT] 국내출장-정산 내역 조회 패널 init 완료");
             }
         });
     });
-    // ✅ 최초 로딩(오늘 기준): 표 + KPI
-    await renderTripStatusTable();
-    await updateKpiTripToday();
+    // 6) 처음 진입: 대시보드 패널 + 오늘 데이터 로딩
+    showPanel("panel-dashboard");
+    window.dispatchEvent(new Event("trip-status-refresh"));
     console.debug("[INIT] workspace 초기화 완료");
 });
 
