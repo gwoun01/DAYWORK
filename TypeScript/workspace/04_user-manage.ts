@@ -1,43 +1,95 @@
 // 04_user-manage.ts
 
-// ✅ 서버에서 오는 데이터를 내부에서 쓸 형태로 정리한 타입
-//   - DB/백엔드에서 no / No, id / ID, name / Name 어떤 걸 보내든
-//     아래에서 한 번 변환해서 이 타입으로만 쓰게 만들 거야.
+// ✅ 사용자별 거래처 거리 한 행 타입
+type UserDistanceRow = {
+  region: string;            // 지역
+  client_name: string;       // 거래처
+  travel_time_text: string;  // 소요시간 텍스트
+  home_distance_km: number | null; // 자택 → 출장지 (km)
+  fuel_type: string;         // 유종
+};
+
+// ✅ 사용자 타입
 type InnomaxUser = {
   no: number;
   id: string;
   name: string;
   email: string | null;
   company_part: string | null;
+  address: string | null;
   permissions: Record<string, string> | null;
+  distance_detail: UserDistanceRow[];
 };
 
 const PERM_KEYS = ["출장승인", "출장내역관리", "출장등록", "출장내역", "사용자관리"];
 
+/** 문자열 → number | null 공통 함수 */
+function parseNumberOrNull(value: string): number | null {
+  if (!value) return null;
+  const n = Number(value.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
 /** 서버에서 온 row(any 형태)를 InnomaxUser 로 변환 */
 function mapRawUser(row: any): InnomaxUser {
+  // distance_detail_json 파싱
+  let distanceArr: UserDistanceRow[] = [];
+  const rawDistance = row.distance_detail_json ?? null;
+  if (rawDistance) {
+    let parsed: any = rawDistance;
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        parsed = [];
+      }
+    }
+    if (Array.isArray(parsed)) {
+      distanceArr = parsed.map(
+        (r: any): UserDistanceRow => ({
+          region: String(r.region ?? ""),
+          client_name: String(r.client_name ?? ""),
+          travel_time_text: String(r.travel_time_text ?? ""),
+          // 예전 구조도 최대한 따라와서 km 필드로 변환
+          home_distance_km:
+            r.home_distance_km != null
+              ? Number(r.home_distance_km)
+              : r.distance_km != null
+              ? Number(r.distance_km)
+              : r.home_distance_min != null
+              ? Number(r.home_distance_min)
+              : null,
+          fuel_type: String(r.fuel_type ?? ""),
+        })
+      );
+    }
+  }
+
+  // permissions: jsonb / text / null 어떤 형태로 와도 처리
+  let perms: Record<string, string> | null = null;
+  let rawPerms = row.permissions ?? null;
+  if (rawPerms) {
+    if (typeof rawPerms === "string") {
+      try {
+        rawPerms = JSON.parse(rawPerms);
+      } catch {
+        rawPerms = null;
+      }
+    }
+    if (rawPerms && typeof rawPerms === "object" && !Array.isArray(rawPerms)) {
+      perms = rawPerms as Record<string, string>;
+    }
+  }
+
   return {
     no: Number(row.no ?? row.No ?? 0),
     id: String(row.id ?? row.ID ?? ""),
     name: String(row.name ?? row.Name ?? ""),
     email: row.email ?? null,
     company_part: row.company_part ?? null,
-    // permissions: jsonb / text / null 어떤 형태로 와도 처리
-    permissions: (() => {
-      let perms = row.permissions ?? null;
-      if (!perms) return null;
-      if (typeof perms === "string") {
-        try {
-          perms = JSON.parse(perms);
-        } catch {
-          return null;
-        }
-      }
-      if (typeof perms === "object" && !Array.isArray(perms)) {
-        return perms as Record<string, string>;
-      }
-      return null;
-    })(),
+    address: row.address ?? null,
+    permissions: perms,
+    distance_detail: distanceArr,
   };
 }
 
@@ -58,7 +110,7 @@ function fillPermissionSelects(perms: any) {
     if (!el) return;
     const v = perms?.[key];
     if (v) el.value = v;
-    else el.value = "접근 불가"; // 기본값(너가 쓰던 기본값으로 바꿔도 됨)
+    else el.value = "None"; // 기본값
   });
 }
 
@@ -87,11 +139,20 @@ export function initUserManagePanel(API_BASE: string) {
   const inputPassword = document.getElementById("modalPassword") as HTMLInputElement | null;
   const inputEmail = document.getElementById("modalEmail") as HTMLInputElement | null;
   const inputCompany = document.getElementById("modalCompanyPart") as HTMLInputElement | null;
+  const inputAddress = document.getElementById("modalAddress") as HTMLInputElement | null;
 
   const btnAdd = document.getElementById("userAddBtn") as HTMLButtonElement | null;
   const btnModalClose = document.getElementById(
     "userModalCancelBtn"
   ) as HTMLButtonElement | null; // 모달 안 "취소" 버튼
+
+  // 🔹 거리표 관련 DOM
+  const distanceTbodyEl = document.getElementById(
+    "userDistanceTbody"
+  ) as HTMLTableSectionElement | null;
+  const btnDistanceAddRow = document.getElementById(
+    "btnUserDistanceAddRow"
+  ) as HTMLButtonElement | null;
 
   // 필수 DOM 없으면 초기화 스킵
   if (!tbodyEl || !userModal || !userForm) {
@@ -102,6 +163,7 @@ export function initUserManagePanel(API_BASE: string) {
   }
 
   const tbody = tbodyEl as HTMLTableSectionElement;
+  const distanceTbody = distanceTbodyEl as HTMLTableSectionElement | null;
 
   // 이미 초기화된 경우 또 하지 않기 (사이드바 이동 시 중복 방지)
   if ((tbody as any)._bound) {
@@ -109,6 +171,170 @@ export function initUserManagePanel(API_BASE: string) {
     return;
   }
   (tbody as any)._bound = true;
+
+  // 🔹 현재 모달에서 편집 중인 거리 배열
+  let distanceRows: UserDistanceRow[] = [];
+
+  // 🔹 거래처 마스터에서 가져온 client 리스트
+  type MasterClient = {
+    region: string;
+    client_name: string;
+    travel_time_text: string;
+  };
+  let masterClients: MasterClient[] = [];
+
+  // ================== 거래처 마스터 로딩 ==================
+  async function loadMasterClients() {
+    try {
+      const res = await fetch(`${API_BASE}/api/business-master/client-list`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        console.error(
+          "[사용자관리] 거래처 마스터 조회 실패 status =",
+          res.status
+        );
+        return;
+      }
+
+      const rows = (await res.json()) as any[];
+
+      masterClients = rows
+        .map((r) => ({
+          region: String(r.region ?? ""),
+          client_name: String(r.client_name ?? "").trim(),
+          travel_time_text: String(r.travel_time_text ?? ""),
+        }))
+        .filter((c) => c.client_name) // 이름 없는 건 제외
+        .sort((a, b) => a.client_name.localeCompare(b.client_name, "ko"));
+
+      console.log(
+        "[사용자관리] 거래처 마스터 로딩 완료, 개수 =",
+        masterClients.length
+      );
+    } catch (err) {
+      console.error("[사용자관리] 거래처 마스터 로딩 중 오류:", err);
+    }
+  }
+
+  // ============= 거리표 렌더링/수집 함수들 =============
+
+  /** 거리표 렌더링 */
+  function renderDistanceTable() {
+    if (!distanceTbody) return;
+
+    distanceTbody.innerHTML = "";
+
+    if (!distanceRows.length) {
+      distanceTbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="border px-2 py-1 text-center text-[11px] text-gray-400">
+            등록된 거리 정보가 없습니다. [+ 거리 행 추가] 버튼으로 추가하세요.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    distanceRows.forEach((row, index) => {
+      const tr = document.createElement("tr");
+      tr.dataset.index = String(index);
+
+      tr.innerHTML = `
+        <td class="border px-1 py-1 text-center text-[11px]">${index + 1}</td>
+        <td class="border px-1 py-1">
+          <input
+            type="text"
+            class="w-full border rounded px-1 py-[2px] text-[11px] region-input"
+            value="${row.region ?? ""}"
+          />
+        </td>
+        <td class="border px-1 py-1">
+          <input
+            type="text"
+            class="w-full border rounded px-1 py-[2px] text-[11px] client-input"
+            value="${row.client_name ?? ""}"
+          />
+        </td>
+        <td class="border px-1 py-1">
+          <input
+            type="text"
+            class="w-full border rounded px-1 py-[2px] text-[11px] travel-time-input"
+            placeholder="예: 1시간8분"
+            value="${row.travel_time_text ?? ""}"
+          />
+        </td>
+        <td class="border px-1 py-1">
+          <input
+            type="number"
+            step="0.1"
+            class="w-full border rounded px-1 py-[2px] text-right text-[11px] home-km-input"
+            placeholder="자택→출장지 km"
+            value="${row.home_distance_km ?? ""}"
+          />
+        </td>
+        <td class="border px-1 py-1">
+          <input
+            type="text"
+            class="w-full border rounded px-1 py-[2px] text-[11px] fuel-input"
+            placeholder="예: 휘발유"
+            value="${row.fuel_type ?? ""}"
+          />
+        </td>
+      `;
+
+      distanceTbody.appendChild(tr);
+    });
+  }
+
+  /** 테이블 DOM → distanceRows 배열로 반영 */
+  function syncDistanceRowsFromTable() {
+    if (!distanceTbody) return;
+
+    const trs = distanceTbody.querySelectorAll<HTMLTableRowElement>("tr");
+    const newRows: UserDistanceRow[] = [];
+    trs.forEach((tr) => {
+      const regionInput = tr.querySelector<HTMLInputElement>(".region-input");
+      const clientInput = tr.querySelector<HTMLInputElement>(".client-input");
+      const travelTimeInput =
+        tr.querySelector<HTMLInputElement>(".travel-time-input");
+      const homeKmInput =
+        tr.querySelector<HTMLInputElement>(".home-km-input");
+      const fuelInput =
+        tr.querySelector<HTMLInputElement>(".fuel-input");
+
+      // 안내문 행은 input이 없으니 스킵
+      if (!clientInput) return;
+
+      const clientName = clientInput.value.trim();
+      const homeKm = parseNumberOrNull(homeKmInput?.value ?? "");
+
+      // 거래처 + 자택거리 둘 다 없으면 완전 빈줄로 보고 스킵
+      if (!clientName && homeKm == null) return;
+
+      newRows.push({
+        region: regionInput?.value.trim() ?? "",
+        client_name: clientName,
+        travel_time_text: travelTimeInput?.value.trim() ?? "",
+        home_distance_km: homeKm,
+        fuel_type: fuelInput?.value.trim() ?? "",
+      });
+    });
+
+    distanceRows = newRows;
+  }
+
+  /** 빈 행 하나 추가 */
+  function addDistanceEmptyRow() {
+    distanceRows.push({
+      region: "",
+      client_name: "",
+      travel_time_text: "",
+      home_distance_km: null,
+      fuel_type: "",
+    });
+    renderDistanceTable();
+  }
 
   /** 모달 열기 */
   function openModal(mode: "add" | "edit", user?: InnomaxUser) {
@@ -123,7 +349,20 @@ export function initUserManagePanel(API_BASE: string) {
       if (inputPassword) inputPassword.value = "";
       if (inputEmail) inputEmail.value = "";
       if (inputCompany) inputCompany.value = "이노맥스";
+      if (inputAddress) inputAddress.value = "";
       fillPermissionSelects(null);
+
+      // 🔹 거래처 마스터 기준으로 기본 행 생성
+      distanceRows =
+        masterClients.length > 0
+          ? masterClients.map((c) => ({
+              region: c.region,
+              client_name: c.client_name,
+              travel_time_text: c.travel_time_text,
+              home_distance_km: null,
+              fuel_type: "",
+            }))
+          : [];
     } else {
       modalTitle.textContent = "사용자 수정";
       if (user && modalNo) modalNo.value = String(user.no);
@@ -132,10 +371,23 @@ export function initUserManagePanel(API_BASE: string) {
       if (inputPassword) inputPassword.value = ""; // 수정 시에만 입력
       if (inputEmail) inputEmail.value = user?.email ?? "";
       if (inputCompany) inputCompany.value = user?.company_part ?? "이노맥스";
+      if (inputAddress) inputAddress.value = user?.address ?? "";
 
       fillPermissionSelects(user?.permissions ?? {});
+      // 기존에 저장된 거리 정보가 있으면 그걸 사용, 없으면 마스터 기준
+      distanceRows =
+        user?.distance_detail && user.distance_detail.length
+          ? user.distance_detail
+          : masterClients.map((c) => ({
+              region: c.region,
+              client_name: c.client_name,
+              travel_time_text: c.travel_time_text,
+              home_distance_km: null,
+              fuel_type: "",
+            }));
     }
 
+    renderDistanceTable();
     userModal.classList.remove("hidden");
   }
 
@@ -303,7 +555,11 @@ export function initUserManagePanel(API_BASE: string) {
     const password = inputPassword?.value.trim() ?? "";
     const email = inputEmail?.value.trim() || null;
     const company_part = inputCompany?.value.trim() || null;
+    const address = inputAddress?.value.trim() || null;
     const permissions = collectPermissionsFromForm();
+
+    // 🔹 거리표 최신값을 distanceRows에 반영
+    syncDistanceRowsFromTable();
 
     if (!id || !name || (mode === "add" && !password)) {
       alert("ID, 이름, 비밀번호(추가 시)는 필수입니다.");
@@ -323,6 +579,8 @@ export function initUserManagePanel(API_BASE: string) {
             email,
             company_part,
             permissions,
+            address,
+            distance_detail: distanceRows,
           }),
         });
         const json = await res.json();
@@ -341,6 +599,8 @@ export function initUserManagePanel(API_BASE: string) {
           email,
           company_part,
           permissions,
+          address,
+          distance_detail: distanceRows,
         };
         if (password) payload.password = password; // 비밀번호 입력했을 때만 변경
 
@@ -364,6 +624,13 @@ export function initUserManagePanel(API_BASE: string) {
     }
   });
 
-  // 처음 한 번 목록 로딩
-  loadUsers();
+  // [+ 거리 행 추가] 버튼
+  btnDistanceAddRow?.addEventListener("click", () => {
+    addDistanceEmptyRow();
+  });
+
+  // 초기 데이터 로딩
+  loadMasterClients().then(() => {
+    loadUsers();
+  });
 }

@@ -1,9 +1,10 @@
 // src/routers/businessTripRouter.ts
 import express from "express";
 import type { Pool } from "pg";
+
 // ===================== 금액 계산 유틸 =====================
-const MEAL_UNIT = 12000;            // 1인당 식대 (개인 부담)
-const FUEL_PRICE_PER_KM = 200;      // km당 유류비 (예시값)
+const MEAL_UNIT = 12000;       // 1인당 식대 (개인 부담)
+const FUEL_PRICE_PER_KM = 200; // km당 유류비 (예시값)
 
 type MealCalcResult = { count: number; amount: number };
 type FuelCalcResult = { distanceKm: number; amount: number };
@@ -28,42 +29,36 @@ function calcMealAmount(meals: any | undefined | null): MealCalcResult {
   };
 }
 
-// 📏 거리 조회 (from_place → to_place)
+// 📏 직원 자택 → 출장지 거리 조회
+//   trip_distance_master 에서
+//   client_name = 출장지(거래처명), person_name = 직원명 기준으로 home_distance_km 조회
 async function getDistanceKm(
   pool: Pool,
-  fromPlace: string,
-  toPlace: string
+  employeeName: string,
+  clientName: string
 ): Promise<number> {
-  if (!fromPlace || !toPlace) return 0;
+  if (!employeeName || !clientName) return 0;
 
   const res = await pool.query(
-    `SELECT distance_km 
-       FROM trip_distances 
-      WHERE from_place = $1 AND to_place = $2`,
-    [fromPlace, toPlace]
+    `
+    SELECT home_distance_km
+      FROM trip_distance_master
+     WHERE client_name = $1
+       AND person_name = $2
+     LIMIT 1
+    `,
+    [clientName, employeeName]
   );
 
-  if (res.rows.length === 0) {
-    // from/to 반대로 저장했을 수도 있으니 한번 더 시도
-    const res2 = await pool.query(
-      `SELECT distance_km 
-         FROM trip_distances 
-        WHERE from_place = $1 AND to_place = $2`,
-      [toPlace, fromPlace]
-    );
-    if (res2.rows.length === 0) return 0;
-    return Number(res2.rows[0].distance_km) || 0;
-  }
-
-  return Number(res.rows[0].distance_km) || 0;
+  if (res.rows.length === 0) return 0;
+  return Number(res.rows[0].home_distance_km) || 0;
 }
 
-// ⛽ 유류비 계산 (출발→출장 + 출장→복귀)
+// ⛽ 유류비 계산 (직원 자택 ↔ 출장지 왕복)
 async function calcFuelAmount(
   pool: Pool,
-  departPlace: string,
-  destPlace: string,
-  returnPlace: string,
+  reqName: string,    // 직원 이름
+  destination: string, // 출장지(거래처명)
   vehicle: string
 ): Promise<FuelCalcResult> {
   // 법인차량이면 개인 유류비 0원
@@ -71,14 +66,15 @@ async function calcFuelAmount(
     return { distanceKm: 0, amount: 0 };
   }
 
-  const d1 = await getDistanceKm(pool, departPlace, destPlace);
-  const d2 = await getDistanceKm(pool, destPlace, returnPlace);
-  const totalKm = d1 + d2;
+  // 직원 자택 → 출장지 거리 (one-way)
+  const oneWay = await getDistanceKm(pool, reqName, destination);
+  const totalKm = oneWay * 2; // 왕복
 
   const amount = Math.round(totalKm * FUEL_PRICE_PER_KM);
 
   return { distanceKm: totalKm, amount };
 }
+
 export default function businessTripRouter(pool: Pool) {
   const router = express.Router();
 
@@ -196,7 +192,7 @@ export default function businessTripRouter(pool: Pool) {
     const trip_id = `${req_name}|${trip_date}`;
 
     try {
-      // ★ 1) 기존 출장등록 데이터에서 출발지/출장지 가져오기
+      // ★ 1) 기존 출장등록 데이터에서 출장지 가져오기
       const baseResult = await pool.query(
         `
         SELECT start_data
@@ -209,18 +205,15 @@ export default function businessTripRouter(pool: Pool) {
       );
 
       const startData = baseResult.rows[0]?.start_data || {};
-      const depart_place = startData.depart_place || "";   // 출발지
-      const destination = startData.destination || "";     // 출장지
-      const return_place = settlement.return_place || "";  // 복귀지
+      const destination = startData.destination || ""; // 출장지(거래처명)
       const vehicle = settlement.vehicle || "";
 
       // ★ 2) 식대/유류비 금액 계산
       const mealResult = calcMealAmount(settlement.meals);
       const fuelResult = await calcFuelAmount(
         pool,
-        depart_place,
-        destination,
-        return_place,
+        req_name,    // 직원 이름
+        destination, // 출장지
         vehicle
       );
 
