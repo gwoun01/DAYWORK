@@ -1100,15 +1100,15 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   initBusinessMasterPanel: () => (/* binding */ initBusinessMasterPanel)
 /* harmony export */ });
-// 10_business-master.ts
-// 🚗 출장업무 관리 (거리 마스터 + 유류/환율/당직자 설정) 프론트 코드
+// 05_business-master.ts
+// 🚗 출장업무 관리 (거리 마스터 + 유류/환율/당직자/공지 설정) 프론트 코드
 // ======================
 // 유틸
 // ======================
 function parseNumberOrNull(value) {
     if (!value)
         return null;
-    const n = Number(value.replace(/,/g, ""));
+    const n = Number(String(value).replace(/,/g, ""));
     return Number.isFinite(n) ? n : null;
 }
 function mapRawDistance(row) {
@@ -1116,42 +1116,265 @@ function mapRawDistance(row) {
         id: row.id != null ? Number(row.id) : null,
         region: String(row.region ?? ""),
         client_name: String(row.client_name ?? ""),
-        travel_time_text: String(row.travel_time_text ?? ""),
         distance_km: row.distance_km != null ? Number(row.distance_km) : null,
     };
+}
+// ===== 당직 날짜 유틸(✅ 매일 포함: 공휴일/주말도 포함됨) =====
+function pad2(n) {
+    return String(n).padStart(2, "0");
+}
+function ymd(d) {
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+// ✅ 월의 모든 날짜(1~말일) 반환: 공휴일/주말 자동 포함
+function getAllDaysOfMonth(base) {
+    const y = base.getFullYear();
+    const m = base.getMonth(); // 0-based
+    const last = new Date(y, m + 1, 0).getDate();
+    const days = [];
+    for (let i = 1; i <= last; i++) {
+        days.push(new Date(y, m, i));
+    }
+    return days;
+}
+// ======================
+// ✅ (추가) 당직 "표" 렌더 (사진처럼 공지용 테이블 스타일)
+// - 저장 X / 화면에만 표시
+// - <div id="dutyTableBox"></div> 가 HTML에 있어야 함
+// ======================
+function renderDutyTable(assigns) {
+    const box = document.getElementById("dutyTableBox");
+    if (!box)
+        return;
+    if (!assigns.length) {
+        box.innerHTML = `
+      <div class="text-xs text-gray-400">
+        - 생성된 당직 데이터가 없습니다.
+      </div>
+    `;
+        return;
+    }
+    // ✅ 2열(왼쪽/오른쪽)로 나누기 (사진처럼 보기 좋게)
+    const half = Math.ceil(assigns.length / 2);
+    const left = assigns.slice(0, half);
+    const right = assigns.slice(half);
+    const makeRows = (list) => list
+        .map((a) => {
+        const mmdd = a.date.slice(5); // "01-02"
+        return `
+          <tr class="border-b">
+            <td class="px-2 py-2 text-center text-[11px]">${mmdd}</td>
+            <td class="px-2 py-2 text-center text-[11px] text-gray-500">-</td>
+            <td class="px-2 py-2 text-center text-[11px] font-semibold">${a.name}</td>
+            <td class="px-2 py-2 text-center text-[11px] text-gray-400">-</td>
+          </tr>
+        `;
+    })
+        .join("");
+    box.innerHTML = `
+    <div class="border rounded-xl overflow-hidden bg-white">
+      <div class="px-3 py-2 border-b text-sm font-bold text-gray-800">당직근무 일정</div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2">
+        <!-- 왼쪽 -->
+        <div class="overflow-auto">
+          <table class="w-full border-collapse text-[11px]">
+            <thead class="bg-gray-50 text-gray-600">
+              <tr>
+                <th class="border-r px-2 py-2 w-20 text-center">월일</th>
+                <th class="border-r px-2 py-2 text-center">소속</th>
+                <th class="border-r px-2 py-2 text-center">근무자</th>
+                <th class="px-2 py-2 w-16 text-center">변경</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${makeRows(left)}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 오른쪽 -->
+        <div class="overflow-auto border-t md:border-t-0 md:border-l">
+          <table class="w-full border-collapse text-[11px]">
+            <thead class="bg-gray-50 text-gray-600">
+              <tr>
+                <th class="border-r px-2 py-2 w-20 text-center">월일</th>
+                <th class="border-r px-2 py-2 text-center">소속</th>
+                <th class="border-r px-2 py-2 text-center">근무자</th>
+                <th class="px-2 py-2 w-16 text-center">변경</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${makeRows(right)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
 }
 // ======================
 // 메인 진입 함수
 // ======================
 function initBusinessMasterPanel(API_BASE) {
     console.log("[출장업무관리] initBusinessMasterPanel 시작");
+    //#region 돔수집쪽임
     const panel = document.getElementById("panel-출장업무-관리");
     const distanceTbodyEl = document.getElementById("distanceTbody");
     const btnConfigSave = document.getElementById("btnConfigSave");
     const btnDistanceAddRow = document.getElementById("btnDistanceAddRow");
     const btnDistanceSave = document.getElementById("btnDistanceSave");
-    // 설정 input 들
-    const inputFuelPrice = document.getElementById("cfgFuelPrice");
-    const inputKmPerLiter = document.getElementById("cfgKmPerLiter");
+    // ✅ 유류 3종 input (새 HTML id 기준)
+    const inputFuelGasoline = document.getElementById("cfgFuelGasoline");
+    const inputFuelDiesel = document.getElementById("cfgFuelDiesel");
+    const inputFuelGas = document.getElementById("cfgFuelGas");
+    // ✅ 환율 input
     const inputUsd = document.getElementById("cfgUsd");
     const inputJpy = document.getElementById("cfgJpy");
     const inputCny = document.getElementById("cfgCny");
-    const selectOilType = document.getElementById("cfgOilType");
-    const textareaDutyMembers = document.getElementById("cfgDutyMembers");
-    const textareaNote = document.getElementById("cfgNote");
+    // ✅ 공지 textarea
+    const textareaNotice = document.getElementById("cfgNotice");
+    // ✅ 당직 관련 DOM (행추가 X, 후보는 사용자관리에서 자동 렌더링)
+    const dutyTbody = document.getElementById("dutyTbody");
+    // ✅ 버튼: id가 헷갈려도 둘 중 하나 잡히게 처리
+    const btnDutyGenerateThisMonth = document.getElementById("btnDutyGenerateThisMonth") ||
+        document.getElementById("btnDutyGenThisMonth");
+    const dutyResultBox = document.getElementById("dutyResultBox");
+    //#endregion
     if (!panel || !distanceTbodyEl) {
         console.warn("[출장업무관리] 필수 DOM(panel-출장업무-관리, distanceTbody) 없음");
         return;
     }
-    const distanceTbody = distanceTbodyEl;
     if (panel._bound) {
         console.debug("[출장업무관리] 이미 초기화됨, 재바인딩 안함");
         return;
     }
     panel._bound = true;
+    const distanceTbody = distanceTbodyEl;
     let distanceRows = [];
     let deletedIds = [];
-    // ============== 설정 로딩/저장 ==============
+    // =====================================================
+    // ✅ 당직 후보/순번 상태
+    // =====================================================
+    let dutyMembers = [];
+    let dutyStartIndex = 0; // 다음 배정 시작 인덱스(순환)
+    function renderDutyMembers() {
+        if (!dutyTbody)
+            return;
+        if (!dutyMembers.length) {
+            dutyTbody.innerHTML = `
+        <tr>
+          <td colspan="3" class="border px-2 py-2 text-center text-gray-400">
+            후보 인원이 없습니다. (사용자관리에 먼저 등록하세요)
+          </td>
+        </tr>
+      `;
+            return;
+        }
+        dutyTbody.innerHTML = "";
+        dutyMembers.forEach((m, idx) => {
+            const tr = document.createElement("tr");
+            tr.dataset.idx = String(idx);
+            tr.innerHTML = `
+        <td class="border-b px-2 py-2 text-center text-[11px]">${idx + 1}</td>
+        <td class="border-b px-2 py-2 text-xs">${m.name}</td>
+        <td class="border-b px-2 py-2 text-center">
+          <button type="button"
+            class="px-2 py-1 text-[11px] rounded-lg bg-red-100 text-red-700 hover:bg-red-200 btn-duty-delete">
+            삭제
+          </button>
+        </td>
+      `;
+            dutyTbody.appendChild(tr);
+        });
+    }
+    async function loadDutyMembersFromUsers() {
+        if (!dutyTbody)
+            return;
+        dutyTbody.innerHTML = `
+      <tr>
+        <td colspan="3" class="border px-2 py-2 text-center text-gray-400">
+          사용자 목록 로딩 중...
+        </td>
+      </tr>
+    `;
+        try {
+            const res = await fetch(`${API_BASE}/api/users`, { credentials: "include" });
+            if (!res.ok) {
+                dutyTbody.innerHTML = `
+          <tr>
+            <td colspan="3" class="border px-2 py-2 text-center text-red-500">
+              사용자 목록 조회 실패 (status ${res.status})
+            </td>
+          </tr>
+        `;
+                return;
+            }
+            const rows = await res.json();
+            dutyMembers = Array.isArray(rows)
+                ? rows
+                    .map((u) => ({
+                    no: Number(u.no ?? 0),
+                    name: String(u.name ?? u.Name ?? "").trim(),
+                }))
+                    .filter((u) => u.no > 0 && u.name)
+                    .sort((a, b) => a.no - b.no)
+                : [];
+            if (dutyMembers.length === 0)
+                dutyStartIndex = 0;
+            else
+                dutyStartIndex = dutyStartIndex % dutyMembers.length;
+            renderDutyMembers();
+        }
+        catch (err) {
+            console.error("[출장업무관리] 사용자 목록 로딩 오류:", err);
+            dutyTbody.innerHTML = `
+        <tr>
+          <td colspan="3" class="border px-2 py-2 text-center text-red-500">
+            사용자 목록 로딩 중 오류
+          </td>
+        </tr>
+      `;
+        }
+    }
+    // ✅ “현재 달” 자동 생성 + 표로 바로 보여주기
+    function generateDutyForCurrentMonth() {
+        if (!dutyMembers.length) {
+            alert("당직 후보가 없습니다. 사용자관리에서 먼저 등록하세요.");
+            return;
+        }
+        const base = new Date();
+        base.setDate(1); // 이번달 1일 기준
+        const days = getAllDaysOfMonth(base);
+        const assigns = [];
+        let idx = dutyStartIndex;
+        for (const d of days) {
+            assigns.push({ date: ymd(d), name: dutyMembers[idx].name });
+            idx = (idx + 1) % dutyMembers.length;
+        }
+        dutyStartIndex = idx;
+        // ✅ 요약 표시
+        if (dutyResultBox) {
+            const first = assigns[0];
+            const last = assigns[assigns.length - 1];
+            dutyResultBox.innerHTML = `
+        - 생성 월: ${base.getFullYear()}-${pad2(base.getMonth() + 1)}<br/>
+        - 날짜 수(공휴일/주말 포함): ${assigns.length}일<br/>
+        - 시작: ${first.date} (${first.name})<br/>
+        - 마지막: ${last.date} (${last.name})<br/>
+        - 다음 시작번호(자동): ${dutyStartIndex + 1}번
+      `;
+        }
+        console.log("[당직생성 상세]", assigns);
+        // ✅ (핵심) 생성 즉시 표로 보여주기
+        renderDutyTable(assigns);
+        // ✅ 생성 후 바로 설정 저장(순번 이어가기만 저장)
+        saveConfig(true);
+        alert("이번달 당직이 생성되었습니다. (표로 표시됨)");
+    }
+    // =====================================================
+    // ✅ 설정 로딩/저장
+    // =====================================================
     async function loadConfig() {
         try {
             const res = await fetch(`${API_BASE}/api/business-master/config`, {
@@ -1162,37 +1385,59 @@ function initBusinessMasterPanel(API_BASE) {
                 return;
             }
             const data = (await res.json());
-            if (inputFuelPrice)
-                inputFuelPrice.value = data.fuel_price_per_liter?.toString() ?? "";
-            if (inputKmPerLiter)
-                inputKmPerLiter.value = data.km_per_liter?.toString() ?? "";
+            const gasoline = data.fuel_price_gasoline ?? data.fuel_price_per_liter ?? null;
+            const diesel = data.fuel_price_diesel ?? null;
+            const lpg = data.fuel_price_lpg ?? null;
+            if (inputFuelGasoline)
+                inputFuelGasoline.value = gasoline?.toString() ?? "";
+            if (inputFuelDiesel)
+                inputFuelDiesel.value = diesel?.toString() ?? "";
+            if (inputFuelGas)
+                inputFuelGas.value = lpg?.toString() ?? "";
             if (inputUsd)
                 inputUsd.value = data.exchange_rate_usd?.toString() ?? "";
             if (inputJpy)
                 inputJpy.value = data.exchange_rate_jpy?.toString() ?? "";
             if (inputCny)
                 inputCny.value = data.exchange_rate_cny?.toString() ?? "";
-            if (selectOilType)
-                selectOilType.value = data.default_oil_type || "휘발유";
-            if (textareaDutyMembers)
-                textareaDutyMembers.value = data.duty_members_text ?? "";
-            if (textareaNote)
-                textareaNote.value = data.note ?? "";
+            if (textareaNotice)
+                textareaNotice.value = data.notice ?? data.note ?? "";
+            // ✅ duty_members_text 에 저장된 JSON 복원(순번)
+            const rawDutyText = String(data.duty_members_text ?? "");
+            if (rawDutyText) {
+                try {
+                    const parsed = JSON.parse(rawDutyText);
+                    if (typeof parsed?.startIndex === "number")
+                        dutyStartIndex = parsed.startIndex;
+                }
+                catch {
+                    // 무시
+                }
+            }
+            if (dutyResultBox) {
+                dutyResultBox.textContent = "- '당직 생성'을 누르면 이번달이 자동 로테이션으로 채워집니다.";
+            }
+            // ✅ 초기에는 표 비워둠
+            renderDutyTable([]);
         }
         catch (err) {
             console.error("[출장업무관리] 설정 조회 중 오류:", err);
         }
     }
-    async function saveConfig() {
+    async function saveConfig(forceSilent = false) {
+        const dutyStore = JSON.stringify({
+            startIndex: dutyStartIndex,
+            updatedAt: new Date().toISOString(),
+        });
         const body = {
-            fuel_price_per_liter: parseNumberOrNull(inputFuelPrice?.value ?? ""),
-            km_per_liter: parseNumberOrNull(inputKmPerLiter?.value ?? ""),
+            fuel_price_gasoline: parseNumberOrNull(inputFuelGasoline?.value ?? ""),
+            fuel_price_diesel: parseNumberOrNull(inputFuelDiesel?.value ?? ""),
+            fuel_price_lpg: parseNumberOrNull(inputFuelGas?.value ?? ""),
             exchange_rate_usd: parseNumberOrNull(inputUsd?.value ?? ""),
             exchange_rate_jpy: parseNumberOrNull(inputJpy?.value ?? ""),
             exchange_rate_cny: parseNumberOrNull(inputCny?.value ?? ""),
-            default_oil_type: selectOilType?.value || "휘발유",
-            duty_members_text: textareaDutyMembers?.value ?? "",
-            note: textareaNote?.value ?? "",
+            duty_members_text: dutyStore,
+            notice: textareaNotice?.value ?? "",
         };
         try {
             const res = await fetch(`${API_BASE}/api/business-master/config`, {
@@ -1200,20 +1445,25 @@ function initBusinessMasterPanel(API_BASE) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
             });
-            if (!res.ok) {
-                console.error("[출장업무관리] 설정 저장 실패 status =", res.status);
-                alert("설정 저장 중 오류가 발생했습니다.");
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok || json?.ok === false) {
+                console.error("[출장업무관리] 설정 저장 실패 status =", res.status, json);
+                if (!forceSilent)
+                    alert(json?.error || "설정 저장 중 오류가 발생했습니다.");
                 return;
             }
-            await res.json();
-            alert("설정이 저장되었습니다.");
+            if (!forceSilent)
+                alert("설정이 저장되었습니다.");
         }
         catch (err) {
             console.error("[출장업무관리] 설정 저장 중 오류:", err);
-            alert("설정 저장 중 오류가 발생했습니다.");
+            if (!forceSilent)
+                alert("설정 저장 중 오류가 발생했습니다.");
         }
     }
-    // ============== 거리 마스터 로딩/표시 ==============
+    // =====================================================
+    // ✅ 거리 마스터 로딩/표시
+    // =====================================================
     async function loadDistances() {
         distanceTbody.innerHTML = `
       <tr>
@@ -1231,9 +1481,7 @@ function initBusinessMasterPanel(API_BASE) {
                 return;
             }
             const rows = await res.json();
-            distanceRows = Array.isArray(rows)
-                ? rows.map(mapRawDistance)
-                : [];
+            distanceRows = Array.isArray(rows) ? rows.map(mapRawDistance) : [];
             deletedIds = [];
             renderDistanceTable();
         }
@@ -1257,32 +1505,26 @@ function initBusinessMasterPanel(API_BASE) {
             const tr = document.createElement("tr");
             tr.dataset.index = String(index);
             tr.innerHTML = `
-        <td class="border px-2 py-1 text-center text-xs">${index + 1}</td>
-        <td class="border px-1 py-1">
+        <td class="border-b px-2 py-2 text-center text-[11px]">${index + 1}</td>
+        <td class="border-b px-2 py-2">
           <input type="text"
-            class="w-full border rounded px-1 py-[2px] text-xs region-input"
+            class="w-full border rounded-xl px-2 py-2 text-xs region-input bg-white"
             value="${row.region ?? ""}" />
         </td>
-        <td class="border px-1 py-1">
+        <td class="border-b px-2 py-2">
           <input type="text"
-            class="w-full border rounded px-1 py-[2px] text-xs client-input"
+            class="w-full border rounded-xl px-2 py-2 text-xs client-input bg-white"
             value="${row.client_name ?? ""}" />
         </td>
-        <td class="border px-1 py-1">
-          <input type="text"
-            class="w-full border rounded px-1 py-[2px] text-xs travel-time-input"
-            placeholder="예: 1시간 8분"
-            value="${row.travel_time_text ?? ""}" />
-        </td>
-        <td class="border px-1 py-1">
+        <td class="border-b px-2 py-2">
           <input type="number" step="0.1"
-            class="w-full border rounded px-1 py-[2px] text-right text-xs distance-km-input"
+            class="w-full border rounded-xl px-2 py-2 text-right text-xs distance-km-input bg-white"
             placeholder="km"
             value="${row.distance_km ?? ""}" />
         </td>
-        <td class="border px-1 py-1 text-center">
+        <td class="border-b px-2 py-2 text-center">
           <button type="button"
-            class="px-2 py-[2px] text-[11px] rounded bg-red-100 text-red-700 hover:bg-red-200 btn-row-delete">
+            class="px-2 py-1 text-[11px] rounded-lg bg-red-100 text-red-700 hover:bg-red-200 btn-row-delete">
             삭제
           </button>
         </td>
@@ -1302,11 +1544,9 @@ function initBusinessMasterPanel(API_BASE) {
                 return;
             const regionInput = tr.querySelector(".region-input");
             const clientInput = tr.querySelector(".client-input");
-            const travelTimeInput = tr.querySelector(".travel-time-input");
             const distanceInput = tr.querySelector(".distance-km-input");
-            row.region = regionInput?.value ?? "";
-            row.client_name = clientInput?.value ?? "";
-            row.travel_time_text = travelTimeInput?.value ?? "";
+            row.region = regionInput?.value?.trim() ?? "";
+            row.client_name = clientInput?.value?.trim() ?? "";
             row.distance_km = parseNumberOrNull(distanceInput?.value ?? "");
         });
     }
@@ -1323,7 +1563,10 @@ function initBusinessMasterPanel(API_BASE) {
             for (const id of deletedIds) {
                 if (!id)
                     continue;
-                const res = await fetch(`${API_BASE}/api/business-master/distances/${id}`, { method: "DELETE", credentials: "include" });
+                const res = await fetch(`${API_BASE}/api/business-master/distances/${id}`, {
+                    method: "DELETE",
+                    credentials: "include",
+                });
                 if (!res.ok) {
                     console.error("[출장업무관리] 거리 삭제 실패 id=", id, "status=", res.status);
                 }
@@ -1334,7 +1577,6 @@ function initBusinessMasterPanel(API_BASE) {
                 const payload = {
                     region: row.region,
                     client_name: row.client_name,
-                    travel_time_text: row.travel_time_text,
                     distance_km: row.distance_km,
                 };
                 if (row.id == null) {
@@ -1371,21 +1613,17 @@ function initBusinessMasterPanel(API_BASE) {
             id: null,
             region: "",
             client_name: "",
-            travel_time_text: "",
             distance_km: null,
         });
         renderDistanceTable();
     }
-    // ============== 이벤트 바인딩 ==============
-    btnConfigSave?.addEventListener("click", () => {
-        saveConfig();
-    });
-    btnDistanceAddRow?.addEventListener("click", () => {
-        addEmptyRow();
-    });
-    btnDistanceSave?.addEventListener("click", () => {
-        saveDistances();
-    });
+    // =====================================================
+    // 이벤트 바인딩
+    // =====================================================
+    btnConfigSave?.addEventListener("click", () => saveConfig(false));
+    btnDistanceAddRow?.addEventListener("click", () => addEmptyRow());
+    btnDistanceSave?.addEventListener("click", () => saveDistances());
+    // 거리 삭제
     distanceTbody.addEventListener("click", (e) => {
         const target = e.target;
         if (!target?.classList.contains("btn-row-delete"))
@@ -1405,8 +1643,32 @@ function initBusinessMasterPanel(API_BASE) {
         distanceRows.splice(idx, 1);
         renderDistanceTable();
     });
-    // ============== 초기 로딩 ==============
-    loadConfig();
+    // ✅ 당직 후보 삭제(이벤트 위임)
+    dutyTbody?.addEventListener("click", (e) => {
+        const target = e.target;
+        if (!target?.classList.contains("btn-duty-delete"))
+            return;
+        const tr = target.closest("tr");
+        if (!tr)
+            return;
+        const idx = Number(tr.dataset.idx);
+        if (!Number.isFinite(idx))
+            return;
+        dutyMembers.splice(idx, 1);
+        if (dutyMembers.length === 0)
+            dutyStartIndex = 0;
+        else
+            dutyStartIndex = dutyStartIndex % dutyMembers.length;
+        renderDutyMembers();
+    });
+    // ✅ 당직 생성 버튼
+    btnDutyGenerateThisMonth?.addEventListener("click", () => generateDutyForCurrentMonth());
+    // =====================================================
+    // 초기 로딩
+    // =====================================================
+    loadConfig().then(() => {
+        loadDutyMembersFromUsers();
+    });
     loadDistances();
 }
 

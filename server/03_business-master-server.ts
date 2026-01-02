@@ -2,6 +2,14 @@
 import express from "express";
 import type { Pool } from "pg";
 
+type AnyObj = Record<string, any>;
+
+function toNumberOrNull(v: any): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function businessMasterRouter(pool: Pool) {
   const router = express.Router();
 
@@ -18,35 +26,59 @@ export default function businessMasterRouter(pool: Pool) {
            LIMIT 1`
       );
 
+      // ✅ 기본값(새 구조 + 구 구조 같이 제공)
+      const defaultConfig = {
+        // --- 새 구조(프론트 새 UI용) ---
+        fuel_price_gasoline: null,
+        fuel_price_diesel: null,
+        fuel_price_lpg: null,
+        exchange_rate_usd: null,
+        exchange_rate_jpy: null,
+        exchange_rate_cny: null,
+        duty_members_text: "",
+        notice: "",
+
+        // --- 구 구조(기존 코드 호환) ---
+        fuel_price_per_liter: null, // = gasoline로 내려줌
+        km_per_liter: 7,            // ✅ 고정
+        default_oil_type: "휘발유",
+        note: "",
+      };
+
       if (result.rows.length === 0) {
-        const defaultConfig = {
-          fuel_price_per_liter: null,
-          km_per_liter: null,
-          exchange_rate_usd: null,
-          exchange_rate_jpy: null,
-          exchange_rate_cny: null,
-          default_oil_type: "휘발유",
-          duty_members_text: "",
-          note: "",
-        };
         return res.json(defaultConfig);
       }
 
-      const cfg = result.rows[0].config_json || {};
+      const cfg: AnyObj = result.rows[0].config_json || {};
+
+      // ✅ 새 키 우선, 없으면 구 키에서 가져오기
+      const gasoline =
+        toNumberOrNull(cfg.fuel_price_gasoline) ??
+        toNumberOrNull(cfg.fuel_price_per_liter) ??
+        null;
+
       const merged = {
-        fuel_price_per_liter: cfg.fuel_price_per_liter ?? null,
-        km_per_liter: cfg.km_per_liter ?? null,
-        exchange_rate_usd: cfg.exchange_rate_usd ?? null,
-        exchange_rate_jpy: cfg.exchange_rate_jpy ?? null,
-        exchange_rate_cny: cfg.exchange_rate_cny ?? null,
-        default_oil_type: cfg.default_oil_type ?? "휘발유",
-        duty_members_text: cfg.duty_members_text ?? "",
-        note: cfg.note ?? "",
+        // --- 새 구조 ---
+        fuel_price_gasoline: gasoline,
+        fuel_price_diesel: toNumberOrNull(cfg.fuel_price_diesel) ?? null,
+        fuel_price_lpg: toNumberOrNull(cfg.fuel_price_lpg) ?? null,
+        exchange_rate_usd: toNumberOrNull(cfg.exchange_rate_usd) ?? null,
+        exchange_rate_jpy: toNumberOrNull(cfg.exchange_rate_jpy) ?? null,
+        exchange_rate_cny: toNumberOrNull(cfg.exchange_rate_cny) ?? null,
+        duty_members_text: String(cfg.duty_members_text ?? ""),
+        notice: String(cfg.notice ?? cfg.note ?? ""),
+
+        // --- 구 구조 호환값 같이 내려줌 ---
+        fuel_price_per_liter: gasoline,
+        km_per_liter: 7, // ✅ 고정
+        default_oil_type: String(cfg.default_oil_type ?? "휘발유"),
+        note: String(cfg.note ?? cfg.notice ?? ""),
       };
+
       return res.json(merged);
     } catch (err) {
       console.error("[business-master][GET /config] 에러:", err);
-      return res.status(500).json({ error: "설정 조회 에러" });
+      return res.status(500).json({ ok: false, error: "설정 조회 에러" });
     }
   });
 
@@ -55,12 +87,80 @@ export default function businessMasterRouter(pool: Pool) {
    *    POST /api/business-master/config
    * =========================== */
   router.post("/config", async (req, res) => {
-    const configJson = req.body ?? {};
+    const body: AnyObj = req.body ?? {};
 
     try {
+      // ✅ 기존 설정 읽고 merge 저장(덮어쓰기 방지)
       const check = await pool.query(
-        `SELECT id FROM business_trip_config ORDER BY id LIMIT 1`
+        `SELECT id, config_json FROM business_trip_config ORDER BY id LIMIT 1`
       );
+
+      const existingCfg: AnyObj =
+        check.rows.length > 0 ? (check.rows[0].config_json || {}) : {};
+
+      // ✅ 새 구조 우선
+      const gasoline =
+        toNumberOrNull(body.fuel_price_gasoline) ??
+        toNumberOrNull(body.fuel_price_per_liter) ?? // 구버전이 보내면 매핑
+        toNumberOrNull(existingCfg.fuel_price_gasoline) ??
+        toNumberOrNull(existingCfg.fuel_price_per_liter) ??
+        null;
+
+      const nextCfg: AnyObj = {
+        ...existingCfg,
+
+        // --- 새 구조 저장 ---
+        fuel_price_gasoline: gasoline,
+        fuel_price_diesel:
+          toNumberOrNull(body.fuel_price_diesel) ??
+          toNumberOrNull(existingCfg.fuel_price_diesel) ??
+          null,
+        fuel_price_lpg:
+          toNumberOrNull(body.fuel_price_lpg) ??
+          toNumberOrNull(existingCfg.fuel_price_lpg) ??
+          null,
+
+        exchange_rate_usd:
+          toNumberOrNull(body.exchange_rate_usd) ??
+          toNumberOrNull(existingCfg.exchange_rate_usd) ??
+          null,
+        exchange_rate_jpy:
+          toNumberOrNull(body.exchange_rate_jpy) ??
+          toNumberOrNull(existingCfg.exchange_rate_jpy) ??
+          null,
+        exchange_rate_cny:
+          toNumberOrNull(body.exchange_rate_cny) ??
+          toNumberOrNull(existingCfg.exchange_rate_cny) ??
+          null,
+
+        // 당직/공지
+        duty_members_text:
+          body.duty_members_text != null
+            ? String(body.duty_members_text)
+            : String(existingCfg.duty_members_text ?? ""),
+
+        // ✅ notice 새 키 우선, 없으면 note(구키)로 저장
+        notice:
+          body.notice != null
+            ? String(body.notice)
+            : body.note != null
+            ? String(body.note)
+            : String(existingCfg.notice ?? existingCfg.note ?? ""),
+
+        // --- 구 구조도 같이 유지(혹시 기존 화면이 읽을 수 있게) ---
+        fuel_price_per_liter: gasoline,
+        km_per_liter: 7, // ✅ 고정
+        default_oil_type:
+          body.default_oil_type != null
+            ? String(body.default_oil_type)
+            : String(existingCfg.default_oil_type ?? "휘발유"),
+        note:
+          body.note != null
+            ? String(body.note)
+            : body.notice != null
+            ? String(body.notice)
+            : String(existingCfg.note ?? existingCfg.notice ?? ""),
+      };
 
       if (check.rows.length === 0) {
         const insertResult = await pool.query(
@@ -69,9 +169,9 @@ export default function businessMasterRouter(pool: Pool) {
           VALUES ($1)
           RETURNING config_json
         `,
-          [configJson]
+          [nextCfg]
         );
-        return res.json(insertResult.rows[0].config_json);
+        return res.json({ ok: true, config: insertResult.rows[0].config_json });
       }
 
       const id = check.rows[0].id;
@@ -83,20 +183,19 @@ export default function businessMasterRouter(pool: Pool) {
         WHERE id = $2
         RETURNING config_json
       `,
-        [configJson, id]
+        [nextCfg, id]
       );
 
-      return res.json(updateResult.rows[0].config_json);
+      return res.json({ ok: true, config: updateResult.rows[0].config_json });
     } catch (err) {
       console.error("[business-master][POST /config] 에러:", err);
-      return res.status(500).json({ error: "설정 저장 에러" });
+      return res.status(500).json({ ok: false, error: "설정 저장 에러" });
     }
   });
 
   /* ===========================
    * 3. 거리 마스터 목록 조회
    *    GET /api/business-master/distances
-   *    (지역 / 거래처 / 소요시간 / 거리(km))
    * =========================== */
   router.get("/distances", async (_req, res) => {
     try {
@@ -122,7 +221,6 @@ export default function businessMasterRouter(pool: Pool) {
   /* ===========================
    * 3-1. 거래처 기본 목록
    *     GET /api/business-master/client-list
-   *     (사용자 관리 모달에서 A~Z 리스트용)
    * =========================== */
   router.get("/client-list", async (_req, res) => {
     try {
@@ -245,6 +343,58 @@ export default function businessMasterRouter(pool: Pool) {
       return res.status(500).json({ error: "거리 마스터 삭제 에러" });
     }
   });
+// ✅ 공휴일 조회 (한국천문연구원_특일정보)
+// GET /api/business-master/holidays?year=2026&month=01
+router.get("/holidays", async (req, res) => {
+  try {
+    const year = String(req.query.year ?? "");
+    const month = String(req.query.month ?? "");
+
+    if (!/^\d{4}$/.test(year)) {
+      return res.status(400).json({ ok: false, error: "year(YYYY) 필요" });
+    }
+    if (!/^\d{1,2}$/.test(month)) {
+      return res.status(400).json({ ok: false, error: "month(MM) 필요" });
+    }
+
+    const mm = month.padStart(2, "0");
+
+    const serviceKey = process.env.HOLIDAY_SERVICE_KEY;
+    if (!serviceKey) {
+      return res.status(500).json({ ok: false, error: "HOLIDAY_SERVICE_KEY 미설정" });
+    }
+
+    // 공휴일 조회 endpoint
+    // 예: http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getHoliDeInfo?solYear=2023&solMonth=01&_type=json&ServiceKey=...
+    const url =
+      `http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getHoliDeInfo` +
+      `?solYear=${encodeURIComponent(year)}` +
+      `&solMonth=${encodeURIComponent(mm)}` +
+      `&_type=json` +
+      `&ServiceKey=${serviceKey}`; // 보통 이미 인코딩된 키라 encodeURIComponent() 하지 않는 편이 안전
+
+    const r = await fetch(url);
+    if (!r.ok) {
+      return res.status(502).json({ ok: false, error: `holiday api status=${r.status}` });
+    }
+
+    const data: any = await r.json();
+
+    // 안전 파싱
+    const items = data?.response?.body?.items?.item;
+    const list = (Array.isArray(items) ? items : items ? [items] : []).map((it: any) => ({
+      // locdate: 20260101 같은 형태
+      date: String(it.locdate ?? ""),
+      name: String(it.dateName ?? ""),
+      isHoliday: String(it.isHoliday ?? "") === "Y",
+    }));
+
+    return res.json({ ok: true, year, month: mm, holidays: list });
+  } catch (err: any) {
+    console.error("[business-master][GET /holidays] 에러:", err);
+    return res.status(500).json({ ok: false, error: String(err?.message ?? err) });
+  }
+});
 
   return router;
 }
