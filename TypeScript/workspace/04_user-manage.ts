@@ -1,15 +1,14 @@
 // 04_user-manage.ts
 
-// ✅ 사용자별 거래처 거리 한 행 타입
+// ✅ 사용자별 거래처 거리 한 행 타입 (유종은 사용자 1개라서 행에서 제거)
 type UserDistanceRow = {
   region: string;            // 지역
   client_name: string;       // 거래처
   travel_time_text: string;  // 소요시간 텍스트
   home_distance_km: number | null; // 자택 → 출장지 (km)
-  fuel_type: string;         // 유종
 };
 
-// ✅ 사용자 타입
+// ✅ 사용자 타입 (유종은 사용자당 1개)
 type InnomaxUser = {
   no: number;
   id: string;
@@ -17,6 +16,7 @@ type InnomaxUser = {
   email: string | null;
   company_part: string | null;
   address: string | null;
+  fuel_type: string | null; // ✅ 추가
   permissions: Record<string, string> | null;
   distance_detail: UserDistanceRow[];
 };
@@ -35,8 +35,11 @@ function mapRawUser(row: any): InnomaxUser {
   // distance_detail_json 파싱
   let distanceArr: UserDistanceRow[] = [];
   const rawDistance = row.distance_detail_json ?? null;
+
   if (rawDistance) {
     let parsed: any = rawDistance;
+
+    // text로 왔을 수도 있으니 파싱
     if (typeof parsed === "string") {
       try {
         parsed = JSON.parse(parsed);
@@ -44,6 +47,7 @@ function mapRawUser(row: any): InnomaxUser {
         parsed = [];
       }
     }
+
     if (Array.isArray(parsed)) {
       distanceArr = parsed.map(
         (r: any): UserDistanceRow => ({
@@ -59,7 +63,6 @@ function mapRawUser(row: any): InnomaxUser {
               : r.home_distance_min != null
               ? Number(r.home_distance_min)
               : null,
-          fuel_type: String(r.fuel_type ?? ""),
         })
       );
     }
@@ -88,6 +91,7 @@ function mapRawUser(row: any): InnomaxUser {
     email: row.email ?? null,
     company_part: row.company_part ?? null,
     address: row.address ?? null,
+    fuel_type: row.fuel_type ?? null, // ✅ 추가
     permissions: perms,
     distance_detail: distanceArr,
   };
@@ -141,24 +145,19 @@ export function initUserManagePanel(API_BASE: string) {
   const inputCompany = document.getElementById("modalCompanyPart") as HTMLInputElement | null;
   const inputAddress = document.getElementById("modalAddress") as HTMLInputElement | null;
 
+  // ✅ 유종(사용자 1개) input
+  const inputFuelType = document.getElementById("modalFuelType") as HTMLInputElement | null;
+
   const btnAdd = document.getElementById("userAddBtn") as HTMLButtonElement | null;
-  const btnModalClose = document.getElementById(
-    "userModalCancelBtn"
-  ) as HTMLButtonElement | null; // 모달 안 "취소" 버튼
+  const btnModalClose = document.getElementById("userModalCancelBtn") as HTMLButtonElement | null;
 
   // 🔹 거리표 관련 DOM
-  const distanceTbodyEl = document.getElementById(
-    "userDistanceTbody"
-  ) as HTMLTableSectionElement | null;
-  const btnDistanceAddRow = document.getElementById(
-    "btnUserDistanceAddRow"
-  ) as HTMLButtonElement | null;
+  const distanceTbodyEl = document.getElementById("userDistanceTbody") as HTMLTableSectionElement | null;
+  const btnDistanceAddRow = document.getElementById("btnUserDistanceAddRow") as HTMLButtonElement | null;
 
   // 필수 DOM 없으면 초기화 스킵
   if (!tbodyEl || !userModal || !userForm) {
-    console.warn(
-      "[사용자관리] 필수 DOM 요소를 찾지 못했습니다. (tbodyEl, userModal, userForm 중 하나 없음)"
-    );
+    console.warn("[사용자관리] 필수 DOM 요소를 찾지 못했습니다.");
     return;
   }
 
@@ -190,10 +189,7 @@ export function initUserManagePanel(API_BASE: string) {
         credentials: "include",
       });
       if (!res.ok) {
-        console.error(
-          "[사용자관리] 거래처 마스터 조회 실패 status =",
-          res.status
-        );
+        console.error("[사용자관리] 거래처 마스터 조회 실패 status =", res.status);
         return;
       }
 
@@ -205,13 +201,10 @@ export function initUserManagePanel(API_BASE: string) {
           client_name: String(r.client_name ?? "").trim(),
           travel_time_text: String(r.travel_time_text ?? ""),
         }))
-        .filter((c) => c.client_name) // 이름 없는 건 제외
+        .filter((c) => c.client_name)
         .sort((a, b) => a.client_name.localeCompare(b.client_name, "ko"));
 
-      console.log(
-        "[사용자관리] 거래처 마스터 로딩 완료, 개수 =",
-        masterClients.length
-      );
+      console.log("[사용자관리] 거래처 마스터 로딩 완료, 개수 =", masterClients.length);
     } catch (err) {
       console.error("[사용자관리] 거래처 마스터 로딩 중 오류:", err);
     }
@@ -228,7 +221,7 @@ export function initUserManagePanel(API_BASE: string) {
     if (!distanceRows.length) {
       distanceTbody.innerHTML = `
         <tr>
-          <td colspan="6" class="border px-2 py-1 text-center text-[11px] text-gray-400">
+          <td colspan="5" class="border px-2 py-1 text-center text-[11px] text-gray-400">
             등록된 거리 정보가 없습니다. [+ 거리 행 추가] 버튼으로 추가하세요.
           </td>
         </tr>
@@ -273,14 +266,6 @@ export function initUserManagePanel(API_BASE: string) {
             value="${row.home_distance_km ?? ""}"
           />
         </td>
-        <td class="border px-1 py-1">
-          <input
-            type="text"
-            class="w-full border rounded px-1 py-[2px] text-[11px] fuel-input"
-            placeholder="예: 휘발유"
-            value="${row.fuel_type ?? ""}"
-          />
-        </td>
       `;
 
       distanceTbody.appendChild(tr);
@@ -293,15 +278,12 @@ export function initUserManagePanel(API_BASE: string) {
 
     const trs = distanceTbody.querySelectorAll<HTMLTableRowElement>("tr");
     const newRows: UserDistanceRow[] = [];
+
     trs.forEach((tr) => {
       const regionInput = tr.querySelector<HTMLInputElement>(".region-input");
       const clientInput = tr.querySelector<HTMLInputElement>(".client-input");
-      const travelTimeInput =
-        tr.querySelector<HTMLInputElement>(".travel-time-input");
-      const homeKmInput =
-        tr.querySelector<HTMLInputElement>(".home-km-input");
-      const fuelInput =
-        tr.querySelector<HTMLInputElement>(".fuel-input");
+      const travelTimeInput = tr.querySelector<HTMLInputElement>(".travel-time-input");
+      const homeKmInput = tr.querySelector<HTMLInputElement>(".home-km-input");
 
       // 안내문 행은 input이 없으니 스킵
       if (!clientInput) return;
@@ -317,7 +299,6 @@ export function initUserManagePanel(API_BASE: string) {
         client_name: clientName,
         travel_time_text: travelTimeInput?.value.trim() ?? "",
         home_distance_km: homeKm,
-        fuel_type: fuelInput?.value.trim() ?? "",
       });
     });
 
@@ -331,7 +312,6 @@ export function initUserManagePanel(API_BASE: string) {
       client_name: "",
       travel_time_text: "",
       home_distance_km: null,
-      fuel_type: "",
     });
     renderDistanceTable();
   }
@@ -341,6 +321,7 @@ export function initUserManagePanel(API_BASE: string) {
     if (!userModal || !modalMode || !modalTitle) return;
 
     modalMode.value = mode;
+
     if (mode === "add") {
       modalTitle.textContent = "사용자 추가";
       if (modalNo) modalNo.value = "";
@@ -350,6 +331,8 @@ export function initUserManagePanel(API_BASE: string) {
       if (inputEmail) inputEmail.value = "";
       if (inputCompany) inputCompany.value = "이노맥스";
       if (inputAddress) inputAddress.value = "";
+      if (inputFuelType) inputFuelType.value = ""; // ✅ 유종 초기화
+
       fillPermissionSelects(null);
 
       // 🔹 거래처 마스터 기준으로 기본 행 생성
@@ -360,7 +343,6 @@ export function initUserManagePanel(API_BASE: string) {
               client_name: c.client_name,
               travel_time_text: c.travel_time_text,
               home_distance_km: null,
-              fuel_type: "",
             }))
           : [];
     } else {
@@ -372,8 +354,10 @@ export function initUserManagePanel(API_BASE: string) {
       if (inputEmail) inputEmail.value = user?.email ?? "";
       if (inputCompany) inputCompany.value = user?.company_part ?? "이노맥스";
       if (inputAddress) inputAddress.value = user?.address ?? "";
+      if (inputFuelType) inputFuelType.value = user?.fuel_type ?? ""; // ✅ 유종 로드
 
       fillPermissionSelects(user?.permissions ?? {});
+
       // 기존에 저장된 거리 정보가 있으면 그걸 사용, 없으면 마스터 기준
       distanceRows =
         user?.distance_detail && user.distance_detail.length
@@ -383,7 +367,6 @@ export function initUserManagePanel(API_BASE: string) {
               client_name: c.client_name,
               travel_time_text: c.travel_time_text,
               home_distance_km: null,
-              fuel_type: "",
             }));
     }
 
@@ -429,9 +412,7 @@ export function initUserManagePanel(API_BASE: string) {
       const rows = await res.json();
       console.log("[사용자관리] 서버 응답 =", rows);
 
-      const users: InnomaxUser[] = Array.isArray(rows)
-        ? rows.map(mapRawUser)
-        : [];
+      const users: InnomaxUser[] = Array.isArray(rows) ? rows.map(mapRawUser) : [];
 
       if (!users.length) {
         tbody.innerHTML = `
@@ -453,9 +434,7 @@ export function initUserManagePanel(API_BASE: string) {
         // 권한 텍스트 만들기
         let permText = "권한없음";
         if (u.permissions) {
-          const parts = Object.entries(u.permissions).map(
-            ([k, v]) => `${k}:${v}`
-          );
+          const parts = Object.entries(u.permissions).map(([k, v]) => `${k}:${v}`);
           permText = parts.join(", ");
         }
 
@@ -468,12 +447,12 @@ export function initUserManagePanel(API_BASE: string) {
           <td class="px-3 py-2">${u.company_part ?? ""}</td>
           <td class="px-3 py-2 text-center">${permText}</td>
           <td class="px-3 py-2 text-center space-x-1">
-            <button 
+            <button
               class="px-2 py-1 rounded bg-indigo-500 text-white text-[11px] btn-edit-user"
               data-no="${u.no}">
               수정
             </button>
-            <button 
+            <button
               class="px-2 py-1 rounded bg-red-500 text-white text-[11px] btn-del-user"
               data-no="${u.no}">
               삭제
@@ -556,6 +535,7 @@ export function initUserManagePanel(API_BASE: string) {
     const email = inputEmail?.value.trim() || null;
     const company_part = inputCompany?.value.trim() || null;
     const address = inputAddress?.value.trim() || null;
+    const fuel_type = inputFuelType?.value.trim() || null; // ✅ 유종(사용자 1개)
     const permissions = collectPermissionsFromForm();
 
     // 🔹 거리표 최신값을 distanceRows에 반영
@@ -572,7 +552,6 @@ export function initUserManagePanel(API_BASE: string) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            // 백엔드가 기대하는 필드명
             Name: name,
             ID: id,
             password,
@@ -580,9 +559,11 @@ export function initUserManagePanel(API_BASE: string) {
             company_part,
             permissions,
             address,
+            fuel_type,              // ✅ 추가
             distance_detail: distanceRows,
           }),
         });
+
         const json = await res.json();
         if (!res.ok || json.ok === false) {
           alert(json.error || "사용자 추가 실패");
@@ -593,6 +574,7 @@ export function initUserManagePanel(API_BASE: string) {
           alert("수정 대상 사용자를 찾을 수 없습니다.");
           return;
         }
+
         const payload: any = {
           Name: name,
           ID: id,
@@ -600,15 +582,17 @@ export function initUserManagePanel(API_BASE: string) {
           company_part,
           permissions,
           address,
+          fuel_type,              // ✅ 추가
           distance_detail: distanceRows,
         };
-        if (password) payload.password = password; // 비밀번호 입력했을 때만 변경
+        if (password) payload.password = password;
 
         const res = await fetch(`${API_BASE}/api/users/${no}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+
         const json = await res.json();
         if (!res.ok || json.ok === false) {
           alert(json.error || "사용자 수정 실패");

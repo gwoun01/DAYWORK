@@ -19,22 +19,18 @@ export default function userManageRouter(pool: Pool) {
           company_part,
           permissions,
           address,
+          fuel_type,
           distance_detail_json
         FROM innomax_users
         ORDER BY no ASC
       `
       );
 
-      console.log(
-        "[users][GET /api/users] rows length =",
-        result.rows.length
-      );
+      console.log("[users][GET /api/users] rows length =", result.rows.length);
       return res.json(result.rows);
     } catch (err: any) {
       console.error("[users][GET /api/users] 에러:", err);
-      return res
-        .status(500)
-        .json({ ok: false, error: String(err?.message || err) });
+      return res.status(500).json({ ok: false, error: String(err?.message || err) });
     }
   });
 
@@ -56,6 +52,7 @@ export default function userManageRouter(pool: Pool) {
           company_part,
           permissions,
           address,
+          fuel_type,
           distance_detail_json
         FROM innomax_users
         WHERE no = $1
@@ -71,9 +68,7 @@ export default function userManageRouter(pool: Pool) {
       return res.json(result.rows[0]);
     } catch (err: any) {
       console.error("[users][GET /api/users/:no] 에러:", err);
-      return res
-        .status(500)
-        .json({ ok: false, error: String(err?.message || err) });
+      return res.status(500).json({ ok: false, error: String(err?.message || err) });
     }
   });
 
@@ -88,13 +83,16 @@ export default function userManageRouter(pool: Pool) {
       permissions,
       address,
       distance_detail,
+      fuel_type, // ✅ 추가
     } = req.body ?? {};
 
     if (!Name || !ID || !password) {
-      return res
-        .status(400)
-        .json({ error: "Name, ID, password 는 필수입니다." });
+      return res.status(400).json({ error: "Name, ID, password 는 필수입니다." });
     }
+
+    // ✅ json 컬럼 안전하게 저장하기 위해 stringify
+    const permissionsJson = permissions == null ? null : JSON.stringify(permissions);
+    const distanceJson = distance_detail == null ? null : JSON.stringify(distance_detail);
 
     try {
       // ID 중복 체크
@@ -116,9 +114,12 @@ export default function userManageRouter(pool: Pool) {
           company_part,
           permissions,
           address,
-          distance_detail_json
+          fuel_type,
+          distance_detail_json,
+          created_at,
+          updated_at
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())
         RETURNING
           no,
           id,
@@ -127,26 +128,31 @@ export default function userManageRouter(pool: Pool) {
           company_part,
           permissions,
           address,
+          fuel_type,
           distance_detail_json
       `,
         [
           ID,
           Name,
-          password,               // 지금은 평문 사용 (login 이랑 맞춤)
+          password, // 지금은 평문 사용 (login 이랑 맞춤)
           email ?? null,
           company_part ?? null,
-          permissions ?? null,
+          permissionsJson,
           address ?? null,
-          distance_detail ?? null,
+          fuel_type ?? null,   // ✅ 추가
+          distanceJson,
         ]
       );
 
       return res.json({ ok: true, user: result.rows[0] });
     } catch (err: any) {
       console.error("[users][POST /api/users] 에러:", err);
-      return res
-        .status(500)
-        .json({ ok: false, error: String(err?.message || err) });
+      return res.status(500).json({
+        ok: false,
+        error: String(err?.message || err),
+        detail: err?.detail,
+        code: err?.code,
+      });
     }
   });
 
@@ -166,15 +172,22 @@ export default function userManageRouter(pool: Pool) {
       permissions,
       address,
       distance_detail,
+      fuel_type, // ✅ 추가
     } = req.body ?? {};
 
     if (!Name || !ID) {
-      return res
-        .status(400)
-        .json({ error: "Name, ID 는 필수입니다." });
+      return res.status(400).json({ error: "Name, ID 는 필수입니다." });
     }
 
+    // ✅ json 컬럼 안전하게 저장하기 위해 stringify
+    const permissionsJson = permissions == null ? null : JSON.stringify(permissions);
+    const distanceJson = distance_detail == null ? null : JSON.stringify(distance_detail);
+
     try {
+      console.log("===== [PUT /api/users/:no] =====");
+      console.log("no =", no);
+      console.log("req.body =", req.body);
+
       // ID 중복 체크 (자기 자신 제외)
       const dup = await pool.query(
         `SELECT no FROM innomax_users WHERE id = $1 AND no <> $2 LIMIT 1`,
@@ -189,27 +202,45 @@ export default function userManageRouter(pool: Pool) {
         Name,
         email ?? null,
         company_part ?? null,
-        permissions ?? null,
+        permissionsJson,
         address ?? null,
-        distance_detail ?? null,
+        fuel_type ?? null, // ✅ 추가
+        distanceJson,
       ];
 
+      // ✅ fuel_type 들어가서 파라미터 번호가 바뀜
       let sql = `
         UPDATE innomax_users
         SET
-          id                  = $1,
-          name                = $2,
-          email               = $3,
-          company_part        = $4,
-          permissions         = $5,
-          address             = $6,
-          distance_detail_json= $7,
-          updated_at          = now()
+          id                   = $1,
+          name                 = $2,
+          email                = $3,
+          company_part         = $4,
+          permissions          = $5,
+          address              = $6,
+          fuel_type            = $7,
+          distance_detail_json = $8,
+          updated_at           = now()
       `;
 
       if (password) {
         sql += `,
-          password_hash = $8
+          password_hash = $9
+        WHERE no = $10
+        RETURNING
+          no,
+          id,
+          name,
+          email,
+          company_part,
+          permissions,
+          address,
+          fuel_type,
+          distance_detail_json`;
+        params.push(password);
+        params.push(no);
+      } else {
+        sql += `
         WHERE no = $9
         RETURNING
           no,
@@ -219,20 +250,7 @@ export default function userManageRouter(pool: Pool) {
           company_part,
           permissions,
           address,
-          distance_detail_json`;
-        params.push(password);
-        params.push(no);
-      } else {
-        sql += `
-        WHERE no = $8
-        RETURNING
-          no,
-          id,
-          name,
-          email,
-          company_part,
-          permissions,
-          address,
+          fuel_type,
           distance_detail_json`;
         params.push(no);
       }
@@ -242,9 +260,12 @@ export default function userManageRouter(pool: Pool) {
       return res.json({ ok: true, user: result.rows[0] });
     } catch (err: any) {
       console.error("[users][PUT /api/users/:no] 에러:", err);
-      return res
-        .status(500)
-        .json({ ok: false, error: String(err?.message || err) });
+      return res.status(500).json({
+        ok: false,
+        error: String(err?.message || err),
+        detail: err?.detail,
+        code: err?.code,
+      });
     }
   });
 
@@ -260,9 +281,7 @@ export default function userManageRouter(pool: Pool) {
       return res.json({ ok: true });
     } catch (err: any) {
       console.error("[users][DELETE /api/users/:no] 에러:", err);
-      return res
-        .status(500)
-        .json({ ok: false, error: String(err?.message || err) });
+      return res.status(500).json({ ok: false, error: String(err?.message || err) });
     }
   });
 
