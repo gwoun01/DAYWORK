@@ -1525,6 +1525,19 @@ function vacTypeLabel(t) {
         return "반차";
     return "기타";
 }
+// ✅ 월 계산 유틸(로테이션 프리뷰에 필요)
+function addMonthsToYm(ymStr, delta) {
+    const [y, m] = ymStr.split("-").map(Number);
+    const d = new Date(y, m - 1, 1);
+    d.setMonth(d.getMonth() + delta);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+function compareYm(a, b) {
+    return a.localeCompare(b);
+}
+function mod(n, m) {
+    return ((n % m) + m) % m;
+}
 function datesBetweenInclusive(start, end) {
     const out = [];
     const s = new Date(start + "T00:00:00");
@@ -1583,10 +1596,10 @@ function renderDutyTable(assigns) {
     `;
         return;
     }
-    const TEAM_NAME = "S/W팀"; // ✅ 일단 고정값. 나중에 사용자 소속으로 바꿀 수 있음
+    const TEAM_NAME = "S/W팀";
     const rows = assigns
         .map((a) => {
-        const mmdd = a.date.slice(5); // "01-10"
+        const mmdd = a.date.slice(5);
         return `
         <tr class="border-b last:border-b-0">
           <td class="px-3 py-2 text-center text-[12px] whitespace-nowrap">${mmdd}</td>
@@ -1681,7 +1694,7 @@ function initBusinessMasterPanel(API_BASE) {
     const btnVacAdd = document.getElementById("btnVacAdd");
     const vacationAdminTbody = document.getElementById("vacationAdminTbody");
     const vacAdminMsg = document.getElementById("vacAdminMsg");
-    // ✅ 요약 캘린더 DOM (없으면 그냥 기능만 스킵됨)
+    // ✅ 요약 캘린더 DOM
     const sumCalGrid = document.getElementById("sumCalGrid");
     const sumCalLabel = document.getElementById("sumCalLabel");
     const sumCalPrev = document.getElementById("sumCalPrev");
@@ -1716,9 +1729,9 @@ function initBusinessMasterPanel(API_BASE) {
     let sumYear = new Date().getFullYear();
     let sumMonth = new Date().getMonth(); // 0~11
     let cachedVacations = [];
-    let cachedHolidays = []; // ✅ 추가
-    let cachedDutyPreviewYm = ""; // ✅ 추가
-    let cachedDutyPreviewAssigns = []; // ✅ 추가
+    let cachedHolidays = [];
+    let cachedDutyPreviewYm = "";
+    let cachedDutyPreviewAssigns = [];
     async function fetchVacationsAll() {
         try {
             const res = await fetch(`${API_BASE}/api/business-master/vacations`, { credentials: "include" });
@@ -1731,9 +1744,59 @@ function initBusinessMasterPanel(API_BASE) {
             return [];
         }
     }
+    // =====================================================
+    // ✅ 공휴일 API + 주말 합쳐서 “휴일 리스트”
+    // =====================================================
+    async function fetchHolidayItemsForMonth(base) {
+        const year = String(base.getFullYear());
+        const month = pad2(base.getMonth() + 1);
+        const days = getAllDaysOfMonth(base);
+        const weekend = days
+            .map((d) => ymd(d))
+            .filter((ds) => isWeekend(ds))
+            .map((ds) => ({
+            date: ds,
+            dow: getDowKr(ds),
+            type: "주말",
+        }));
+        let apiHolidays = [];
+        try {
+            const res = await fetch(`${API_BASE}/api/business-master/holidays?year=${year}&month=${month}`, {
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => null);
+            if (res.ok && json?.ok === true) {
+                const list = Array.isArray(json.holidays) ? json.holidays : [];
+                apiHolidays = list
+                    .filter((h) => h && h.date)
+                    .map((h) => {
+                    const ds = parseLocdateToYmd(String(h.date));
+                    if (!ds)
+                        return null;
+                    return {
+                        date: ds,
+                        dow: getDowKr(ds),
+                        type: "공휴일",
+                        holidayName: String(h.name ?? "").trim() || undefined,
+                    };
+                })
+                    .filter(Boolean);
+            }
+        }
+        catch (e) {
+            console.warn("[휴일] 공휴일 API 실패(주말만으로 진행):", e);
+        }
+        const map = new Map();
+        weekend.forEach((w) => map.set(w.date, w));
+        apiHolidays.forEach((h) => map.set(h.date, h));
+        return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+    }
+    // ==========================
+    // ✅ 요약 캘린더 렌더
+    // ==========================
     function renderSummaryCalendar() {
         if (!sumCalGrid || !sumCalLabel)
-            return; // ✅ HTML 없으면 스킵
+            return;
         const base = new Date(sumYear, sumMonth, 1);
         const y = base.getFullYear();
         const m = base.getMonth();
@@ -1743,18 +1806,18 @@ function initBusinessMasterPanel(API_BASE) {
         const first = new Date(y, m, 1);
         const lastDate = new Date(y, m + 1, 0).getDate();
         const startWeekday = first.getDay(); // 0(일)~6(토)
-        // ✅ 날짜별 이벤트 맵 만들기
         const vacMap = buildVacationEvents(cachedVacations);
-        // ✅ 당직은 "마지막 생성월"만 표시
+        // ✅ 당직: 현재 보고있는 월 프리뷰(assigns)로 표시
         let dutyMap = new Map();
-        if (dutyLastYm === viewingYm && Array.isArray(dutyLastAssigns)) {
-            dutyMap = buildDutyEvents(dutyLastAssigns);
+        if (cachedDutyPreviewYm === viewingYm && Array.isArray(cachedDutyPreviewAssigns)) {
+            dutyMap = buildDutyEvents(cachedDutyPreviewAssigns);
         }
-        // ============================
-        // ✅ 표시 제한 설정 (여기 숫자만 바꾸면 됨)
-        // ============================
-        const MAX_VAC_LINES = 1; // 휴가: 칸에 2명까지만 표시
-        const MAX_DUTY_LINES = 1; // 당직: 칸에 1명만 표시
+        const holidayMap = new Map();
+        for (const h of cachedHolidays)
+            holidayMap.set(h.date, h);
+        // ✅ 표시 제한
+        const MAX_VAC_LINES = 1; // 휴가 1명만
+        const MAX_DUTY_LINES = 1;
         function openDayDetail(dateStr, vacs, duties) {
             const modal = document.getElementById("sumCalModal");
             const title = document.getElementById("sumCalModalTitle");
@@ -1762,7 +1825,6 @@ function initBusinessMasterPanel(API_BASE) {
             const btnClose = document.getElementById("sumCalModalClose");
             const btnOk = document.getElementById("sumCalModalOk");
             if (!modal || !title || !body) {
-                // 모달 HTML 없으면 fallback
                 const lines = [];
                 lines.push(`[${dateStr}]`);
                 if (vacs.length) {
@@ -1783,49 +1845,45 @@ function initBusinessMasterPanel(API_BASE) {
             title.textContent = `${dateStr} 상세`;
             const vacHtml = vacs.length
                 ? `
-      <div class="border rounded-xl overflow-hidden">
-        <div class="px-3 py-2 bg-amber-50 text-amber-800 font-bold text-xs border-b">휴가 (${vacs.length})</div>
-        <div class="p-3 space-y-2">
-          ${vacs
+          <div class="border rounded-xl overflow-hidden">
+            <div class="px-3 py-2 bg-amber-50 text-amber-800 font-bold text-xs border-b">휴가 (${vacs.length})</div>
+            <div class="p-3 space-y-2">
+              ${vacs
                     .map((v) => `
-              <div class="px-2 py-1 rounded-lg bg-amber-50 text-amber-800 text-xs">
-                휴가 ${escapeHtml(v.text)}
-              </div>
-            `)
+                  <div class="px-2 py-1 rounded-lg bg-amber-50 text-amber-800 text-xs">
+                    휴가 ${escapeHtml(v.text)}
+                  </div>
+                `)
                     .join("")}
-        </div>
-      </div>
-    `
+            </div>
+          </div>
+        `
                 : "";
             const dutyHtml = duties.length
                 ? `
-      <div class="border rounded-xl overflow-hidden">
-        <div class="px-3 py-2 bg-indigo-50 text-indigo-800 font-bold text-xs border-b">당직 (${duties.length})</div>
-        <div class="p-3 space-y-2">
-          ${duties
+          <div class="border rounded-xl overflow-hidden">
+            <div class="px-3 py-2 bg-indigo-50 text-indigo-800 font-bold text-xs border-b">당직 (${duties.length})</div>
+            <div class="p-3 space-y-2">
+              ${duties
                     .map((d) => `
-              <div class="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-800 text-xs">
-                당직 ${escapeHtml(d.text)}
-              </div>
-            `)
+                  <div class="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-800 text-xs">
+                    당직 ${escapeHtml(d.text)}
+                  </div>
+                `)
                     .join("")}
-        </div>
-      </div>
-    `
+            </div>
+          </div>
+        `
                 : "";
             body.innerHTML =
                 vacHtml ||
                     dutyHtml ||
                     `<div class="text-xs text-gray-500 text-center py-6">표시할 내용이 없습니다.</div>`;
-            const close = () => {
-                modal.classList.add("hidden");
-            };
-            // ✅ 이벤트 중복방지: 기존 핸들러를 덮어씀
+            const close = () => modal.classList.add("hidden");
             if (btnClose)
                 btnClose.onclick = close;
             if (btnOk)
                 btnOk.onclick = close;
-            // 바깥 배경 클릭 시 닫기
             modal.onclick = (e) => {
                 const t = e.target;
                 if (!t)
@@ -1839,8 +1897,7 @@ function initBusinessMasterPanel(API_BASE) {
         }
         function makeLine(kind, text) {
             const div = document.createElement("div");
-            // ✅ truncate 제거: 이재…/권택… 원인
-            // ✅ 글자는 줄바꿈 허용(셀 높이는 그대로라 넘치면 아래에서 잘림/스크롤로 제어 가능)
+            // ✅ truncate 완전 제거 → “이재…/권택…” 절대 안 생김
             div.className =
                 kind === "VACATION"
                     ? "px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 text-[10px] leading-tight whitespace-normal break-keep"
@@ -1861,32 +1918,31 @@ function initBusinessMasterPanel(API_BASE) {
             });
             return div;
         }
-        // ============================
-        // ✅ 앞 빈칸(이전달 여백)
-        // ============================
+        // ✅ 앞 빈칸
         for (let i = 0; i < startWeekday; i++) {
             const cell = document.createElement("div");
             cell.className = "min-h-[90px] border-r border-b bg-gray-50/60";
             sumCalGrid.appendChild(cell);
         }
-        // ============================
         // ✅ 날짜 셀
-        // ============================
         for (let day = 1; day <= lastDate; day++) {
             const ds = `${y}-${pad2(m + 1)}-${pad2(day)}`;
             const vacs = vacMap.get(ds) ?? [];
             const duties = dutyMap.get(ds) ?? [];
             const cell = document.createElement("div");
+            // ✅ 높이 고정, 셀 커지는 거 방지
             cell.className = "min-h-[90px] border-r border-b p-1 overflow-hidden";
             cell.dataset.date = ds;
-            // 날짜 숫자
+            // ✅ 공휴일/일요일 빨강
+            const h = holidayMap.get(ds);
+            const dow = new Date(ds + "T00:00:00").getDay(); // 0=일
+            const isRed = (h && h.type === "공휴일") || dow === 0;
             const dateDiv = document.createElement("div");
-            dateDiv.className = "text-[11px] font-bold mb-1";
+            dateDiv.className = `text-[11px] font-bold mb-1 ${isRed ? "text-rose-600" : ""}`;
             dateDiv.textContent = String(day);
-            // 이벤트 박스
             const evBox = document.createElement("div");
             evBox.className = "flex flex-col gap-1";
-            // ✅ 휴가: 일부만 표시 + 더보기
+            // ✅ 휴가: 1명 + 더보기
             if (vacs.length) {
                 const show = vacs.slice(0, MAX_VAC_LINES);
                 for (const v of show)
@@ -1895,7 +1951,7 @@ function initBusinessMasterPanel(API_BASE) {
                     evBox.appendChild(makeMore("VACATION", vacs.length - MAX_VAC_LINES, () => openDayDetail(ds, vacs, duties)));
                 }
             }
-            // ✅ 당직: 일부만 표시 + 더보기
+            // ✅ 당직: 1명 + 더보기(실제로는 1명만이라 거의 안 뜸)
             if (duties.length) {
                 const show = duties.slice(0, MAX_DUTY_LINES);
                 for (const d of show)
@@ -1904,7 +1960,6 @@ function initBusinessMasterPanel(API_BASE) {
                     evBox.appendChild(makeMore("DUTY", duties.length - MAX_DUTY_LINES, () => openDayDetail(ds, vacs, duties)));
                 }
             }
-            // ✅ 셀 자체 클릭하면 그 날짜 상세(휴가/당직 전체) 보여주기
             cell.addEventListener("click", () => {
                 if (!vacs.length && !duties.length)
                     return;
@@ -1914,7 +1969,7 @@ function initBusinessMasterPanel(API_BASE) {
             cell.appendChild(evBox);
             sumCalGrid.appendChild(cell);
         }
-        // ✅ 마지막 줄이 7칸이 되도록 뒤 빈칸 채우기(테두리 깨짐 방지)
+        // ✅ 뒤 빈칸
         const totalCells = startWeekday + lastDate;
         const remain = (7 - (totalCells % 7)) % 7;
         for (let i = 0; i < remain; i++) {
@@ -1923,12 +1978,77 @@ function initBusinessMasterPanel(API_BASE) {
             sumCalGrid.appendChild(cell);
         }
     }
+    // ✅ 요약 캘린더 리프레시(휴가 + 휴일 + 당직 로테이션 프리뷰)
     async function refreshSummaryCalendar() {
         if (!sumCalGrid || !sumCalLabel)
-            return; // ✅ HTML 없으면 스킵
+            return;
+        const base = new Date(sumYear, sumMonth, 1);
+        const viewingYm = ym(base);
+        // 1) 휴가
         cachedVacations = await fetchVacationsAll();
+        // 2) 현재 보고있는 달 휴일
+        cachedHolidays = await fetchHolidayItemsForMonth(base);
+        // 3) 당직 프리뷰(어느 달이든 로테이션 표시)
+        cachedDutyPreviewYm = viewingYm;
+        cachedDutyPreviewAssigns = [];
+        if (!dutyMembers.length || !cachedHolidays.length) {
+            renderSummaryCalendar();
+            return;
+        }
+        if (!/^\d{4}-\d{2}$/.test(dutyLastYm))
+            dutyLastYm = viewingYm;
+        const len = dutyMembers.length;
+        async function getHolidayCount(ymStr) {
+            const [yy, mm] = ymStr.split("-").map(Number);
+            const monthBase = new Date(yy, mm - 1, 1);
+            const items = await fetchHolidayItemsForMonth(monthBase);
+            return items.length;
+        }
+        let startIdx = 0;
+        // ✅ 마지막 생성월이면 저장된 결과 그대로 표시
+        if (compareYm(viewingYm, dutyLastYm) === 0 && dutyLastAssigns.length) {
+            cachedDutyPreviewAssigns = dutyLastAssigns;
+            renderSummaryCalendar();
+            return;
+        }
+        if (compareYm(viewingYm, dutyLastYm) > 0) {
+            // 미래 월
+            let idx = mod(dutyStartIndex, len);
+            // dutyLastYm 다음달부터 viewingYm 전 달까지 누적
+            for (let cur = addMonthsToYm(dutyLastYm, 1); compareYm(cur, viewingYm) < 0; cur = addMonthsToYm(cur, 1)) {
+                const cnt = await getHolidayCount(cur);
+                idx = mod(idx + cnt, len);
+            }
+            startIdx = idx;
+        }
+        else {
+            // 과거 월
+            let idxAfter = mod(dutyStartIndex, len);
+            // dutyLastYm부터 viewingYm+1까지 거꾸로 빼기
+            for (let cur = dutyLastYm; compareYm(cur, addMonthsToYm(viewingYm, 1)) >= 0; cur = addMonthsToYm(cur, -1)) {
+                const cnt = await getHolidayCount(cur);
+                idxAfter = mod(idxAfter - cnt, len);
+                if (compareYm(cur, addMonthsToYm(viewingYm, 1)) === 0)
+                    break;
+            }
+            const viewingCnt = cachedHolidays.length;
+            startIdx = mod(idxAfter - viewingCnt, len);
+        }
+        // ✅ viewingYm 휴일에 배정
+        const assigns = [];
+        let idx = startIdx;
+        for (const h of cachedHolidays) {
+            const name = dutyMembers[idx]?.name;
+            if (name)
+                assigns.push({ date: h.date, name });
+            idx = (idx + 1) % len;
+        }
+        cachedDutyPreviewAssigns = assigns;
         renderSummaryCalendar();
     }
+    // =====================================================
+    // ✅ 당직 후보 표 렌더
+    // =====================================================
     function renderDutyMembers() {
         if (!dutyTbody)
             return;
@@ -1996,6 +2116,8 @@ function initBusinessMasterPanel(API_BASE) {
             else
                 dutyStartIndex = dutyStartIndex % dutyMembers.length;
             renderDutyMembers();
+            // ✅ 멤버가 바뀌면(삭제/추가/로드) 현재 달 프리뷰도 즉시 갱신
+            refreshSummaryCalendar();
         }
         catch (err) {
             console.error("[출장업무관리] 사용자 목록 로딩 오류:", err);
@@ -2122,9 +2244,8 @@ function initBusinessMasterPanel(API_BASE) {
             if (vacNote)
                 vacNote.value = "";
             await loadVacationList();
-            // ✅ 대시보드 즉시 갱신 이벤트
             window.dispatchEvent(new CustomEvent("vacation-status-refresh"));
-            // ✅ 요약 캘린더도 즉시 갱신
+            // ✅ 요약 캘린더 즉시 갱신
             refreshSummaryCalendar();
         }
         catch (e) {
@@ -2133,54 +2254,7 @@ function initBusinessMasterPanel(API_BASE) {
         }
     }
     // =====================================================
-    // ✅ 공휴일 API + 주말 합쳐서 “휴일 리스트”
-    // =====================================================
-    async function fetchHolidayItemsForMonth(base) {
-        const year = String(base.getFullYear());
-        const month = pad2(base.getMonth() + 1);
-        const days = getAllDaysOfMonth(base);
-        const weekend = days
-            .map((d) => ymd(d))
-            .filter((ds) => isWeekend(ds))
-            .map((ds) => ({
-            date: ds,
-            dow: getDowKr(ds),
-            type: "주말",
-        }));
-        let apiHolidays = [];
-        try {
-            const res = await fetch(`${API_BASE}/api/business-master/holidays?year=${year}&month=${month}`, {
-                credentials: "include",
-            });
-            const json = await res.json().catch(() => null);
-            if (res.ok && json?.ok === true) {
-                const list = Array.isArray(json.holidays) ? json.holidays : [];
-                apiHolidays = list
-                    .filter((h) => h && h.date)
-                    .map((h) => {
-                    const ds = parseLocdateToYmd(String(h.date));
-                    if (!ds)
-                        return null;
-                    return {
-                        date: ds,
-                        dow: getDowKr(ds),
-                        type: "공휴일",
-                        holidayName: String(h.name ?? "").trim() || undefined,
-                    };
-                })
-                    .filter(Boolean);
-            }
-        }
-        catch (e) {
-            console.warn("[휴일] 공휴일 API 실패(주말만으로 진행):", e);
-        }
-        const map = new Map();
-        weekend.forEach((w) => map.set(w.date, w));
-        apiHolidays.forEach((h) => map.set(h.date, h));
-        return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
-    }
-    // =====================================================
-    // ✅ “이번달” 당직 자동 생성 (휴일만)
+    // ✅ “이번달” 당직 자동 생성 (휴일만)  + 저장
     // =====================================================
     async function generateDutyForCurrentMonth() {
         if (!dutyMembers.length) {
@@ -2206,25 +2280,23 @@ function initBusinessMasterPanel(API_BASE) {
             idx = (idx + 1) % dutyMembers.length;
         }
         dutyStartIndex = idx;
-        // ✅ F5 복원을 위한 "마지막 생성 결과" 저장
         dutyLastYm = ym(base);
         dutyLastAssigns = assigns;
         if (dutyResultBox) {
-            const first = assigns[0];
-            const last = assigns[assigns.length - 1];
+            const firstA = assigns[0];
+            const lastA = assigns[assigns.length - 1];
             dutyResultBox.innerHTML = `
         - 생성 월: ${ym(base)}<br/>
         - 휴일 수(주말+공휴일): ${assigns.length}일<br/>
-        - 시작: ${first.date} (${first.name})<br/>
-        - 마지막: ${last.date} (${last.name})<br/>
+        - 시작: ${firstA.date} (${firstA.name})<br/>
+        - 마지막: ${lastA.date} (${lastA.name})<br/>
         - 다음 시작번호(자동): ${dutyStartIndex + 1}번
       `;
         }
         renderDutyTable(assigns);
         renderDashboardHolidayDuty(holidays, assignsMap);
-        // ✅ 생성 후 저장(순번 + 마지막생성결과까지 저장)
         await saveConfig(true);
-        // ✅ 요약 캘린더도 즉시 갱신
+        // ✅ 로테이션 프리뷰도 즉시 갱신(다른 달도 보여야 함)
         refreshSummaryCalendar();
         alert("이번달 휴일(주말+공휴일) 기준으로 당직이 생성되었습니다.");
     }
@@ -2256,7 +2328,6 @@ function initBusinessMasterPanel(API_BASE) {
                 inputCny.value = data.exchange_rate_cny?.toString() ?? "";
             if (textareaNotice)
                 textareaNotice.value = data.notice ?? data.note ?? "";
-            // ✅ duty_members_text 복원(startIndex + lastAssigns)
             const rawDutyText = String(data.duty_members_text ?? "");
             if (rawDutyText) {
                 try {
@@ -2281,22 +2352,18 @@ function initBusinessMasterPanel(API_BASE) {
             if (dutyResultBox) {
                 dutyResultBox.textContent = "- '당직 자동 생성'을 누르면 이번달 휴일(주말+공휴일)에만 자동 배정됩니다.";
             }
-            // ✅ 저장된 마지막 결과가 있으면 F5 후에도 표 복원
-            if (dutyLastAssigns.length) {
+            if (dutyLastAssigns.length)
                 renderDutyTable(dutyLastAssigns);
-            }
-            else {
+            else
                 renderDutyTable([]);
-            }
-            // ✅ 요약 캘린더: config 로드 후에도 그리기(당직 lastYm/lastAssigns 반영)
-            renderSummaryCalendar();
+            // ✅ config 로드 후 달력 갱신(로테이션 프리뷰 포함)
+            refreshSummaryCalendar();
         }
         catch (err) {
             console.error("[출장업무관리] 설정 조회 중 오류:", err);
         }
     }
     async function saveConfig(forceSilent = false) {
-        // ✅ startIndex + 마지막생성결과까지 같이 저장
         const dutyStore = JSON.stringify({
             startIndex: dutyStartIndex,
             lastYm: dutyLastYm,
@@ -2491,9 +2558,7 @@ function initBusinessMasterPanel(API_BASE) {
     btnConfigSave?.addEventListener("click", () => saveConfig(false));
     btnDistanceAddRow?.addEventListener("click", () => addEmptyRow());
     btnDistanceSave?.addEventListener("click", () => saveDistances());
-    // ✅ 휴가 등록 버튼
     btnVacAdd?.addEventListener("click", () => addVacation());
-    // ✅ 휴가 삭제(테이블 클릭)
     vacationAdminTbody?.addEventListener("click", async (e) => {
         const target = e.target;
         if (!target?.classList.contains("vac-del-btn"))
@@ -2514,7 +2579,6 @@ function initBusinessMasterPanel(API_BASE) {
             setVacMsg("삭제 완료");
             await loadVacationList();
             window.dispatchEvent(new CustomEvent("vacation-status-refresh"));
-            // ✅ 요약 캘린더도 즉시 갱신
             refreshSummaryCalendar();
         }
         catch (err) {
@@ -2557,18 +2621,20 @@ function initBusinessMasterPanel(API_BASE) {
         else
             dutyStartIndex = dutyStartIndex % dutyMembers.length;
         renderDutyMembers();
+        // ✅ 멤버 삭제되면 프리뷰 즉시 반영
+        refreshSummaryCalendar();
     });
     btnDutyGenerateThisMonth?.addEventListener("click", () => {
         generateDutyForCurrentMonth();
     });
-    // ✅ 요약 캘린더 월 이동(HTML 있을 때만)
+    // ✅ 월 이동: renderSummaryCalendar() 말고 refreshSummaryCalendar()로 바꿈(휴일/당직 프리뷰 갱신 필요)
     sumCalPrev?.addEventListener("click", () => {
         sumMonth--;
         if (sumMonth < 0) {
             sumMonth = 11;
             sumYear--;
         }
-        renderSummaryCalendar();
+        refreshSummaryCalendar();
     });
     sumCalNext?.addEventListener("click", () => {
         sumMonth++;
@@ -2576,7 +2642,7 @@ function initBusinessMasterPanel(API_BASE) {
             sumMonth = 0;
             sumYear++;
         }
-        renderSummaryCalendar();
+        refreshSummaryCalendar();
     });
     // =====================================================
     // 초기 로딩
@@ -2585,10 +2651,8 @@ function initBusinessMasterPanel(API_BASE) {
         loadDutyMembersFromUsers();
     });
     loadDistances();
-    // ✅ 휴가 초기 로딩
     loadVacUserOptions();
     loadVacationList().then(() => {
-        // ✅ 요약 캘린더 첫 표시
         refreshSummaryCalendar();
     });
 }
