@@ -230,12 +230,11 @@ document.addEventListener("DOMContentLoaded", async () => {
         await initTripApprovalPanel(API_BASE);
         console.log("[INIT] 출장승인 패널 init 완료");
       }
-        // 관리자 전용 - 출장업무 관리
+      // 관리자 전용 - 출장업무 관리
       if (id === "panel-출장업무-관리") {
         await initBusinessMasterPanel(API_BASE);
         console.log("[INIT] 출장업무관리 패널 init 완료");
       }
-
       // 국내출장 - 출장등록 패널 → 등록 + 정산 패널 초기화
       if (id === "panel-국내출장-출장등록") {
         await initDomesticTripRegisterPanel(API_BASE);
@@ -247,6 +246,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (id === "panel-국내출장-정산서등록") {
         await initDomesticTripHistoryPanel(API_BASE);
         console.log("[INIT] 국내출장-정산 내역 조회 패널 init 완료");
+      }
+      if (id === "panel-dashboard") {
+        window.dispatchEvent(new Event("trip-status-refresh"));
+        window.dispatchEvent(new Event("vacation-status-refresh")); // ✅ 추가
       }
     });
   });

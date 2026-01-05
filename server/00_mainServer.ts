@@ -4,9 +4,13 @@ import dotenv from "dotenv";
 import { Pool } from "pg";
 import path from "path";
 
-// ✅ .env 로딩
-dotenv.config();
+// ✅ 루트 .env 강제 로딩
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
+console.log(
+  "[ENV CHECK] HOLIDAY_SERVICE_KEY len =",
+  (process.env.HOLIDAY_SERVICE_KEY || "").length
+);
 const app = express();
 const PORT = Number(process.env.PORT) || 5050;
 
