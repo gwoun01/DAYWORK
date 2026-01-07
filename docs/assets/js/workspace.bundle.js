@@ -13,8 +13,20 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   initDashboardTripStatus: () => (/* binding */ initDashboardTripStatus)
 /* harmony export */ });
 // TypeScript/workspace/01_dashboard-trip-status.ts
+// ----------------------
+// 유틸
+// ----------------------
 function pad2(n) {
     return String(n).padStart(2, "0");
+}
+function ymd(d) {
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+function ym(d) {
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+function todayYmd() {
+    return ymd(new Date());
 }
 function parseLocdateToYmd(loc) {
     // 20260101 -> 2026-01-01
@@ -33,9 +45,6 @@ function isWeekend(dateStr) {
     const day = d.getDay();
     return day === 0 || day === 6;
 }
-function ymd(d) {
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
 function getAllDaysOfMonth(base) {
     const y = base.getFullYear();
     const m = base.getMonth();
@@ -44,10 +53,6 @@ function getAllDaysOfMonth(base) {
     for (let i = 1; i <= last; i++)
         days.push(new Date(y, m, i));
     return days;
-}
-function todayYmd() {
-    const d = new Date();
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 function escapeHtml(s) {
     return String(s ?? "")
@@ -62,42 +67,104 @@ function vacTypeLabel(t) {
         return "반차";
     return "기타";
 }
-/** YYYY-MM-DD 체크 */
 function isYmdStr(s) {
     return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
-/**
- * ✅ 휴가 목록을 "월 기준 날짜별 이름 배열"로 변환
- *   { "2026-01-03": ["홍길동","김철수"], ... }
- */
-function buildVacationMapForMonth(items, base) {
-    const y = base.getFullYear();
-    const m = base.getMonth(); // 0~11
-    const monthStart = new Date(y, m, 1);
-    const monthEnd = new Date(y, m + 1, 0);
-    const map = {};
-    for (const v of items) {
-        if (!v?.user_name)
-            continue;
-        if (!isYmdStr(v.start_date) || !isYmdStr(v.end_date))
-            continue;
-        const s = new Date(v.start_date + "T00:00:00");
-        const e = new Date(v.end_date + "T00:00:00");
-        // 월 범위로 클램프
-        const start = s < monthStart ? monthStart : s;
-        const end = e > monthEnd ? monthEnd : e;
-        if (start > end)
-            continue;
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            const key = ymd(d);
-            map[key] = map[key] ?? [];
-            if (!map[key].includes(v.user_name))
-                map[key].push(v.user_name);
+// ✅ 숫자 표시 유틸
+function fmtNumber(v, fallback = "0") {
+    const n = Number(v);
+    if (!Number.isFinite(n))
+        return fallback;
+    return n.toLocaleString();
+}
+function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el)
+        el.textContent = text;
+}
+// ✅ duty 로테이션 계산용
+function addMonthsToYm(ymStr, delta) {
+    const [y, m] = ymStr.split("-").map(Number);
+    const d = new Date(y, m - 1, 1);
+    d.setMonth(d.getMonth() + delta);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+function compareYm(a, b) {
+    return a.localeCompare(b);
+}
+function mod(n, m) {
+    return ((n % m) + m) % m;
+}
+// ----------------------
+// ✅ DOM이 늦게 생기는 문제 해결(기존 유지)
+// ----------------------
+async function waitForElement(id, timeoutMs = 8000) {
+    const start = Date.now();
+    return new Promise((resolve) => {
+        const tick = () => {
+            const el = document.getElementById(id);
+            if (el)
+                return resolve(el);
+            if (Date.now() - start > timeoutMs)
+                return resolve(null);
+            requestAnimationFrame(tick);
+        };
+        tick();
+    });
+}
+// ----------------------
+// ✅ API: 휴일(주말+공휴일)
+// ----------------------
+async function fetchHolidayItemsForMonth(API_BASE, base) {
+    const year = String(base.getFullYear());
+    const month = pad2(base.getMonth() + 1);
+    // 1) 주말
+    const days = getAllDaysOfMonth(base);
+    const weekend = days
+        .map((d) => ymd(d))
+        .filter((ds) => isWeekend(ds))
+        .map((ds) => ({
+        date: ds,
+        dow: getDowKr(ds),
+        type: "주말",
+    }));
+    // 2) 공휴일 API
+    let apiHolidays = [];
+    try {
+        const res = await fetch(`${API_BASE}/api/business-master/holidays?year=${year}&month=${month}`, {
+            credentials: "include",
+        });
+        const json = await res.json().catch(() => null);
+        if (res.ok && json?.ok === true) {
+            const list = Array.isArray(json.holidays) ? json.holidays : [];
+            apiHolidays = list
+                .filter((h) => h && h.date)
+                .map((h) => {
+                const ds = parseLocdateToYmd(String(h.date));
+                if (!ds)
+                    return null;
+                return {
+                    date: ds,
+                    dow: getDowKr(ds),
+                    type: "공휴일",
+                    holidayName: String(h.name ?? "").trim() || undefined,
+                };
+            })
+                .filter(Boolean);
         }
     }
-    return map;
+    catch (e) {
+        console.warn("[대시보드] 공휴일 API 실패(주말만 표시):", e);
+    }
+    // 3) 합치기(중복 제거): 공휴일 우선
+    const map = new Map();
+    weekend.forEach((w) => map.set(w.date, w));
+    apiHolidays.forEach((h) => map.set(h.date, h));
+    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
-/** 휴가 전체 목록 가져오기 */
+// ----------------------
+// ✅ API: 휴가
+// ----------------------
 async function fetchVacations(API_BASE) {
     try {
         const res = await fetch(`${API_BASE}/api/business-master/vacations`, {
@@ -112,10 +179,169 @@ async function fetchVacations(API_BASE) {
         return [];
     }
 }
-/**
- * ✅ 대시보드의 휴일/당직 캘린더 tbody(#dutyHolidayBody) 렌더
- * - ✅ 당직 + 휴가 같이 표시 (한 칸에 여러 줄)
- */
+// ✅ "월 기준 날짜별 휴가자 배열" map
+function buildVacationMapForMonth(items, base) {
+    const y = base.getFullYear();
+    const m = base.getMonth();
+    const monthStart = new Date(y, m, 1);
+    const monthEnd = new Date(y, m + 1, 0);
+    const map = {};
+    for (const v of items) {
+        if (!v?.user_name)
+            continue;
+        if (!isYmdStr(v.start_date) || !isYmdStr(v.end_date))
+            continue;
+        const s = new Date(v.start_date + "T00:00:00");
+        const e = new Date(v.end_date + "T00:00:00");
+        const start = s < monthStart ? monthStart : s;
+        const end = e > monthEnd ? monthEnd : e;
+        if (start > end)
+            continue;
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const key = ymd(d);
+            map[key] = map[key] ?? [];
+            if (!map[key].includes(v.user_name))
+                map[key].push(v.user_name);
+        }
+    }
+    return map;
+}
+// ----------------------
+// ✅ API: 사용자(당직 후보)
+// ----------------------
+async function fetchDutyMembers(API_BASE) {
+    try {
+        const res = await fetch(`${API_BASE}/api/users`, { credentials: "include" });
+        if (!res.ok)
+            return [];
+        const rows = await res.json().catch(() => []);
+        const list = Array.isArray(rows) ? rows : [];
+        return list
+            .map((u) => ({
+            no: Number(u.no ?? u.No ?? 0),
+            name: String(u.name ?? u.Name ?? "").trim(),
+        }))
+            .filter((u) => u.no > 0 && u.name)
+            .sort((a, b) => a.no - b.no);
+    }
+    catch {
+        return [];
+    }
+}
+async function fetchBusinessMasterConfig(API_BASE) {
+    try {
+        const res = await fetch(`${API_BASE}/api/business-master/config`, { credentials: "include" });
+        if (!res.ok)
+            return null;
+        const data = await res.json().catch(() => null);
+        if (!data)
+            return null;
+        return {
+            notice: typeof data.notice === "string" ? data.notice : undefined,
+            note: typeof data.note === "string" ? data.note : undefined,
+            km_per_liter: (data.km_per_liter ?? null),
+            fuel_price_gasoline: (data.fuel_price_gasoline ?? null),
+            fuel_price_diesel: (data.fuel_price_diesel ?? null),
+            fuel_price_lpg: (data.fuel_price_lpg ?? null),
+            exchange_rate_usd: (data.exchange_rate_usd ?? null),
+            exchange_rate_jpy: (data.exchange_rate_jpy ?? null),
+            exchange_rate_cny: (data.exchange_rate_cny ?? null),
+        };
+    }
+    catch {
+        return null;
+    }
+}
+async function fetchDutyConfig(API_BASE) {
+    try {
+        const res = await fetch(`${API_BASE}/api/business-master/config`, { credentials: "include" });
+        if (!res.ok)
+            return { startIndex: 0, lastYm: "", lastAssigns: [] };
+        const data = await res.json().catch(() => ({}));
+        const raw = String(data?.duty_members_text ?? "");
+        if (!raw)
+            return { startIndex: 0, lastYm: "", lastAssigns: [] };
+        try {
+            const parsed = JSON.parse(raw);
+            const startIndex = Number(parsed?.startIndex ?? 0);
+            const lastYm = String(parsed?.lastYm ?? "");
+            const lastAssigns = Array.isArray(parsed?.lastAssigns)
+                ? parsed.lastAssigns
+                    .map((a) => ({
+                    date: String(a?.date ?? ""),
+                    name: String(a?.name ?? ""),
+                }))
+                    .filter((a) => isYmdStr(a.date) && !!a.name)
+                : [];
+            return { startIndex, lastYm, lastAssigns };
+        }
+        catch {
+            return { startIndex: 0, lastYm: "", lastAssigns: [] };
+        }
+    }
+    catch {
+        return { startIndex: 0, lastYm: "", lastAssigns: [] };
+    }
+}
+// ✅ 회사 일정(캘린더용) 불러오기
+async function fetchDashboardSchedules(API_BASE, ymStr) {
+    try {
+        const res = await fetch(`${API_BASE}/api/business-master/calendar-events?ym=${encodeURIComponent(ymStr)}`, { credentials: "include" });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || json?.ok !== true)
+            return [];
+        return Array.isArray(json.items) ? json.items : [];
+    }
+    catch {
+        return [];
+    }
+}
+// ----------------------
+// ✅ 대시보드: 공지/유류/환율 렌더 (추가)
+// ----------------------
+async function refreshDashboardTopNoticeFuelFx(API_BASE) {
+    // DOM이 없을 수도 있으니(패널 전환 시) 기다렸다가 세팅
+    await waitForElement("fuelUnitGasoline", 8000);
+    await waitForElement("fxUsdKrw", 8000);
+    const cfg = await fetchBusinessMasterConfig(API_BASE);
+    if (!cfg)
+        return;
+    // 1) 공지(상단 공지판)
+    //const noticeCard = document.querySelector("#panel-dashboard .bg-white .font-bold.text-gray-800") as HTMLElement | null;
+    const noticeCard = Array.from(document.querySelectorAll("#panel-dashboard .bg-white"))
+        .find((el) => (el.textContent || "").includes("공지사항 알림판")) ?? null;
+    if (noticeCard) {
+        let out = noticeCard.querySelector("#dashNoticeText");
+        if (!out) {
+            out = document.createElement("div");
+            out.id = "dashNoticeText";
+            out.className = "mt-3 text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap break-words";
+            // 카드 안의 첫 설명문 다음에 꽂아줌
+            noticeCard.appendChild(out);
+        }
+        out.textContent = (cfg.notice ?? cfg.note ?? "").trim() || "-";
+    }
+    // 2) 유류
+    setText("fuelUnitGasoline", fmtNumber(cfg.fuel_price_gasoline, "0"));
+    setText("fuelUnitDiesel", fmtNumber(cfg.fuel_price_diesel, "0"));
+    setText("fuelUnitGas", fmtNumber(cfg.fuel_price_lpg, "0"));
+    // 전기 유류대는 아직 config에 없으니 0 유지
+    // (원하면 나중에 config에 fuel_price_electric 같은 필드 추가해서 연동하면 됨)
+    // 여기서는 기존 표시값 유지(없으면 0)
+    const elElec = document.getElementById("fuelUnitElectric");
+    if (elElec && !elElec.textContent)
+        elElec.textContent = "0";
+    // 기준일 표시는 “설정 저장일”이 따로 없어서 오늘로 표시(원하면 config updatedAt 저장해서 정확히 가능)
+    setText("fuelPriceBaseDate", todayYmd());
+    // 3) 환율
+    setText("fxUsdKrw", fmtNumber(cfg.exchange_rate_usd, "0"));
+    setText("fxJpyKrw", fmtNumber(cfg.exchange_rate_jpy, "0"));
+    setText("fxCnyKrw", fmtNumber(cfg.exchange_rate_cny, "0"));
+    setText("fxBaseDate", todayYmd());
+}
+// ----------------------
+// ✅ 대시보드: 표(#dutyHolidayBody) 렌더 (휴일 + 당직 + 휴가)
+// ----------------------
 function renderDashboardHolidayDuty(holidays, assignsMap, vacMap) {
     const tbody = document.getElementById("dutyHolidayBody");
     if (!tbody)
@@ -156,122 +382,237 @@ function renderDashboardHolidayDuty(holidays, assignsMap, vacMap) {
     })
         .join("");
 }
-/**
- * ✅ 휴일 목록(주말 + 공휴일 API) 가져오기
- * - 공휴일 API 실패해도 주말만으로 진행
- */
-async function fetchHolidayItemsForMonth(API_BASE, base) {
-    const year = String(base.getFullYear());
-    const month = pad2(base.getMonth() + 1);
-    // 1) 주말
-    const days = getAllDaysOfMonth(base);
-    const weekend = days
-        .map((d) => ymd(d))
-        .filter((ds) => isWeekend(ds))
-        .map((ds) => ({
-        date: ds,
-        dow: getDowKr(ds),
-        type: "주말",
-    }));
-    // 2) 공휴일 API
-    let apiHolidays = [];
-    try {
-        const res = await fetch(`${API_BASE}/api/business-master/holidays?year=${year}&month=${month}`, {
-            credentials: "include",
-        });
-        const json = await res.json().catch(() => null);
-        if (res.ok && json?.ok === true) {
-            const list = Array.isArray(json.holidays) ? json.holidays : [];
-            apiHolidays = list
-                .filter((h) => h && h.date)
-                .map((h) => {
-                const ds = parseLocdateToYmd(String(h.date));
-                if (!ds)
-                    return null;
-                return {
-                    date: ds,
-                    dow: getDowKr(ds),
-                    type: "공휴일",
-                    holidayName: String(h.name ?? "").trim() || undefined,
-                };
-            })
-                .filter(Boolean);
-        }
+// ----------------------
+// ✅ 대시보드: 달력 그리드(#dutyCalGrid) 렌더 (휴일/당직/휴가)
+// ----------------------
+function ensureDutyCalLabel() {
+    let label = document.getElementById("dutyCalLabel");
+    if (!label) {
+        label = document.createElement("div");
+        label.id = "dutyCalLabel";
+        label.className = "hidden";
+        document.body.appendChild(label);
     }
-    catch (e) {
-        console.warn("[대시보드 당직] 공휴일 API 실패(주말만 표시):", e);
-    }
-    // 3) 합치기(중복 제거): 공휴일 우선
-    const map = new Map();
-    weekend.forEach((w) => map.set(w.date, w));
-    apiHolidays.forEach((h) => map.set(h.date, h));
-    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+    const txt = (label.textContent || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(txt))
+        label.textContent = ym(new Date());
 }
-/**
- * ✅ F5 새로고침 시, 서버 config에서 마지막 생성 결과(lastAssigns)를 읽어
- * 대시보드 캘린더 표(#dutyHolidayBody)를 자동 복원
- * - ✅ 휴가도 같이 합쳐서 표시
- */
-async function restoreDashboardDutyFromConfig(API_BASE) {
-    const tbody = document.getElementById("dutyHolidayBody");
-    if (!tbody)
+function renderDashboardCalendarGrid(viewingYm, holidays, assignsMap, vacMap) {
+    const grid = document.getElementById("dutyCalGrid");
+    if (!grid)
         return;
-    tbody.innerHTML = `
-    <tr>
-      <td class="px-2 py-2 text-center text-gray-400" colspan="4">당직 일정 불러오는 중...</td>
-    </tr>
-  `;
-    try {
-        const res = await fetch(`${API_BASE}/api/business-master/config`, { credentials: "include" });
-        if (!res.ok) {
-            renderDashboardHolidayDuty([], {}, {});
+    ensureDutyCalLabel();
+    const label = document.getElementById("dutyCalLabel");
+    if (label)
+        label.textContent = viewingYm;
+    const m = viewingYm.match(/^(\d{4})-(\d{2})$/);
+    if (!m)
+        return;
+    const y = Number(m[1]);
+    const mo = Number(m[2]); // 1~12
+    const first = new Date(y, mo - 1, 1);
+    const lastDay = new Date(y, mo, 0).getDate();
+    const startDow = first.getDay(); // 0=일
+    const holidayMap = new Map();
+    for (const h of holidays)
+        holidayMap.set(h.date, h);
+    grid.innerHTML = "";
+    // 앞 빈칸
+    for (let i = 0; i < startDow; i++) {
+        const empty = document.createElement("div");
+        empty.className = "min-h-[90px] border-b border-r bg-gray-50/50";
+        grid.appendChild(empty);
+    }
+    // 날짜 셀
+    for (let d = 1; d <= lastDay; d++) {
+        const key = `${y}-${pad2(mo)}-${pad2(d)}`;
+        const cell = document.createElement("div");
+        cell.className = "min-h-[90px] border-b border-r p-1 overflow-hidden bg-white";
+        cell.dataset.date = key;
+        const h = holidayMap.get(key);
+        const dow = new Date(key + "T00:00:00").getDay();
+        const isRed = (h && h.type === "공휴일") || dow === 0;
+        const dayEl = document.createElement("div");
+        dayEl.className = `text-[11px] font-bold mb-1 ${isRed ? "text-rose-600" : "text-gray-900"}`;
+        dayEl.textContent = String(d);
+        cell.appendChild(dayEl);
+        // 휴일 배지(주말/공휴일)
+        if (h) {
+            const badge = document.createElement("div");
+            const isHoliday = h.type === "공휴일";
+            badge.className =
+                "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 " +
+                    (isHoliday ? "bg-rose-50 text-rose-700" : "bg-gray-100 text-gray-700");
+            badge.textContent = isHoliday ? (h.holidayName ? `공휴일(${h.holidayName})` : "공휴일") : "주말";
+            cell.appendChild(badge);
+        }
+        // 휴가 1줄(+더보기)
+        const vacs = vacMap[key] ?? [];
+        if (vacs.length) {
+            const vLine = document.createElement("div");
+            vLine.className =
+                "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 bg-amber-50 text-amber-800 whitespace-normal break-keep";
+            vLine.textContent = `휴가 ${vacs[0]}${vacs.length > 1 ? ` 외 ${vacs.length - 1}` : ""}`;
+            cell.appendChild(vLine);
+        }
+        // 당직 1줄
+        const dutyName = assignsMap[key] || "";
+        if (dutyName) {
+            const dLine = document.createElement("div");
+            dLine.className =
+                "px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 whitespace-normal break-keep";
+            dLine.textContent = `당직 ${dutyName}`;
+            cell.appendChild(dLine);
+        }
+        grid.appendChild(cell);
+    }
+    // 뒤 빈칸
+    const totalCells = startDow + lastDay;
+    const remain = (7 - (totalCells % 7)) % 7;
+    for (let i = 0; i < remain; i++) {
+        const empty = document.createElement("div");
+        empty.className = "min-h-[90px] border-b border-r bg-gray-50/30";
+        grid.appendChild(empty);
+    }
+}
+// ✅ 대시보드 캘린더 셀에 "일정"만 추가 표시
+function appendSchedulesToDashboardCalendar(viewingYm, schedules) {
+    const grid = document.getElementById("dutyCalGrid");
+    if (!grid)
+        return;
+    const monthItems = schedules.filter((s) => s.date.startsWith(viewingYm));
+    const map = new Map();
+    for (const it of monthItems) {
+        if (!map.has(it.date))
+            map.set(it.date, []);
+        map.get(it.date).push(it);
+    }
+    const cells = grid.querySelectorAll("div[data-date]");
+    cells.forEach((cell) => {
+        const date = cell.dataset.date;
+        const items = map.get(date);
+        if (!items?.length)
             return;
+        // 🔒 중복 표시 방지
+        cell.querySelectorAll(".dash-schedule").forEach((n) => n.remove());
+        const first = items[0];
+        const line = document.createElement("div");
+        line.className =
+            "dash-schedule px-1.5 py-0.5 mt-1 rounded bg-slate-50 text-slate-800 text-[10px] font-semibold";
+        line.textContent = `일정 ${first.title}`;
+        cell.appendChild(line);
+        if (items.length > 1) {
+            const more = document.createElement("div");
+            more.className = "dash-schedule text-[10px] text-slate-600 underline cursor-pointer";
+            more.textContent = `+${items.length - 1}건`;
+            more.onclick = (e) => {
+                e.stopPropagation();
+                alert(`[${date}]\n\n일정:\n` + items.map((x) => `- ${x.title}`).join("\n"));
+            };
+            cell.appendChild(more);
         }
-        const data = await res.json().catch(() => ({}));
-        const raw = String(data?.duty_members_text ?? "");
-        let lastYm = "";
-        let lastAssigns = [];
-        try {
-            const parsed = raw ? JSON.parse(raw) : null;
-            lastYm = String(parsed?.lastYm ?? "");
-            lastAssigns = Array.isArray(parsed?.lastAssigns) ? parsed.lastAssigns : [];
-        }
-        catch { }
-        if (!lastYm || !lastAssigns.length) {
-            renderDashboardHolidayDuty([], {}, {});
-            return;
-        }
-        const y = Number(lastYm.slice(0, 4));
-        const m = Number(lastYm.slice(5, 7));
-        if (!Number.isFinite(y) || !Number.isFinite(m)) {
-            renderDashboardHolidayDuty([], {}, {});
-            return;
-        }
-        const base = new Date(y, m - 1, 1);
+    });
+}
+// ----------------------
+// ✅ 핵심: "당직생성 버튼" 없이도 현재월 당직을 자동으로 계산해서 대시보드에 그리기
+// ----------------------
+async function computeDutyAssignsForYm(API_BASE, viewingYm, members, cfg) {
+    if (!members.length)
+        return [];
+    const len = members.length;
+    const safeStartIndex = mod(Number(cfg.startIndex || 0), len);
+    // lastYm가 없으면: 그냥 0부터 현재월 휴일 수만큼 배정(처음 사용)
+    if (!/^\d{4}-\d{2}$/.test(cfg.lastYm)) {
+        const [yy, mm] = viewingYm.split("-").map(Number);
+        const base = new Date(yy, mm - 1, 1);
         const holidays = await fetchHolidayItemsForMonth(API_BASE, base);
-        const assignsMap = {};
-        for (const a of lastAssigns)
-            assignsMap[a.date] = a.name;
-        // ✅ 휴가도 같이 가져와서 월 map으로 변환
-        const vacations = await fetchVacations(API_BASE);
-        const vacMap = buildVacationMapForMonth(vacations, base);
-        renderDashboardHolidayDuty(holidays, assignsMap, vacMap);
+        const assigns = [];
+        let idx = 0;
+        for (const h of holidays) {
+            assigns.push({ date: h.date, name: members[idx]?.name ?? "" });
+            idx = (idx + 1) % len;
+        }
+        return assigns.filter((a) => a.date && a.name);
     }
-    catch (e) {
-        console.error("[대시보드 당직] 복원 실패:", e);
-        renderDashboardHolidayDuty([], {}, {});
+    // viewingYm == lastYm이고 lastAssigns가 있으면 그걸 그대로 사용(정확)
+    if (compareYm(viewingYm, cfg.lastYm) === 0 && cfg.lastAssigns.length) {
+        return cfg.lastAssigns;
     }
+    // helper: 어떤 월의 휴일 수
+    async function getHolidayCount(ymStr) {
+        const [yy, mm] = ymStr.split("-").map(Number);
+        const monthBase = new Date(yy, mm - 1, 1);
+        const items = await fetchHolidayItemsForMonth(API_BASE, monthBase);
+        return items.length;
+    }
+    let startIdx = 0;
+    if (compareYm(viewingYm, cfg.lastYm) > 0) {
+        // 미래 월: lastYm 다음달부터 누적해서 idx 이동
+        let idx = safeStartIndex;
+        for (let cur = addMonthsToYm(cfg.lastYm, 1); compareYm(cur, viewingYm) < 0; cur = addMonthsToYm(cur, 1)) {
+            const cnt = await getHolidayCount(cur);
+            idx = mod(idx + cnt, len);
+        }
+        startIdx = idx;
+    }
+    else {
+        // 과거 월: 뒤로 돌리기
+        let idxAfter = safeStartIndex;
+        for (let cur = cfg.lastYm; compareYm(cur, addMonthsToYm(viewingYm, 1)) >= 0; cur = addMonthsToYm(cur, -1)) {
+            const cnt = await getHolidayCount(cur);
+            idxAfter = mod(idxAfter - cnt, len);
+            if (compareYm(cur, addMonthsToYm(viewingYm, 1)) === 0)
+                break;
+        }
+        const viewingCnt = await getHolidayCount(viewingYm);
+        startIdx = mod(idxAfter - viewingCnt, len);
+    }
+    const [yy, mm] = viewingYm.split("-").map(Number);
+    const base = new Date(yy, mm - 1, 1);
+    const holidays = await fetchHolidayItemsForMonth(API_BASE, base);
+    const assigns = [];
+    let idx = startIdx;
+    for (const h of holidays) {
+        const name = members[idx]?.name;
+        if (name)
+            assigns.push({ date: h.date, name });
+        idx = (idx + 1) % len;
+    }
+    return assigns;
+}
+// ----------------------
+// ✅ 대시보드 캘린더(표+그리드) 전체 리프레시
+// ----------------------
+async function refreshDashboardDutyVacationCalendar(API_BASE) {
+    const tbody = await waitForElement("dutyHolidayBody", 8000);
+    const grid = await waitForElement("dutyCalGrid", 8000);
+    if (!tbody && !grid)
+        return;
+    const viewingYm = ym(new Date());
+    const [yy, mm] = viewingYm.split("-").map(Number);
+    const base = new Date(yy, mm - 1, 1);
+    // 1) 휴일
+    const holidays = await fetchHolidayItemsForMonth(API_BASE, base);
+    // 2) 휴가
+    const vacations = await fetchVacations(API_BASE);
+    const vacMap = buildVacationMapForMonth(vacations, base);
+    // 3) 당직 후보 + config 기반 로테이션 계산
+    const members = await fetchDutyMembers(API_BASE);
+    const cfg = await fetchDutyConfig(API_BASE);
+    const assigns = await computeDutyAssignsForYm(API_BASE, viewingYm, members, cfg);
+    const assignsMap = {};
+    for (const a of assigns)
+        assignsMap[a.date] = a.name;
+    // 4) 표 렌더
+    renderDashboardHolidayDuty(holidays, assignsMap, vacMap);
+    // 5) 그리드 렌더
+    renderDashboardCalendarGrid(viewingYm, holidays, assignsMap, vacMap);
+    // 6) 회사 일정 표시
+    const schedules = await fetchDashboardSchedules(API_BASE, viewingYm);
+    appendSchedulesToDashboardCalendar(viewingYm, schedules);
 }
 /* ============================================================
- * ✅ ✅ ✅ 휴가자현황(대시보드)
- * - ✅ 네 HTML 기준으로 id 맞춤!
- *   tbody: #vacationStatusTableBody
- *   KPI:   #kpiVacationToday
- *   검색:  #vacationSearchInput
- *   필터:  #vacationFilterType
- *   버튼:  #btnVacationReload
- *   라벨:  #vacationStatusDateLabel
- *   이벤트: vacation-status-refresh
+ * ✅ 휴가자 현황(대시보드)
  * ============================================================ */
 function renderDashboardVacation(items, baseDateYmd) {
     const kpiEl = document.getElementById("kpiVacationToday");
@@ -280,18 +621,15 @@ function renderDashboardVacation(items, baseDateYmd) {
         return;
     const searchInput = document.getElementById("vacationSearchInput");
     const filterSelect = document.getElementById("vacationFilterType");
-    // 1) 오늘 포함되는 휴가만
     let todayItems = items.filter((v) => {
         const s = String(v.start_date || "");
         const e = String(v.end_date || "");
         return s && e && s <= baseDateYmd && baseDateYmd <= e;
     });
-    // 2) 필터(연차/반차/기타)
     const filter = filterSelect?.value ?? "all";
     if (filter !== "all") {
         todayItems = todayItems.filter((v) => v.vac_type === filter);
     }
-    // 3) 검색(이름/메모)
     const kw = (searchInput?.value ?? "").trim().toLowerCase();
     if (kw) {
         todayItems = todayItems.filter((v) => {
@@ -300,7 +638,6 @@ function renderDashboardVacation(items, baseDateYmd) {
             return name.includes(kw) || note.includes(kw);
         });
     }
-    // KPI
     if (kpiEl)
         kpiEl.textContent = String(todayItems.length);
     if (todayItems.length === 0) {
@@ -330,7 +667,7 @@ function renderDashboardVacation(items, baseDateYmd) {
 async function loadDashboardVacation(API_BASE, dateYmd) {
     const tbody = document.getElementById("vacationStatusTableBody");
     if (!tbody)
-        return; // 휴가자 영역 없는 화면이면 무시
+        return;
     const dateLabel = document.getElementById("vacationStatusDateLabel");
     if (dateLabel)
         dateLabel.textContent = "오늘";
@@ -378,14 +715,13 @@ function initDashboardTripStatus(API_BASE) {
     const searchInput = document.getElementById("tripSearchInput");
     const filterSelect = document.getElementById("tripFilterType");
     const reloadBtn = document.getElementById("btnTripReload");
-    // 🔹 필수 DOM 없으면 그냥 종료
     if (!kpiTripEl || !tbody) {
         console.warn("[대시보드] 출장자 현황용 요소를 찾지 못했습니다.");
         return;
     }
     const tbodyEl = tbody;
     let lastItems = [];
-    let currentDate; // YYYY-MM-DD (없으면 오늘)
+    let currentDate;
     function renderTable() {
         const keyword = (searchInput?.value ?? "").trim().toLowerCase();
         const filter = filterSelect?.value ?? "all";
@@ -481,7 +817,7 @@ function initDashboardTripStatus(API_BASE) {
         }
     }
     // -----------------------------
-    // 🔹 이벤트 바인딩 (출장)
+    // 이벤트 바인딩 (출장)
     // -----------------------------
     searchInput?.addEventListener("input", () => renderTable());
     filterSelect?.addEventListener("change", () => renderTable());
@@ -489,12 +825,14 @@ function initDashboardTripStatus(API_BASE) {
     window.addEventListener("trip-status-refresh", () => {
         loadTripStatus(currentDate);
     });
-    // ✅ 최초 한 번 로딩 (오늘 기준)
+    // ✅ 최초 로딩 (출장)
     loadTripStatus();
-    // ✅ 대시보드 캘린더(휴일/당직) + 휴가 함께 표시
-    restoreDashboardDutyFromConfig(API_BASE);
+    // ✅ ✅ ✅ 대시보드 캘린더(휴일/당직/휴가)
+    refreshDashboardDutyVacationCalendar(API_BASE);
+    // ✅ ✅ ✅ 공지/유류/환율: 최초 1회 로딩
+    refreshDashboardTopNoticeFuelFx(API_BASE);
     // -----------------------------
-    // 🔹 이벤트 바인딩 (휴가)
+    // 이벤트 바인딩 (휴가)
     // -----------------------------
     const vacationSearchInput = document.getElementById("vacationSearchInput");
     const vacationFilterType = document.getElementById("vacationFilterType");
@@ -503,13 +841,19 @@ function initDashboardTripStatus(API_BASE) {
     vacationSearchInput?.addEventListener("input", reloadVacation);
     vacationFilterType?.addEventListener("change", reloadVacation);
     btnVacationReload?.addEventListener("click", reloadVacation);
-    // ✅ 휴가자 새로고침 이벤트(휴가자 설정에서 저장/삭제 후)
     window.addEventListener("vacation-status-refresh", () => {
         reloadVacation();
-        // 휴가가 바뀌면 캘린더도 같이 다시 그리기(표 안에 휴가: 이름 반영)
-        restoreDashboardDutyFromConfig(API_BASE);
+        refreshDashboardDutyVacationCalendar(API_BASE);
     });
-    // ✅ ✅ 휴가자 현황 최초 1회 로딩
+    // ✅ 설정/당직쪽에서 "저장됨" 이벤트 보내면 대시보드도 즉시 새로고침
+    window.addEventListener("duty-config-changed", () => {
+        refreshDashboardDutyVacationCalendar(API_BASE);
+    });
+    // ✅ ✅ ✅ 출장업무관리에서 config 저장했을 때: 공지/유류/환율 즉시 갱신
+    window.addEventListener("business-config-changed", () => {
+        refreshDashboardTopNoticeFuelFx(API_BASE);
+    });
+    // ✅ 휴가자 현황 최초 1회 로딩
     loadDashboardVacation(API_BASE, todayYmd());
 }
 
@@ -1460,6 +1804,7 @@ __webpack_require__.r(__webpack_exports__);
 // ✅ 추가 수정: F5 새로고침해도 당직표 유지(마지막 생성 결과를 duty_members_text에 같이 저장/복원)
 // ✅ 추가: 휴가자 설정(등록/삭제) + 대시보드 휴가자현황 갱신 이벤트
 // ✅ 추가: 휴가/당직 요약 캘린더 (월 이동 + 자동 표기)
+// ✅ 추가: 📌 캘린더 일정(등록 → 캘린더에 표시)
 // ======================
 // 유틸
 // ======================
@@ -1525,6 +1870,9 @@ function vacTypeLabel(t) {
         return "반차";
     return "기타";
 }
+function openVacNoteModal(name, range, note) {
+    alert(`[비고]\n${name}\n${range}\n\n${note}`);
+}
 // ✅ 월 계산 유틸(로테이션 프리뷰에 필요)
 function addMonthsToYm(ymStr, delta) {
     const [y, m] = ymStr.split("-").map(Number);
@@ -1537,6 +1885,10 @@ function compareYm(a, b) {
 }
 function mod(n, m) {
     return ((n % m) + m) % m;
+}
+// ✅✅✅ YYYY-MM-DD 체크(일정/필터에 사용)
+function isYmd(s) {
+    return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 function datesBetweenInclusive(start, end) {
     const out = [];
@@ -1580,6 +1932,144 @@ function buildDutyEvents(assigns) {
         });
     }
     return map;
+}
+// ✅✅✅ 일정(캘린더 이벤트) 펼치기
+function buildScheduleEvents(items) {
+    const map = new Map();
+    for (const it of items) {
+        if (!it?.date || !isYmd(it.date))
+            continue;
+        const title = String(it.title ?? "").trim();
+        if (!title)
+            continue;
+        if (!map.has(it.date))
+            map.set(it.date, []);
+        map.get(it.date).push({
+            date: it.date,
+            kind: "SCHEDULE",
+            text: title,
+            id: Number(it.id), // ✅ 삭제용 id
+        });
+    }
+    return map;
+}
+function buildVacationMapForDash(items) {
+    const map = new Map();
+    for (const it of items) {
+        if (!it?.start_date || !it?.end_date)
+            continue;
+        const label = `${it.user_name}(${vacTypeLabel(it.vac_type)})`;
+        const days = datesBetweenInclusive(it.start_date, it.end_date);
+        for (const ds of days) {
+            if (!map.has(ds))
+                map.set(ds, []);
+            map.get(ds).push({ kind: "VACATION", text: label });
+        }
+    }
+    return map;
+}
+function buildDutyMapForDash(assigns) {
+    const map = new Map();
+    for (const a of assigns) {
+        if (!a?.date || !a?.name)
+            continue;
+        if (!map.has(a.date))
+            map.set(a.date, []);
+        map.get(a.date).push({ kind: "DUTY", text: a.name });
+    }
+    return map;
+}
+function renderDashboardCalGrid(viewingYm, holidays, dutyAssigns, vacations) {
+    const grid = document.getElementById("dutyCalGrid");
+    const label = document.getElementById("dutyCalLabel");
+    if (!grid || !label)
+        return;
+    label.textContent = viewingYm;
+    const [y, m] = viewingYm.split("-").map(Number);
+    if (!y || !m)
+        return;
+    const first = new Date(y, m - 1, 1);
+    const lastDate = new Date(y, m, 0).getDate();
+    const startDow = first.getDay(); // 0=일
+    const holidayMap = new Map();
+    for (const h of holidays)
+        holidayMap.set(h.date, h);
+    const vacMap = buildVacationMapForDash(vacations);
+    const dutyMap = buildDutyMapForDash(dutyAssigns);
+    grid.innerHTML = "";
+    // 앞 빈칸
+    for (let i = 0; i < startDow; i++) {
+        const empty = document.createElement("div");
+        empty.className = "min-h-[90px] border-b border-r bg-gray-50/50";
+        grid.appendChild(empty);
+    }
+    // 날짜 셀
+    for (let day = 1; day <= lastDate; day++) {
+        const ds = `${y}-${pad2(m)}-${pad2(day)}`;
+        const cell = document.createElement("div");
+        cell.className = "min-h-[90px] border-b border-r p-1 overflow-hidden bg-white";
+        cell.dataset.date = ds;
+        const h = holidayMap.get(ds);
+        const dow = new Date(ds + "T00:00:00").getDay();
+        const isRed = (h && h.type === "공휴일") || dow === 0;
+        const dayEl = document.createElement("div");
+        dayEl.className = `text-[11px] font-bold mb-1 ${isRed ? "text-rose-600" : "text-gray-900"}`;
+        dayEl.textContent = String(day);
+        cell.appendChild(dayEl);
+        // ✅ 휴일 뱃지(주말/공휴일)
+        if (h) {
+            const badge = document.createElement("div");
+            const isHoliday = h.type === "공휴일";
+            badge.className =
+                "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 " +
+                    (isHoliday ? "bg-rose-50 text-rose-700" : "bg-gray-100 text-gray-700");
+            badge.textContent = isHoliday
+                ? h.holidayName
+                    ? `공휴일(${h.holidayName})`
+                    : "공휴일"
+                : "주말";
+            cell.appendChild(badge);
+        }
+        // ✅ 휴가(최대 1줄 + 더보기)
+        const vacs = vacMap.get(ds) ?? [];
+        if (vacs.length) {
+            const v = vacs[0];
+            const vLine = document.createElement("div");
+            vLine.className =
+                "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 bg-amber-50 text-amber-800 whitespace-normal break-keep";
+            vLine.textContent = `휴가 ${v.text}`;
+            cell.appendChild(vLine);
+            if (vacs.length > 1) {
+                const more = document.createElement("div");
+                more.className = "text-[10px] text-amber-700 underline cursor-pointer select-none";
+                more.textContent = `+${vacs.length - 1}명 더보기`;
+                more.onclick = (e) => {
+                    e.stopPropagation();
+                    alert(`[${ds}]\n\n휴가:\n` + vacs.map((x) => `- ${x.text}`).join("\n"));
+                };
+                cell.appendChild(more);
+            }
+        }
+        // ✅ 당직(최대 1줄)
+        const duties = dutyMap.get(ds) ?? [];
+        if (duties.length) {
+            const d = duties[0];
+            const dLine = document.createElement("div");
+            dLine.className =
+                "px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 whitespace-normal break-keep";
+            dLine.textContent = `당직 ${d.text}`;
+            cell.appendChild(dLine);
+        }
+        grid.appendChild(cell);
+    }
+    // 뒤 빈칸
+    const totalCells = startDow + lastDate;
+    const remain = (7 - (totalCells % 7)) % 7;
+    for (let i = 0; i < remain; i++) {
+        const empty = document.createElement("div");
+        empty.className = "min-h-[90px] border-b border-r bg-gray-50/30";
+        grid.appendChild(empty);
+    }
 }
 // ======================
 // ✅ 당직 "표" 렌더 (월일 / 소속 / 근무자만)
@@ -1630,18 +2120,41 @@ function renderDutyTable(assigns) {
   `;
 }
 // ======================
+// ✅ (중요) dutyCalLabel 없으면 자동 생성 + 현재월 세팅
+// ======================
+function ensureDutyCalLabel() {
+    let label = document.getElementById("dutyCalLabel");
+    // ✅ label이 HTML에 없으면 자동으로 만들어서 숨겨 둠
+    if (!label) {
+        label = document.createElement("div");
+        label.id = "dutyCalLabel";
+        label.className = "hidden";
+        document.body.appendChild(label);
+    }
+    const txt = (label.textContent || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(txt)) {
+        const now = new Date();
+        label.textContent = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`;
+    }
+}
+// ======================
 // ✅ 대시보드 "휴일/당직 캘린더" 표 채우기
+// ✅ (수정) 표를 채운 뒤 → 달력도 자동 갱신
 // ======================
 function renderDashboardHolidayDuty(holidays, assignsMap) {
     const tbody = document.getElementById("dutyHolidayBody");
     if (!tbody)
         return;
+    // ✅ label 없으면 만들고 현재월 세팅
+    ensureDutyCalLabel();
     if (!holidays.length) {
         tbody.innerHTML = `
       <tr>
         <td class="px-2 py-2 text-center text-gray-400" colspan="4">표시할 휴일이 없습니다.</td>
       </tr>
     `;
+        // ✅ 표 비어도 달력은 비운 상태로 렌더
+        renderDashboardDutyCalendarFromTable();
         return;
     }
     tbody.innerHTML = holidays
@@ -1662,6 +2175,96 @@ function renderDashboardHolidayDuty(holidays, assignsMap) {
       `;
     })
         .join("");
+    // ✅✅✅ 핵심: 표 채운 직후 달력도 갱신
+    renderDashboardDutyCalendarFromTable();
+}
+// ======================
+// ✅ 대시보드 "휴일/당직 캘린더" 달력 렌더 (표(dutyHolidayBody) → grid(dutyCalGrid))
+// ✅ (수정) dutyCalLabel이 없어도 ensureDutyCalLabel로 자동 처리
+// ======================
+function renderDashboardDutyCalendarFromTable() {
+    const grid = document.getElementById("dutyCalGrid");
+    const tbody = document.getElementById("dutyHolidayBody");
+    if (!grid || !tbody)
+        return;
+    ensureDutyCalLabel();
+    const label = document.getElementById("dutyCalLabel");
+    if (!label)
+        return;
+    const ymTxt = (label.textContent || "").trim(); // "YYYY-MM"
+    const m = ymTxt.match(/^(\d{4})-(\d{2})$/);
+    if (!m)
+        return;
+    const y = Number(m[1]);
+    const mo = Number(m[2]); // 1~12
+    const first = new Date(y, mo - 1, 1);
+    const lastDay = new Date(y, mo, 0).getDate();
+    const startDow = first.getDay(); // 0=일
+    // 표에서 이벤트 읽기: key="YYYY-MM-DD" -> { typeTxt, dutyTxt }
+    const eventMap = new Map();
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    for (const tr of rows) {
+        const tds = Array.from(tr.querySelectorAll("td"));
+        if (tds.length < 4)
+            continue;
+        const mmdd = (tds[0].textContent || "").trim(); // "01-03"
+        const typeTxt = (tds[2].textContent || "").trim(); // "주말" / "공휴일(...)"
+        const dutyTxt = (tds[3].textContent || "").trim(); // "홍길동" or "-"
+        const md = mmdd.match(/^(\d{2})-(\d{2})$/);
+        if (!md)
+            continue;
+        const key = `${y}-${md[1]}-${md[2]}`;
+        if (!eventMap.has(key))
+            eventMap.set(key, []);
+        eventMap.get(key).push({ typeTxt, dutyTxt });
+    }
+    grid.innerHTML = "";
+    // 앞 빈칸
+    for (let i = 0; i < startDow; i++) {
+        const empty = document.createElement("div");
+        empty.className = "min-h-[90px] border-b border-r bg-gray-50/50";
+        grid.appendChild(empty);
+    }
+    // 날짜
+    for (let d = 1; d <= lastDay; d++) {
+        const dd = String(d).padStart(2, "0");
+        const mm = String(mo).padStart(2, "0");
+        const key = `${y}-${mm}-${dd}`;
+        const cell = document.createElement("div");
+        cell.className = "min-h-[90px] border-b border-r p-1 overflow-hidden bg-white";
+        cell.dataset.date = key;
+        const dow = new Date(key + "T00:00:00").getDay();
+        const isSun = dow === 0;
+        const dayEl = document.createElement("div");
+        dayEl.className = `text-[11px] font-bold mb-1 ${isSun ? "text-rose-600" : "text-gray-900"}`;
+        dayEl.textContent = String(d);
+        cell.appendChild(dayEl);
+        const items = eventMap.get(key) || [];
+        for (const it of items) {
+            const isHoliday = it.typeTxt.includes("공휴일");
+            const badge = document.createElement("div");
+            badge.className =
+                "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 " +
+                    (isHoliday ? "bg-rose-50 text-rose-700" : "bg-gray-100 text-gray-700");
+            badge.textContent = it.typeTxt;
+            cell.appendChild(badge);
+            if (it.dutyTxt && it.dutyTxt !== "-") {
+                const duty = document.createElement("div");
+                duty.className = "px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700";
+                duty.textContent = `당직 ${it.dutyTxt}`;
+                cell.appendChild(duty);
+            }
+        }
+        grid.appendChild(cell);
+    }
+    // 뒤 빈칸(7배수 맞춤)
+    const totalCells = startDow + lastDay;
+    const remain = (7 - (totalCells % 7)) % 7;
+    for (let i = 0; i < remain; i++) {
+        const empty = document.createElement("div");
+        empty.className = "min-h-[90px] border-b border-r bg-gray-50/30";
+        grid.appendChild(empty);
+    }
 }
 // ======================
 // 메인 진입 함수
@@ -1671,7 +2274,10 @@ function initBusinessMasterPanel(API_BASE) {
     // DOM 수집
     const panel = document.getElementById("panel-출장업무-관리");
     const distanceTbodyEl = document.getElementById("distanceTbody");
-    const btnConfigSave = document.getElementById("btnConfigSave");
+    // ✅✅✅ 유류/환율 통합 저장 버튼(신규)
+    const btnFuelFxSave = document.getElementById("btnFuelFxSave");
+    const btnNoticeUpload = document.getElementById("btnNoticeUpload");
+    const noticeUploadMsg = document.getElementById("noticeUploadMsg");
     const btnDistanceAddRow = document.getElementById("btnDistanceAddRow");
     const btnDistanceSave = document.getElementById("btnDistanceSave");
     const inputFuelGasoline = document.getElementById("cfgFuelGasoline");
@@ -1699,9 +2305,25 @@ function initBusinessMasterPanel(API_BASE) {
     const sumCalLabel = document.getElementById("sumCalLabel");
     const sumCalPrev = document.getElementById("sumCalPrev");
     const sumCalNext = document.getElementById("sumCalNext");
+    // ✅✅✅ 일정 추가 DOM (캘린더 아래)
+    const calTodoDate = document.getElementById("calTodoDate");
+    const calTodoText = document.getElementById("calTodoText");
+    const btnCalTodoAdd = document.getElementById("btnCalTodoAdd");
+    const calTodoMsg = document.getElementById("calTodoMsg");
+    // ✅ 당직 후보 추가 UI
+    const dutyAddSelect = document.getElementById("dutyAddSelect");
+    const btnDutyAddUser = document.getElementById("btnDutyAddUser");
     function setVacMsg(msg) {
         if (vacAdminMsg)
             vacAdminMsg.textContent = msg;
+    }
+    function setTodoMsg(msg) {
+        if (calTodoMsg)
+            calTodoMsg.textContent = msg;
+    }
+    function setNoticeMsg(msg) {
+        if (noticeUploadMsg)
+            noticeUploadMsg.textContent = msg;
     }
     if (!panel || !distanceTbodyEl) {
         console.warn("[출장업무관리] 필수 DOM(panel-출장업무-관리, distanceTbody) 없음");
@@ -1713,6 +2335,11 @@ function initBusinessMasterPanel(API_BASE) {
     }
     panel._bound = true;
     const distanceTbody = distanceTbodyEl;
+    // ✅✅✅ 통합 저장 핸들러 (유류/환율/공지/당직 등 saveConfig에 들어있는 값 저장)
+    const onSave = async () => {
+        await saveConfig(); // ✅ 기존 설정 저장 함수 그대로 사용
+        window.dispatchEvent(new CustomEvent("business-config-changed"));
+    };
     let distanceRows = [];
     let deletedIds = [];
     // =====================================================
@@ -1720,6 +2347,8 @@ function initBusinessMasterPanel(API_BASE) {
     // =====================================================
     let dutyMembers = [];
     let dutyStartIndex = 0;
+    // ✅ 사용자관리 전체 목록(삭제해도 남아있어서 다시 추가 가능)
+    let allUsers = [];
     // ✅ F5 복원을 위해 "마지막 생성 결과"도 저장해둠
     let dutyLastYm = ""; // "2026-01"
     let dutyLastAssigns = [];
@@ -1732,6 +2361,8 @@ function initBusinessMasterPanel(API_BASE) {
     let cachedHolidays = [];
     let cachedDutyPreviewYm = "";
     let cachedDutyPreviewAssigns = [];
+    // ✅✅✅ 일정 캐시(현재 달)
+    let cachedCalendarEvents = [];
     async function fetchVacationsAll() {
         try {
             const res = await fetch(`${API_BASE}/api/business-master/vacations`, { credentials: "include" });
@@ -1742,6 +2373,87 @@ function initBusinessMasterPanel(API_BASE) {
         }
         catch {
             return [];
+        }
+    }
+    // ✅✅✅ 일정(현재 월) 가져오기
+    async function fetchCalendarEvents(ymStr) {
+        try {
+            const res = await fetch(`${API_BASE}/api/business-master/calendar-events?ym=${ymStr}`, {
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => null);
+            if (!res.ok || json?.ok !== true)
+                return [];
+            return Array.isArray(json.items) ? json.items : [];
+        }
+        catch {
+            return [];
+        }
+    }
+    // ✅✅✅ 일정 추가(등록 버튼)
+    async function addCalendarTodo() {
+        if (!calTodoDate || !calTodoText)
+            return;
+        const date = String(calTodoDate.value || "");
+        const title = String(calTodoText.value || "").trim();
+        if (!date)
+            return setTodoMsg("날짜를 선택하세요.");
+        if (!title)
+            return setTodoMsg("내용을 입력하세요.");
+        setTodoMsg("등록 중...");
+        try {
+            const res = await fetch(`${API_BASE}/api/business-master/calendar-events`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ date, title }),
+            });
+            const json = await res.json().catch(() => null);
+            if (!res.ok || json?.ok !== true) {
+                setTodoMsg(json?.error || "등록 실패");
+                return;
+            }
+            // 입력 초기화
+            calTodoText.value = "";
+            setTodoMsg("등록 완료");
+            // 현재 보고있는 달 다시 로드 → 캘린더 갱신
+            const base = new Date(sumYear, sumMonth, 1);
+            const viewingYm = ym(base);
+            cachedCalendarEvents = await fetchCalendarEvents(viewingYm);
+            renderSummaryCalendar();
+        }
+        catch (e) {
+            console.error("[calendar-events][add] err:", e);
+            setTodoMsg("등록 중 오류");
+        }
+    }
+    // ✅✅✅ 일정 삭제
+    async function deleteCalendarTodo(id) {
+        if (!Number.isFinite(id) || id <= 0)
+            return;
+        const ok = confirm("이 일정을 삭제할까요?");
+        if (!ok)
+            return;
+        try {
+            const res = await fetch(`${API_BASE}/api/business-master/calendar-events/${id}`, {
+                method: "DELETE",
+                credentials: "include",
+            });
+            const json = await res.json().catch(() => null);
+            if (!res.ok || json?.ok !== true) {
+                setTodoMsg(json?.error || "삭제 실패");
+                return;
+            }
+            setTodoMsg("삭제 완료");
+            // ✅ 현재 보고있는 달 다시 로드 → 캘린더 갱신
+            const base = new Date(sumYear, sumMonth, 1);
+            const viewingYm = ym(base);
+            cachedCalendarEvents = await fetchCalendarEvents(viewingYm);
+            renderSummaryCalendar();
+        }
+        catch (e) {
+            console.error("[calendar-events][delete] err:", e);
+            setTodoMsg("삭제 중 오류");
         }
     }
     // =====================================================
@@ -1791,8 +2503,32 @@ function initBusinessMasterPanel(API_BASE) {
         apiHolidays.forEach((h) => map.set(h.date, h));
         return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
     }
+    async function uploadNoticeOnly() {
+        const notice = String(textareaNotice?.value ?? "").trim();
+        setNoticeMsg("업로드 중...");
+        try {
+            const res = await fetch(`${API_BASE}/api/business-master/notice`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ notice }),
+            });
+            const json = await res.json().catch(() => null);
+            if (!res.ok || json?.ok !== true) {
+                setNoticeMsg(json?.error || "공지 업로드 실패");
+                return;
+            }
+            setNoticeMsg("✅ 공지 업로드 완료");
+            // 다른 화면(대시보드)에서 공지 다시 읽게 만들고 싶으면 이벤트 쏴주기
+            window.dispatchEvent(new CustomEvent("notice-changed"));
+        }
+        catch (e) {
+            console.error("[notice][upload] err:", e);
+            setNoticeMsg("업로드 중 오류");
+        }
+    }
     // ==========================
-    // ✅ 요약 캘린더 렌더
+    // ✅ 요약 캘린더 렌더 (교체본)
     // ==========================
     function renderSummaryCalendar() {
         if (!sumCalGrid || !sumCalLabel)
@@ -1812,18 +2548,25 @@ function initBusinessMasterPanel(API_BASE) {
         if (cachedDutyPreviewYm === viewingYm && Array.isArray(cachedDutyPreviewAssigns)) {
             dutyMap = buildDutyEvents(cachedDutyPreviewAssigns);
         }
+        // ✅ 일정: 현재 달 캐시로 표시
+        const schMap = buildScheduleEvents(cachedCalendarEvents);
         const holidayMap = new Map();
         for (const h of cachedHolidays)
             holidayMap.set(h.date, h);
         // ✅ 표시 제한
-        const MAX_VAC_LINES = 1; // 휴가 1명만
+        const MAX_VAC_LINES = 1;
         const MAX_DUTY_LINES = 1;
-        function openDayDetail(dateStr, vacs, duties) {
+        const MAX_SCH_LINES = 1;
+        // --------------------------
+        // 모달 열기 (휴가/당직/일정 상세)
+        // --------------------------
+        function openDayDetail(dateStr, vacs, duties, schs) {
             const modal = document.getElementById("sumCalModal");
             const title = document.getElementById("sumCalModalTitle");
             const body = document.getElementById("sumCalModalBody");
             const btnClose = document.getElementById("sumCalModalClose");
             const btnOk = document.getElementById("sumCalModalOk");
+            // ✅ 모달 DOM 없으면 alert fallback
             if (!modal || !title || !body) {
                 const lines = [];
                 lines.push(`[${dateStr}]`);
@@ -1838,6 +2581,12 @@ function initBusinessMasterPanel(API_BASE) {
                     lines.push(`당직 (${duties.length})`);
                     for (const d of duties)
                         lines.push(`- ${d.text}`);
+                }
+                if (schs.length) {
+                    lines.push("");
+                    lines.push(`일정 (${schs.length})`);
+                    for (const s of schs)
+                        lines.push(`- ${s.text}`);
                 }
                 alert(lines.join("\n"));
                 return;
@@ -1875,10 +2624,51 @@ function initBusinessMasterPanel(API_BASE) {
           </div>
         `
                 : "";
+            // ✅✅✅ 일정: 삭제 버튼 포함 (id 있을 때만)
+            const schHtml = schs.length
+                ? `
+          <div class="border rounded-xl overflow-hidden">
+            <div class="px-3 py-2 bg-slate-50 text-slate-800 font-bold text-xs border-b">일정 (${schs.length})</div>
+            <div class="p-3 space-y-2">
+              ${schs
+                    .map((s) => {
+                    const idAttr = Number.isFinite(Number(s.id)) ? `data-id="${Number(s.id)}"` : "";
+                    const btn = idAttr
+                        ? `<button type="button" ${idAttr}
+                           class="sumcal-sch-del ml-2 px-2 py-0.5 rounded-lg bg-red-100 text-red-700 text-[11px] hover:bg-red-200">
+                           삭제
+                         </button>`
+                        : "";
+                    return `
+                    <div class="flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-slate-50 text-slate-800 text-xs">
+                      <div class="min-w-0 whitespace-normal break-keep">일정 ${escapeHtml(s.text)}</div>
+                      <div class="shrink-0">${btn}</div>
+                    </div>
+                  `;
+                })
+                    .join("")}
+            </div>
+          </div>
+        `
+                : "";
             body.innerHTML =
-                vacHtml ||
-                    dutyHtml ||
-                    `<div class="text-xs text-gray-500 text-center py-6">표시할 내용이 없습니다.</div>`;
+                (vacHtml || dutyHtml || schHtml)
+                    ? `<div class="space-y-3">${vacHtml}${dutyHtml}${schHtml}</div>`
+                    : `<div class="text-xs text-gray-500 text-center py-6">표시할 내용이 없습니다.</div>`;
+            // ✅✅✅ 모달 안 "일정 삭제" 이벤트(위임)
+            body.onclick = (e) => {
+                const t = e.target;
+                if (!t)
+                    return;
+                if (t.classList.contains("sumcal-sch-del")) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const id = Number(t.dataset.id);
+                    if (Number.isFinite(id) && id > 0) {
+                        deleteCalendarTodo(id); // ✅ 위에 정의된 함수 호출
+                    }
+                }
+            };
             const close = () => modal.classList.add("hidden");
             if (btnClose)
                 btnClose.onclick = close;
@@ -1890,28 +2680,46 @@ function initBusinessMasterPanel(API_BASE) {
                     return;
                 if (t === modal)
                     close();
+                // 오버레이를 class로 닫고 싶으면(네 HTML에 맞춰 유지)
                 if (t.classList && t.classList.contains("bg-black/40"))
                     close();
             };
             modal.classList.remove("hidden");
         }
+        // --------------------------
+        // 셀 내부 라인
+        // --------------------------
         function makeLine(kind, text) {
             const div = document.createElement("div");
-            // ✅ truncate 완전 제거 → “이재…/권택…” 절대 안 생김
-            div.className =
-                kind === "VACATION"
-                    ? "px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 text-[10px] leading-tight whitespace-normal break-keep"
-                    : "px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 text-[10px] leading-tight whitespace-normal break-keep";
-            div.textContent = (kind === "VACATION" ? "휴가 " : "당직 ") + text;
+            if (kind === "VACATION") {
+                div.className =
+                    "px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 text-[10px] leading-tight whitespace-normal break-keep";
+                div.textContent = "휴가 " + text;
+            }
+            else if (kind === "DUTY") {
+                div.className =
+                    "px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 text-[10px] leading-tight whitespace-normal break-keep";
+                div.textContent = "당직 " + text;
+            }
+            else {
+                div.className =
+                    "px-1.5 py-0.5 rounded bg-slate-50 text-slate-800 text-[10px] leading-tight whitespace-normal break-keep";
+                div.textContent = "일정 " + text;
+            }
             return div;
         }
+        // --------------------------
+        // ✅ 더보기 (makeMore)
+        // --------------------------
         function makeMore(kind, moreCount, onClick) {
             const div = document.createElement("div");
-            div.className =
-                kind === "VACATION"
-                    ? "text-[10px] text-amber-700 underline cursor-pointer select-none"
-                    : "text-[10px] text-indigo-700 underline cursor-pointer select-none";
-            div.textContent = `+${moreCount}명 더보기`;
+            if (kind === "VACATION")
+                div.className = "text-[10px] text-amber-700 underline cursor-pointer select-none";
+            else if (kind === "DUTY")
+                div.className = "text-[10px] text-indigo-700 underline cursor-pointer select-none";
+            else
+                div.className = "text-[10px] text-slate-700 underline cursor-pointer select-none";
+            div.textContent = `+${moreCount}건 더보기`;
             div.addEventListener("click", (e) => {
                 e.stopPropagation();
                 onClick();
@@ -1929,41 +2737,47 @@ function initBusinessMasterPanel(API_BASE) {
             const ds = `${y}-${pad2(m + 1)}-${pad2(day)}`;
             const vacs = vacMap.get(ds) ?? [];
             const duties = dutyMap.get(ds) ?? [];
+            const schs = schMap.get(ds) ?? [];
             const cell = document.createElement("div");
-            // ✅ 높이 고정, 셀 커지는 거 방지
-            cell.className = "min-h-[90px] border-r border-b p-1 overflow-hidden";
+            cell.className = "min-h-[90px] border-r border-b p-1 overflow-hidden bg-white";
             cell.dataset.date = ds;
-            // ✅ 공휴일/일요일 빨강
             const h = holidayMap.get(ds);
-            const dow = new Date(ds + "T00:00:00").getDay(); // 0=일
+            const dow = new Date(ds + "T00:00:00").getDay();
             const isRed = (h && h.type === "공휴일") || dow === 0;
             const dateDiv = document.createElement("div");
             dateDiv.className = `text-[11px] font-bold mb-1 ${isRed ? "text-rose-600" : ""}`;
             dateDiv.textContent = String(day);
             const evBox = document.createElement("div");
             evBox.className = "flex flex-col gap-1";
-            // ✅ 휴가: 1명 + 더보기
             if (vacs.length) {
                 const show = vacs.slice(0, MAX_VAC_LINES);
                 for (const v of show)
                     evBox.appendChild(makeLine("VACATION", v.text));
                 if (vacs.length > MAX_VAC_LINES) {
-                    evBox.appendChild(makeMore("VACATION", vacs.length - MAX_VAC_LINES, () => openDayDetail(ds, vacs, duties)));
+                    evBox.appendChild(makeMore("VACATION", vacs.length - MAX_VAC_LINES, () => openDayDetail(ds, vacs, duties, schs)));
                 }
             }
-            // ✅ 당직: 1명 + 더보기(실제로는 1명만이라 거의 안 뜸)
             if (duties.length) {
                 const show = duties.slice(0, MAX_DUTY_LINES);
                 for (const d of show)
                     evBox.appendChild(makeLine("DUTY", d.text));
                 if (duties.length > MAX_DUTY_LINES) {
-                    evBox.appendChild(makeMore("DUTY", duties.length - MAX_DUTY_LINES, () => openDayDetail(ds, vacs, duties)));
+                    evBox.appendChild(makeMore("DUTY", duties.length - MAX_DUTY_LINES, () => openDayDetail(ds, vacs, duties, schs)));
                 }
             }
+            if (schs.length) {
+                const show = schs.slice(0, MAX_SCH_LINES);
+                for (const s of show)
+                    evBox.appendChild(makeLine("SCHEDULE", s.text));
+                if (schs.length > MAX_SCH_LINES) {
+                    evBox.appendChild(makeMore("SCHEDULE", schs.length - MAX_SCH_LINES, () => openDayDetail(ds, vacs, duties, schs)));
+                }
+            }
+            // ✅ 셀 클릭: 하나라도 있으면 상세
             cell.addEventListener("click", () => {
-                if (!vacs.length && !duties.length)
+                if (!vacs.length && !duties.length && !schs.length)
                     return;
-                openDayDetail(ds, vacs, duties);
+                openDayDetail(ds, vacs, duties, schs);
             });
             cell.appendChild(dateDiv);
             cell.appendChild(evBox);
@@ -1978,17 +2792,16 @@ function initBusinessMasterPanel(API_BASE) {
             sumCalGrid.appendChild(cell);
         }
     }
-    // ✅ 요약 캘린더 리프레시(휴가 + 휴일 + 당직 로테이션 프리뷰)
+    // ✅ 요약 캘린더 리프레시(휴가 + 휴일 + 당직 로테이션 프리뷰 + ✅ 일정)
     async function refreshSummaryCalendar() {
         if (!sumCalGrid || !sumCalLabel)
             return;
         const base = new Date(sumYear, sumMonth, 1);
         const viewingYm = ym(base);
-        // 1) 휴가
         cachedVacations = await fetchVacationsAll();
-        // 2) 현재 보고있는 달 휴일
         cachedHolidays = await fetchHolidayItemsForMonth(base);
-        // 3) 당직 프리뷰(어느 달이든 로테이션 표시)
+        // ✅✅✅ 일정도 월 기준으로 로드
+        cachedCalendarEvents = await fetchCalendarEvents(viewingYm);
         cachedDutyPreviewYm = viewingYm;
         cachedDutyPreviewAssigns = [];
         if (!dutyMembers.length || !cachedHolidays.length) {
@@ -2005,16 +2818,13 @@ function initBusinessMasterPanel(API_BASE) {
             return items.length;
         }
         let startIdx = 0;
-        // ✅ 마지막 생성월이면 저장된 결과 그대로 표시
         if (compareYm(viewingYm, dutyLastYm) === 0 && dutyLastAssigns.length) {
             cachedDutyPreviewAssigns = dutyLastAssigns;
             renderSummaryCalendar();
             return;
         }
         if (compareYm(viewingYm, dutyLastYm) > 0) {
-            // 미래 월
             let idx = mod(dutyStartIndex, len);
-            // dutyLastYm 다음달부터 viewingYm 전 달까지 누적
             for (let cur = addMonthsToYm(dutyLastYm, 1); compareYm(cur, viewingYm) < 0; cur = addMonthsToYm(cur, 1)) {
                 const cnt = await getHolidayCount(cur);
                 idx = mod(idx + cnt, len);
@@ -2022,9 +2832,7 @@ function initBusinessMasterPanel(API_BASE) {
             startIdx = idx;
         }
         else {
-            // 과거 월
             let idxAfter = mod(dutyStartIndex, len);
-            // dutyLastYm부터 viewingYm+1까지 거꾸로 빼기
             for (let cur = dutyLastYm; compareYm(cur, addMonthsToYm(viewingYm, 1)) >= 0; cur = addMonthsToYm(cur, -1)) {
                 const cnt = await getHolidayCount(cur);
                 idxAfter = mod(idxAfter - cnt, len);
@@ -2034,7 +2842,6 @@ function initBusinessMasterPanel(API_BASE) {
             const viewingCnt = cachedHolidays.length;
             startIdx = mod(idxAfter - viewingCnt, len);
         }
-        // ✅ viewingYm 휴일에 배정
         const assigns = [];
         let idx = startIdx;
         for (const h of cachedHolidays) {
@@ -2045,6 +2852,18 @@ function initBusinessMasterPanel(API_BASE) {
         }
         cachedDutyPreviewAssigns = assigns;
         renderSummaryCalendar();
+    }
+    // =====================================================
+    // ✅ 당직 후보 추가 select 채우기(전체 사용자 - 현재 후보)
+    // =====================================================
+    function fillDutyAddSelect() {
+        if (!dutyAddSelect)
+            return;
+        const exists = new Set(dutyMembers.map((m) => m.no));
+        const candidates = allUsers.filter((u) => !exists.has(u.no));
+        dutyAddSelect.innerHTML =
+            `<option value="">추가할 사용자 선택</option>` +
+                candidates.map((u) => `<option value="${u.no}">${escapeHtml(u.name)}</option>`).join("");
     }
     // =====================================================
     // ✅ 당직 후보 표 렌더
@@ -2060,6 +2879,8 @@ function initBusinessMasterPanel(API_BASE) {
           </td>
         </tr>
       `;
+            // ✅ 후보가 없어도 select는 갱신
+            fillDutyAddSelect();
             return;
         }
         dutyTbody.innerHTML = "";
@@ -2078,6 +2899,8 @@ function initBusinessMasterPanel(API_BASE) {
       `;
             dutyTbody.appendChild(tr);
         });
+        // ✅ 렌더 후 select 갱신
+        fillDutyAddSelect();
     }
     async function loadDutyMembersFromUsers() {
         if (!dutyTbody)
@@ -2102,7 +2925,8 @@ function initBusinessMasterPanel(API_BASE) {
                 return;
             }
             const rows = await res.json();
-            dutyMembers = Array.isArray(rows)
+            // ✅ 전체 사용자 목록(복구용)
+            allUsers = Array.isArray(rows)
                 ? rows
                     .map((u) => ({
                     no: Number(u.no ?? 0),
@@ -2111,12 +2935,13 @@ function initBusinessMasterPanel(API_BASE) {
                     .filter((u) => u.no > 0 && u.name)
                     .sort((a, b) => a.no - b.no)
                 : [];
+            // ✅ 기존 기능 유지: 처음엔 전체 사용자를 당직 후보로 세팅
+            dutyMembers = allUsers.map((u) => ({ no: u.no, name: u.name }));
             if (dutyMembers.length === 0)
                 dutyStartIndex = 0;
             else
                 dutyStartIndex = dutyStartIndex % dutyMembers.length;
             renderDutyMembers();
-            // ✅ 멤버가 바뀌면(삭제/추가/로드) 현재 달 프리뷰도 즉시 갱신
             refreshSummaryCalendar();
         }
         catch (err) {
@@ -2191,7 +3016,17 @@ function initBusinessMasterPanel(API_BASE) {
               <td class="border-b px-2 py-2 text-center">${escapeHtml(it.user_name)}</td>
               <td class="border-b px-2 py-2 text-center">${vacTypeLabel(it.vac_type)}</td>
               <td class="border-b px-2 py-2 text-center">${escapeHtml(it.start_date)} ~ ${escapeHtml(it.end_date)}</td>
-              <td class="border-b px-2 py-2">${escapeHtml(it.note ?? "")}</td>
+              <td class="border-b px-2 py-2 text-center whitespace-nowrap">
+                ${(it.note ?? "").trim()
+                    ? `<button type="button"
+                        class="vac-note-btn px-2 py-1 text-[11px] rounded-lg border bg-white hover:bg-gray-50"
+                        data-name="${escapeHtml(it.user_name)}"
+                        data-range="${escapeHtml(it.start_date)} ~ ${escapeHtml(it.end_date)}"
+                        data-note="${escapeHtml(it.note ?? "")}">
+                        + 내용보기
+                      </button>`
+                    : `<span class="text-[11px] text-gray-400">-</span>`}
+              </td>
               <td class="border-b px-2 py-2 text-center">
                 <button type="button" data-id="${it.id}"
                   class="px-2 py-1 text-[11px] rounded-lg bg-red-100 text-red-700 hover:bg-red-200 vac-del-btn">
@@ -2245,7 +3080,6 @@ function initBusinessMasterPanel(API_BASE) {
                 vacNote.value = "";
             await loadVacationList();
             window.dispatchEvent(new CustomEvent("vacation-status-refresh"));
-            // ✅ 요약 캘린더 즉시 갱신
             refreshSummaryCalendar();
         }
         catch (e) {
@@ -2261,8 +3095,12 @@ function initBusinessMasterPanel(API_BASE) {
             alert("당직 후보가 없습니다. 사용자관리에서 먼저 등록하세요.");
             return;
         }
+        ensureDutyCalLabel();
         const base = new Date();
         base.setDate(1);
+        const dutyLabel = document.getElementById("dutyCalLabel");
+        if (dutyLabel)
+            dutyLabel.textContent = ym(base);
         const holidays = await fetchHolidayItemsForMonth(base);
         if (!holidays.length) {
             alert("이번 달에 휴일(주말/공휴일)이 없습니다. (표시할 데이터 없음)");
@@ -2296,7 +3134,7 @@ function initBusinessMasterPanel(API_BASE) {
         renderDutyTable(assigns);
         renderDashboardHolidayDuty(holidays, assignsMap);
         await saveConfig(true);
-        // ✅ 로테이션 프리뷰도 즉시 갱신(다른 달도 보여야 함)
+        window.dispatchEvent(new CustomEvent("duty-config-changed"));
         refreshSummaryCalendar();
         alert("이번달 휴일(주말+공휴일) 기준으로 당직이 생성되었습니다.");
     }
@@ -2356,8 +3194,14 @@ function initBusinessMasterPanel(API_BASE) {
                 renderDutyTable(dutyLastAssigns);
             else
                 renderDutyTable([]);
-            // ✅ config 로드 후 달력 갱신(로테이션 프리뷰 포함)
+            ensureDutyCalLabel();
+            const dutyLabel = document.getElementById("dutyCalLabel");
+            if (dutyLabel) {
+                const fallback = /^\d{4}-\d{2}$/.test(dutyLastYm) ? dutyLastYm : ym(new Date());
+                dutyLabel.textContent = fallback;
+            }
             refreshSummaryCalendar();
+            renderDashboardDutyCalendarFromTable();
         }
         catch (err) {
             console.error("[출장업무관리] 설정 조회 중 오류:", err);
@@ -2393,6 +3237,7 @@ function initBusinessMasterPanel(API_BASE) {
                     alert(json?.error || "설정 저장 중 오류가 발생했습니다.");
                 return;
             }
+            window.dispatchEvent(new CustomEvent("duty-config-changed"));
             if (!forceSilent)
                 alert("설정이 저장되었습니다.");
         }
@@ -2555,13 +3400,27 @@ function initBusinessMasterPanel(API_BASE) {
     // =====================================================
     // 이벤트 바인딩
     // =====================================================
-    btnConfigSave?.addEventListener("click", () => saveConfig(false));
+    //btnConfigSave?.addEventListener("click", () => saveConfig(false));
     btnDistanceAddRow?.addEventListener("click", () => addEmptyRow());
     btnDistanceSave?.addEventListener("click", () => saveDistances());
+    btnNoticeUpload?.addEventListener("click", uploadNoticeOnly);
+    btnFuelFxSave?.addEventListener("click", onSave);
     btnVacAdd?.addEventListener("click", () => addVacation());
+    // ✅✅✅ 일정 등록 버튼
+    btnCalTodoAdd?.addEventListener("click", () => addCalendarTodo());
     vacationAdminTbody?.addEventListener("click", async (e) => {
         const target = e.target;
-        if (!target?.classList.contains("vac-del-btn"))
+        if (!target)
+            return;
+        if (target.classList.contains("vac-note-btn")) {
+            const btn = target;
+            const name = btn.dataset.name || "";
+            const range = btn.dataset.range || "";
+            const note = btn.dataset.note || "";
+            openVacNoteModal(name, range, note);
+            return;
+        }
+        if (!target.classList.contains("vac-del-btn"))
             return;
         const id = Number(target.dataset.id);
         if (!Number.isFinite(id))
@@ -2621,13 +3480,31 @@ function initBusinessMasterPanel(API_BASE) {
         else
             dutyStartIndex = dutyStartIndex % dutyMembers.length;
         renderDutyMembers();
-        // ✅ 멤버 삭제되면 프리뷰 즉시 반영
+        refreshSummaryCalendar();
+    });
+    // ✅ 삭제한 사용자 다시 넣기 (select -> 추가)
+    btnDutyAddUser?.addEventListener("click", () => {
+        if (!dutyAddSelect)
+            return;
+        const no = Number(dutyAddSelect.value);
+        if (!Number.isFinite(no) || no <= 0)
+            return;
+        const user = allUsers.find((u) => u.no === no);
+        if (!user)
+            return;
+        if (dutyMembers.some((m) => m.no === user.no))
+            return;
+        dutyMembers.push({ no: user.no, name: user.name });
+        if (dutyMembers.length === 0)
+            dutyStartIndex = 0;
+        else
+            dutyStartIndex = dutyStartIndex % dutyMembers.length;
+        renderDutyMembers();
         refreshSummaryCalendar();
     });
     btnDutyGenerateThisMonth?.addEventListener("click", () => {
         generateDutyForCurrentMonth();
     });
-    // ✅ 월 이동: renderSummaryCalendar() 말고 refreshSummaryCalendar()로 바꿈(휴일/당직 프리뷰 갱신 필요)
     sumCalPrev?.addEventListener("click", () => {
         sumMonth--;
         if (sumMonth < 0) {
@@ -2679,65 +3556,126 @@ function getEl(id) {
         throw new Error(`❌ element not found: #${id}`);
     return el;
 }
+function textOrEmpty(v) {
+    return String(v ?? "").trim();
+}
 function initDomesticTripRegisterPanel(API_BASE) {
     const panel = document.getElementById("panel-국내출장-출장등록");
     if (!panel)
         return;
     const saveBtn = getEl("reg_save");
-    // 이미 바인딩 되었으면 재바인딩 방지
     if (saveBtn._bound)
         return;
     saveBtn._bound = true;
     const resetBtn = getEl("reg_reset");
     const resultBox = getEl("reg_result");
-    // 🔹 이어작성 버튼
     const continueBtn = document.getElementById("reg_continue");
-    // 🔹 같은 패널 안의 정산 작성 섹션 (숨겼다가 펼칠 영역)
     const settlementSection = document.getElementById("bt_settlement_section");
     const userNameEl = document.getElementById("userName");
     const reqNameInput = getEl("bt_req_name");
-    const departPlaceInput = getEl("bt_place");
-    const destinationInput = getEl("bt_destination");
+    // ✅ 출발지 select (value: company/home/other)
+    const departPlaceSelect = getEl("bt_place");
+    const departPlaceOther = document.getElementById("bt_place_other");
+    // ✅ 출장지 select (clients API)
+    const destinationSelect = getEl("bt_destination");
     const startInput = getEl("bt_start");
     const departTimeInput = getEl("bt_depart_time");
     const arriveTimeInput = getEl("bt_arrive_time");
     const purposeInput = getEl("bt_purpose");
-    // 요청자 자동 채우기
+    // 요청자 자동
     reqNameInput.value = (userNameEl?.textContent ?? "").trim() || "사용자";
-    // 초기: 이어작성 버튼/정산섹션 숨김
+    // 초기 숨김
     if (continueBtn)
         continueBtn.classList.add("hidden");
     if (settlementSection)
         settlementSection.classList.add("hidden");
-    // 🔹 폼 리셋
+    // ✅ 출발지 기타 토글
+    departPlaceSelect.addEventListener("change", () => {
+        if (!departPlaceOther)
+            return;
+        const isOther = departPlaceSelect.value === "other";
+        departPlaceOther.classList.toggle("hidden", !isOther);
+        if (!isOther)
+            departPlaceOther.value = "";
+    });
+    // ✅ 거래처 목록 로딩 (강력 방어 + 디버그 로그 포함)
+    async function loadClients() {
+        try {
+            destinationSelect.innerHTML = `<option value="">거래처(출장지) 선택</option>`;
+            const res = await fetch(`${API_BASE}/api/business-trip/clients`);
+            if (!res.ok) {
+                console.error("[REGISTER] clients API HTTP error:", res.status);
+                return;
+            }
+            const json = await res.json().catch(() => null);
+            console.log("[REGISTER] clients API response =", json);
+            // ✅ 서버가 어떤 키로 주든 최대한 대응
+            const raw = Array.isArray(json?.data) ? json.data :
+                Array.isArray(json?.rows) ? json.rows :
+                    Array.isArray(json?.clients) ? json.clients :
+                        Array.isArray(json) ? json :
+                            [];
+            for (const item of raw) {
+                // ✅ 문자열/객체 둘 다 대응
+                const name = typeof item === "string"
+                    ? item
+                    : (item?.client_name ?? item?.name ?? item?.destination);
+                const clean = textOrEmpty(name);
+                if (!clean)
+                    continue;
+                const opt = document.createElement("option");
+                opt.value = clean;
+                opt.textContent = clean;
+                destinationSelect.appendChild(opt);
+            }
+            // ✅ 그래도 1개(기본옵션)만 있으면 뭔가 비어온 것
+            if (destinationSelect.options.length <= 1) {
+                console.warn("[REGISTER] 거래처 목록이 비었습니다. 서버 응답 구조 확인 필요:", json);
+            }
+        }
+        catch (err) {
+            console.warn("[REGISTER] 거래처 목록 로딩 실패:", err);
+        }
+    }
+    // ✅ (중요) 여기서 실제로 실행해야 목록이 뜸!!
+    loadClients();
+    // 🔹 리셋
     resetBtn.addEventListener("click", () => {
-        departPlaceInput.value = "";
-        destinationInput.value = "";
+        departPlaceSelect.value = "";
+        if (departPlaceOther) {
+            departPlaceOther.value = "";
+            departPlaceOther.classList.add("hidden");
+        }
+        destinationSelect.value = "";
         startInput.value = "";
         departTimeInput.value = "";
         arriveTimeInput.value = "";
         purposeInput.value = "";
         resultBox.textContent = "";
-        // 리셋 시 이어작성 버튼/정산영역 숨기기
         if (continueBtn)
             continueBtn.classList.add("hidden");
         if (settlementSection)
             settlementSection.classList.add("hidden");
+        // ✅ 리셋 시 거래처 목록도 다시 불러오고 싶으면 아래 줄 유지
+        loadClients();
     });
-    // 🔹 출장 등록
+    // 🔹 저장
     saveBtn.addEventListener("click", async () => {
+        const depart_place = departPlaceSelect.value === "other"
+            ? textOrEmpty(departPlaceOther?.value)
+            : textOrEmpty(departPlaceSelect.value); // company | home
         const payload = {
             trip_type: "domestic",
             req_name: reqNameInput.value.trim(),
-            depart_place: departPlaceInput.value.trim(),
-            destination: destinationInput.value.trim(),
+            depart_place,
+            destination: textOrEmpty(destinationSelect.value),
             start_date: startInput.value,
             depart_time: departTimeInput.value,
             arrive_time: arriveTimeInput.value,
             purpose: purposeInput.value.trim(),
         };
         console.log("[REGISTER] payload =", payload);
-        // 필수값 체크 (이제 work_start_time 없음)
+        // 필수 체크
         if (!payload.req_name ||
             !payload.depart_place ||
             !payload.destination ||
@@ -2754,14 +3692,22 @@ function initDomesticTripRegisterPanel(API_BASE) {
             });
             return;
         }
+        if (departPlaceSelect.value === "other" && !payload.depart_place) {
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "입력 확인",
+                message: "기타 출발지를 입력해주세요.",
+                showOk: true,
+                showCancel: false,
+            });
+            return;
+        }
         try {
             saveBtn.disabled = true;
             resultBox.textContent = "서버에 저장 중...";
             const res = await fetch(`${API_BASE}/api/business-trip/domestic`, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
             });
             if (!res.ok) {
@@ -2783,21 +3729,19 @@ function initDomesticTripRegisterPanel(API_BASE) {
             }
             const data = await res.json().catch(() => null);
             console.log("출장등록 성공 응답:", data);
-            // 정산 화면에서 참고할 초안 저장
             localStorage.setItem("domesticTripDraft", JSON.stringify(payload));
             resultBox.textContent = "✅ 출장 등록 완료 (서버 저장 완료)";
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
                 title: "저장 완료",
-                message: "출장 등록 내용이 서버에 저장되었습니다.\n[이어 정산 작성] 버튼을 눌러 정산을 작성하세요.",
+                message: "출장 등록 내용이 서버에 저장되었습니다.\n[이어서 정산] 버튼을 눌러 정산을 작성하세요.",
                 showOk: true,
                 showCancel: false,
             });
             if (continueBtn)
                 continueBtn.classList.remove("hidden");
-            if (settlementSection) {
+            if (settlementSection)
                 settlementSection.classList.add("hidden");
-            }
             localStorage.setItem("settleTargetDate", payload.start_date);
             localStorage.setItem("settleTargetReqName", payload.req_name);
             window.dispatchEvent(new Event("trip-status-refresh"));
@@ -2822,7 +3766,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
             saveBtn.disabled = false;
         }
     });
-    // 🔹 이어작성 버튼 클릭 → 정산 섹션 펼치기
+    // 🔹 이어서 정산
     continueBtn?.addEventListener("click", () => {
         const date = startInput.value;
         const name = reqNameInput.value.trim();
@@ -2864,10 +3808,6 @@ function getCheckedRadioValue(name) {
     const checked = document.querySelector(`input[name="${name}"]:checked`);
     return checked?.value ?? "";
 }
-/**
- * 국내출장 정산 입력 패널 초기화
- * - 00_workspace.ts 에서 initDomesticTripSettlementPanel(API_BASE)로 한 번만 호출
- */
 function initDomesticTripSettlementPanel(API_BASE) {
     console.log("[정산] initDomesticTripSettlementPanel 호출");
     const section = document.getElementById("bt_settlement_section");
@@ -2876,32 +3816,46 @@ function initDomesticTripSettlementPanel(API_BASE) {
         return;
     }
     const saveBtn = getEl("bt_save");
-    // 중복 바인딩 방지
-    if (saveBtn._bound) {
-        console.log("[정산] 이미 바인딩된 상태이므로 다시 바인딩하지 않음");
+    if (saveBtn._bound)
         return;
-    }
     saveBtn._bound = true;
     const resetBtn = getEl("bt_reset");
     const resultBox = getEl("bt_result");
     const workEndInput = getEl("bt_work_end_time");
     const returnTimeInput = getEl("bt_return_time");
-    const returnPlaceInput = getEl("bt_return_place");
+    // ✅ 복귀지 select (value: company/home/other)
+    const returnPlaceSelect = getEl("bt_return_place");
+    const returnPlaceOther = document.getElementById("bt_return_place_other");
     const mealBreakfastCheck = getEl("bt_meal_breakfast");
     const mealLunchCheck = getEl("bt_meal_lunch");
     const mealDinnerCheck = getEl("bt_meal_dinner");
     const mealBreakfastOwner = getEl("bt_meal_breakfast_owner");
     const mealLunchOwner = getEl("bt_meal_lunch_owner");
     const mealDinnerOwner = getEl("bt_meal_dinner_owner");
-    // 🔹 08_domestic-trip-register.ts 에서 저장해 둔 값 사용
-    const baseDate = localStorage.getItem("settleTargetDate") ?? "";
-    const baseReqName = localStorage.getItem("settleTargetReqName") ?? "";
-    console.log("[정산] baseDate =", baseDate, "baseReqName =", baseReqName);
-    // 🔹 리셋 버튼
+    // ✅ 복귀지 기타 토글
+    returnPlaceSelect.addEventListener("change", () => {
+        if (!returnPlaceOther)
+            return;
+        const isOther = returnPlaceSelect.value === "other";
+        returnPlaceOther.classList.toggle("hidden", !isOther);
+        if (!isOther)
+            returnPlaceOther.value = "";
+    });
+    // ✅ 체크 안 한 식사는 owner="none"
+    const normalizeMeal = (checked, owner) => {
+        if (!checked)
+            return { checked: false, owner: "none" };
+        return { checked: true, owner: owner || "personal" };
+    };
     resetBtn.addEventListener("click", () => {
         workEndInput.value = "";
         returnTimeInput.value = "";
-        returnPlaceInput.value = "";
+        returnPlaceSelect.value = "";
+        if (returnPlaceOther) {
+            returnPlaceOther.value = "";
+            returnPlaceOther.classList.add("hidden");
+        }
+        document.querySelectorAll(`input[name="bt_vehicle"]`).forEach((r) => (r.checked = false));
         mealBreakfastCheck.checked = false;
         mealLunchCheck.checked = false;
         mealDinnerCheck.checked = false;
@@ -2910,24 +3864,20 @@ function initDomesticTripSettlementPanel(API_BASE) {
         mealDinnerOwner.value = "";
         resultBox.textContent = "정산 입력값이 초기화되었습니다.";
     });
-    // 🔹 정산 저장 버튼
     saveBtn.addEventListener("click", async () => {
-        console.log("[정산] 저장 버튼 클릭");
         const vehicleValue = getCheckedRadioValue("bt_vehicle");
-        // 🚨 출발일/이름이 비어 있으면 어떤 건지 모름
         const trip_date = localStorage.getItem("settleTargetDate") ?? "";
         const req_name = localStorage.getItem("settleTargetReqName") ?? "";
         if (!trip_date || !req_name) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
                 title: "정산 대상 없음",
-                message: "어떤 출장건에 대한 정산인지 정보가 없습니다.\n먼저 [출장등록]에서 저장 후 [이어 정산 작성]으로 들어와 주세요.",
+                message: "먼저 [출장등록] 저장 후 [이어서 정산]으로 들어와 주세요.",
                 showOk: true,
                 showCancel: false,
             });
             return;
         }
-        // 필수값 체크
         if (!workEndInput.value) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
@@ -2948,11 +3898,25 @@ function initDomesticTripSettlementPanel(API_BASE) {
             });
             return;
         }
-        if (!returnPlaceInput.value.trim()) {
+        // ✅ 핵심: 회사/자택은 company/home 그대로 보내고, 기타만 텍스트로 보냄
+        const return_place = returnPlaceSelect.value === "other"
+            ? (returnPlaceOther?.value ?? "").trim()
+            : returnPlaceSelect.value; // company | home
+        if (!return_place) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
                 title: "입력 확인",
-                message: "복귀지(회사/자택)를 입력해주세요.",
+                message: "복귀지(회사/자택/기타)를 선택해주세요.",
+                showOk: true,
+                showCancel: false,
+            });
+            return;
+        }
+        if (returnPlaceSelect.value === "other" && !returnPlaceOther?.value.trim()) {
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "입력 확인",
+                message: "기타 복귀지를 입력해주세요.",
                 showOk: true,
                 showCancel: false,
             });
@@ -2968,46 +3932,25 @@ function initDomesticTripSettlementPanel(API_BASE) {
             });
             return;
         }
+        const b = normalizeMeal(mealBreakfastCheck.checked, mealBreakfastOwner.value);
+        const l = normalizeMeal(mealLunchCheck.checked, mealLunchOwner.value);
+        const d = normalizeMeal(mealDinnerCheck.checked, mealDinnerOwner.value);
         const settlement = {
             work_end_time: workEndInput.value,
             return_time: returnTimeInput.value,
-            return_place: returnPlaceInput.value.trim(),
+            return_place,
             vehicle: vehicleValue,
-            meals: {
-                breakfast: {
-                    checked: mealBreakfastCheck.checked,
-                    owner: mealBreakfastOwner.value,
-                },
-                lunch: {
-                    checked: mealLunchCheck.checked,
-                    owner: mealLunchOwner.value,
-                },
-                dinner: {
-                    checked: mealDinnerCheck.checked,
-                    owner: mealDinnerOwner.value,
-                },
-            },
+            meals: { breakfast: b, lunch: l, dinner: d },
         };
-        // 🧠 백엔드 /settlement 는 req_name, trip_date, detail_json 전체를 받는다.
-        // detail_json 안에 settlement 를 넣어서 보내야 함.
-        const detail_json = {
-            settlement,
-        };
+        const detail_json = { settlement };
         try {
             saveBtn.disabled = true;
             resultBox.textContent = "정산 내용 저장 중...";
             const res = await fetch(`${API_BASE}/api/business-trip/settlement`, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    req_name,
-                    trip_date,
-                    detail_json, // ✅ 백엔드가 기대하는 구조
-                }),
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ req_name, trip_date, detail_json }),
             });
-            console.log("[정산] 응답 status =", res.status);
             if (!res.ok) {
                 const text = await res.text();
                 resultBox.textContent = `❌ 정산 저장 실패: HTTP ${res.status} ${text}`;
@@ -3022,6 +3965,17 @@ function initDomesticTripSettlementPanel(API_BASE) {
             }
             const data = await res.json().catch(() => null);
             console.log("[정산] 응답 data =", data);
+            // (선택) 개인차량인데 km=0이면 안내
+            const fuelKm = data?.data?.calc?.fuel_distance_km ?? 0;
+            if (vehicleValue === "personal" && Number(fuelKm) === 0) {
+                await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                    type: "alert",
+                    title: "유류비 0원 안내",
+                    message: "개인차량으로 선택했지만 거리(km)가 0으로 계산되었습니다.\n거리 마스터(trip_distance_master)에\n[직원명 + 거래처명] 거리 등록이 있는지 확인해주세요.",
+                    showOk: true,
+                    showCancel: false,
+                });
+            }
             resultBox.textContent = "✅ 정산 정보가 저장되었습니다.";
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
@@ -3030,9 +3984,6 @@ function initDomesticTripSettlementPanel(API_BASE) {
                 showOk: true,
                 showCancel: false,
             });
-            // 필요하면 초기화
-            // resetBtn.click();
-            // 대시보드/출장 현황 새로고침용
             window.dispatchEvent(new Event("trip-status-refresh"));
         }
         catch (err) {

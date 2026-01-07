@@ -29,54 +29,170 @@ function calcMealAmount(meals: any | undefined | null): MealCalcResult {
   };
 }
 
-// 📏 직원 자택 → 출장지 거리 조회
-//   trip_distance_master 에서
-//   client_name = 출장지(거래처명), person_name = 직원명 기준으로 home_distance_km 조회
-async function getDistanceKm(
-  pool: Pool,
-  employeeName: string,
-  clientName: string
-): Promise<number> {
-  if (!employeeName || !clientName) return 0;
+/**
+ * ✅ 회사↔출장지(거래처) 거리(편도) 조회
+ * - trip_distance_master.home_distance_km 사용
+ */
+async function getCompanyToClientKm(pool: Pool, clientName: string): Promise<number> {
+  if (!clientName) return 0;
 
-  const res = await pool.query(
+  const r = await pool.query(
     `
     SELECT home_distance_km
-      FROM trip_distance_master
-     WHERE client_name = $1
-       AND person_name = $2
-     LIMIT 1
+    FROM trip_distance_master
+    WHERE client_name = $1
+    LIMIT 1
     `,
-    [clientName, employeeName]
+    [clientName]
   );
 
-  if (res.rows.length === 0) return 0;
-  return Number(res.rows[0].home_distance_km) || 0;
+  if (r.rows.length === 0) return 0;
+  return Number(r.rows[0].home_distance_km) || 0;
 }
 
-// ⛽ 유류비 계산 (직원 자택 ↔ 출장지 왕복)
-async function calcFuelAmount(
+/**
+ * ✅ 자택↔출장지(거래처) 거리(편도) 조회
+ * - innomax_users.distance_detail_json 안에서 client_name 매칭해서 home_distance_km 사용
+ * - distance_detail_json 예:
+ *   [{ region, client_name, home_distance_km, travel_time_text }, ...]
+ */
+async function getHomeToClientKm(pool: Pool, userName: string, clientName: string): Promise<number> {
+  if (!userName || !clientName) return 0;
+
+  const r = await pool.query(
+    `
+    SELECT distance_detail_json
+    FROM innomax_users
+    WHERE name = $1
+    LIMIT 1
+    `,
+    [userName]
+  );
+
+  if (r.rows.length === 0) return 0;
+
+  const arr = r.rows[0]?.distance_detail_json;
+  if (!Array.isArray(arr)) return 0;
+
+  const found = arr.find((x: any) => String(x?.client_name ?? "") === String(clientName));
+  return Number(found?.home_distance_km) || 0;
+}
+
+/**
+ * ✅ 유류비 계산 (케이스 4개)
+ * - vehicle:
+ *    personal(개인차량)만 유류비 발생
+ *    corp / other / public 는 0원
+ *
+ * - placeType:
+ *    "company" | "home"
+ *
+ * - 케이스:
+ *   1) 회사 -> 출장지 -> 회사 : (회사↔출장지)*2
+ *   2) 회사 -> 출장지 -> 자택 : 회사↔출장지 + 자택↔출장지
+ *   3) 자택 -> 출장지 -> 회사 : 자택↔출장지 + 회사↔출장지
+ *   4) 자택 -> 출장지 -> 자택 : (자택↔출장지)*2
+ */
+async function calcFuelAmountByCase(
   pool: Pool,
-  reqName: string,    // 직원 이름
-  destination: string, // 출장지(거래처명)
-  vehicle: string
+  reqName: string,
+  destination: string,
+  vehicle: string,
+  departPlaceType: "company" | "home",
+  returnPlaceType: "company" | "home"
 ): Promise<FuelCalcResult> {
-  // 법인차량이면 개인 유류비 0원
+  // ✅ 개인차량만 계산
   if (vehicle !== "personal") {
     return { distanceKm: 0, amount: 0 };
   }
 
-  // 직원 자택 → 출장지 거리 (one-way)
-  const oneWay = await getDistanceKm(pool, reqName, destination);
-  const totalKm = oneWay * 2; // 왕복
+  // 회사↔출장지(편도)
+  const companyOneWay = await getCompanyToClientKm(pool, destination);
+
+  // 자택↔출장지(편도) - 사용자 JSON에서
+  const homeOneWay = await getHomeToClientKm(pool, reqName, destination);
+
+  let totalKm = 0;
+
+  // 1) 회사 -> 출장지 -> 회사
+  if (departPlaceType === "company" && returnPlaceType === "company") {
+    totalKm = companyOneWay * 2;
+  }
+  // 2) 회사 -> 출장지 -> 자택
+  else if (departPlaceType === "company" && returnPlaceType === "home") {
+    totalKm = companyOneWay + homeOneWay;
+  }
+  // 3) 자택 -> 출장지 -> 회사
+  else if (departPlaceType === "home" && returnPlaceType === "company") {
+    totalKm = homeOneWay + companyOneWay;
+  }
+  // 4) 자택 -> 출장지 -> 자택
+  else {
+    totalKm = homeOneWay * 2;
+  }
 
   const amount = Math.round(totalKm * FUEL_PRICE_PER_KM);
-
   return { distanceKm: totalKm, amount };
 }
 
 export default function businessTripRouter(pool: Pool) {
   const router = express.Router();
+
+  /* ============================
+      0) 출장지(거래처) 목록/거리 조회
+      GET /api/business-trip/clients
+      - trip_distance_master 전체를 내려줌 (프론트 select + 계산용)
+   ============================ */
+  router.get("/clients", async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT region, client_name, home_distance_km, travel_time_text
+        FROM trip_distance_master
+        WHERE client_name IS NOT NULL AND client_name <> ''
+        ORDER BY client_name ASC
+      `);
+
+      return res.json({ ok: true, data: result.rows });
+    } catch (err: any) {
+      console.error("[clients] error:", err?.message ?? err);
+      return res.status(500).json({ ok: false, message: "DB 오류" });
+    }
+  });
+
+  /* ============================
+      0-1) 유저 자택거리(distance_detail_json) 조회
+      GET /api/business-trip/user-distance?name=홍길동
+   ============================ */
+  router.get("/user-distance", async (req, res) => {
+    const name = String(req.query.name ?? "").trim();
+    if (!name) {
+      return res.status(400).json({ ok: false, message: "name 필요" });
+    }
+
+    try {
+      const r = await pool.query(
+        `
+        SELECT distance_detail_json
+        FROM innomax_users
+        WHERE name = $1
+        LIMIT 1
+        `,
+        [name]
+      );
+
+      if (r.rows.length === 0) {
+        return res.status(404).json({ ok: false, message: "유저 없음" });
+      }
+
+      return res.json({
+        ok: true,
+        data: r.rows[0].distance_detail_json ?? [],
+      });
+    } catch (err: any) {
+      console.error("[user-distance] error:", err?.message ?? err);
+      return res.status(500).json({ ok: false, message: "DB 오류" });
+    }
+  });
 
   /* ============================
     1) 국내출장 등록 → start_data + detail_json.register
@@ -91,11 +207,13 @@ export default function businessTripRouter(pool: Pool) {
       depart_time,
       arrive_time,
       purpose,
+      // ✅ 앞으로 프론트에서 보내도 되고(선택), 없어도 동작
+      // depart_place_type, // "company" | "home"
+      // return_place_type, // "company" | "home"
     } = req.body ?? {};
 
     console.log("[POST /api/business-trip/domestic] body =", req.body);
 
-    // 기본 필수값 체크
     if (
       trip_type !== "domestic" ||
       !req_name ||
@@ -112,10 +230,9 @@ export default function businessTripRouter(pool: Pool) {
       });
     }
 
-    const trip_date = start_date; // 날짜 기준
+    const trip_date = start_date;
     const trip_id = `${req_name}|${trip_date}`;
 
-    // 👉 출장등록 데이터 = start_data (= register)
     const startData = {
       trip_type,
       req_name,
@@ -161,41 +278,40 @@ export default function businessTripRouter(pool: Pool) {
       `;
 
       const params = [trip_id, req_name, trip_date, JSON.stringify(startData)];
-
-      console.log("[DOMESTIC] SQL params =", params);
-
       const result = await pool.query(sql, params);
-
-      console.log("[DOMESTIC] 저장 완료 row =", result.rows[0]);
 
       return res.json({ ok: true, data: result.rows[0] });
     } catch (err: any) {
-      console.error("국내출장 등록 실패:", err?.message ?? err);
+      console.error("국내출장 등록 실패 FULL:", err);
+      console.error("국내출장 등록 실패 MESSAGE:", err?.message);
+      console.error("국내출장 등록 실패 DETAIL:", err?.detail);
+      console.error("국내출장 등록 실패 CODE:", err?.code);
       return res.status(500).json({ ok: false, message: "DB 오류" });
     }
   });
 
   /* ============================
-       2) 이어 정산 저장 → end_data + detail_json(= start + end 합본)
-          + 식대/유류비 자동 계산 후 settlement.calc 에 저장
-   =============================*/
+    2) 이어 정산 저장
+    - end_data 저장
+    - detail_json 기존 내용 유지하면서 settlement만 넣기
+    - 식대/유류비 자동 계산 후 settlement.calc 저장
+    ✅ 중요: 케이스별 거리 계산(회사/자택/복귀지) 반영
+  =============================*/
   router.post("/settlement", async (req, res) => {
     const { req_name, trip_date, detail_json } = req.body ?? {};
     const settlement = detail_json?.settlement;
 
     if (!req_name || !trip_date || !settlement) {
-      return res
-        .status(400)
-        .json({ ok: false, message: "정산 필수값 누락" });
+      return res.status(400).json({ ok: false, message: "정산 필수값 누락" });
     }
 
     const trip_id = `${req_name}|${trip_date}`;
 
     try {
-      // ★ 1) 기존 출장등록 데이터에서 출장지 가져오기
+      // ✅ 1) 기존 등록 데이터 조회
       const baseResult = await pool.query(
         `
-        SELECT start_data
+        SELECT start_data, detail_json
           FROM business_trips
          WHERE req_name = $1
            AND trip_date = $2
@@ -204,17 +320,43 @@ export default function businessTripRouter(pool: Pool) {
         [req_name, trip_date]
       );
 
-      const startData = baseResult.rows[0]?.start_data || {};
-      const destination = startData.destination || ""; // 출장지(거래처명)
-      const vehicle = settlement.vehicle || "";
+      if (baseResult.rows.length === 0) {
+        return res.status(404).json({
+          ok: false,
+          message: "출장등록 데이터가 없습니다. 먼저 출장등록을 해주세요.",
+        });
+      }
 
-      // ★ 2) 식대/유류비 금액 계산
+      const row = baseResult.rows[0] ?? {};
+      const startData =
+        row.start_data && Object.keys(row.start_data).length > 0
+          ? row.start_data
+          : row.detail_json?.register ?? {};
+
+      const destination = String(startData.destination ?? "");
+      const vehicle = String(settlement.vehicle ?? "");
+
+      // ✅ 2) 출발/복귀 타입 결정
+      // - 프론트에서 return_place 값이 home/company로 오게 바꾸는 걸 추천
+      // - 지금은 return_place가 "home"면 home, 그 외는 company로 처리(초보용 안전장치)
+      const departPlaceText = String(startData.depart_place ?? "");
+      const returnPlaceText = String(settlement.return_place ?? "");
+
+      const departPlaceType: "company" | "home" =
+        departPlaceText === "자택" || departPlaceText === "home" ? "home" : "company";
+
+      const returnPlaceType: "company" | "home" =
+        returnPlaceText === "자택" || returnPlaceText === "home" ? "home" : "company";
+
+      // ✅ 3) 식대/유류비 계산
       const mealResult = calcMealAmount(settlement.meals);
-      const fuelResult = await calcFuelAmount(
+      const fuelResult = await calcFuelAmountByCase(
         pool,
-        req_name,    // 직원 이름
-        destination, // 출장지
-        vehicle
+        req_name,
+        destination,
+        vehicle,
+        departPlaceType,
+        returnPlaceType
       );
 
       const calc = {
@@ -223,20 +365,22 @@ export default function businessTripRouter(pool: Pool) {
         fuel_distance_km: fuelResult.distanceKm,
         fuel_amount: fuelResult.amount,
         total_amount: mealResult.amount + fuelResult.amount,
+        // 디버깅용(원하면 프론트에서 표시 가능)
+        depart_place_type: departPlaceType,
+        return_place_type: returnPlaceType,
       };
 
-      // settlement 안에 calc 붙여서 저장
       const endData = {
         ...settlement,
         calc,
       };
 
+      // ✅ 4) DB 저장 (settlement만 업데이트)
       const sql = `
         INSERT INTO business_trips (
           trip_id,
           req_name,
           trip_date,
-          start_data,
           end_data,
           detail_json,
           created_at
@@ -245,42 +389,38 @@ export default function businessTripRouter(pool: Pool) {
           $1,
           $2,
           $3,
-          '{}'::jsonb,
           $4::jsonb,
-          jsonb_build_object(
-            'register', '{}'::jsonb,
-            'settlement', $4::jsonb
-          ),
+          jsonb_build_object('settlement', $4::jsonb),
           NOW()
         )
         ON CONFLICT (req_name, trip_date)
         DO UPDATE SET
           trip_id  = EXCLUDED.trip_id,
           end_data = EXCLUDED.end_data,
-          detail_json = jsonb_build_object(
-            'register', COALESCE(business_trips.start_data, '{}'::jsonb),
-            'settlement', EXCLUDED.end_data
+          detail_json = jsonb_set(
+            COALESCE(business_trips.detail_json, '{}'::jsonb),
+            '{settlement}',
+            EXCLUDED.end_data,
+            true
           )
         RETURNING *;
       `;
 
       const params = [trip_id, req_name, trip_date, JSON.stringify(endData)];
-
-      console.log("[SETTLEMENT] SQL params =", params);
-
       const result = await pool.query(sql, params);
-
-      console.log("[SETTLEMENT] 저장 완료 row =", result.rows[0]);
 
       return res.json({
         ok: true,
         data: {
           ...result.rows[0],
-          calc, // 프론트에서 바로 참고하고 싶으면 같이 넘겨줌
+          calc,
         },
       });
     } catch (err: any) {
-      console.error("정산 저장 실패:", err?.message ?? err);
+      console.error("정산 저장 실패 FULL:", err);
+      console.error("정산 저장 실패 MESSAGE:", err?.message);
+      console.error("정산 저장 실패 DETAIL:", err?.detail);
+      console.error("정산 저장 실패 CODE:", err?.code);
       return res.status(500).json({ ok: false, message: "DB 오류" });
     }
   });
@@ -316,8 +456,9 @@ export default function businessTripRouter(pool: Pool) {
       }
 
       return res.json({ ok: true, data: result.rows[0] });
-    } catch (err) {
-      console.error("출장조회 실패:", err);
+    } catch (err: any) {
+      console.error("출장조회 실패 FULL:", err);
+      console.error("출장조회 실패 MESSAGE:", err?.message);
       return res.status(500).json({ ok: false, message: "DB 오류" });
     }
   });
@@ -347,22 +488,18 @@ export default function businessTripRouter(pool: Pool) {
         [date || null]
       );
 
-      console.log("[STATUS] raw rows =", result.rows);
-
       const items = result.rows.map((row) => {
-        // ✅ start_data 우선, 없으면 detail_json.register
         const start =
           row.start_data && Object.keys(row.start_data).length > 0
             ? row.start_data
             : row.detail_json?.register ?? {};
 
-        // ✅ end_data 우선, 없으면 detail_json.settlement
         const end =
           row.end_data && Object.keys(row.end_data).length > 0
             ? row.end_data
             : row.detail_json?.settlement ?? {};
 
-        const item = {
+        return {
           trip_id: row.trip_id,
           req_name: row.req_name,
           trip_date: row.trip_date,
@@ -372,18 +509,15 @@ export default function businessTripRouter(pool: Pool) {
           depart_time: start.depart_time ?? "",
           arrive_time: start.arrive_time ?? "",
 
-          status:
-            end && Object.keys(end).length > 0 ? "SETTLED" : "REGISTERED",
+          status: end && Object.keys(end).length > 0 ? "SETTLED" : "REGISTERED",
           approve_status: row.approve_status ?? null,
         };
-
-        console.log("[STATUS] mapped item =", item);
-        return item;
       });
 
       return res.json({ ok: true, data: items });
     } catch (err: any) {
-      console.error("출장자 현황 조회 실패:", err?.message ?? err);
+      console.error("출장자 현황 조회 실패 FULL:", err);
+      console.error("출장자 현황 조회 실패 MESSAGE:", err?.message);
       return res.status(500).json({ ok: false, message: "DB 오류" });
     }
   });
@@ -394,7 +528,7 @@ export default function businessTripRouter(pool: Pool) {
   router.get("/settlements-range", async (req, res) => {
     const from = String(req.query.from ?? "").trim();
     const to = String(req.query.to ?? "").trim();
-    const reqName = String(req.query.req_name ?? "").trim(); // 옵션
+    const reqName = String(req.query.req_name ?? "").trim();
 
     if (!from || !to) {
       return res.status(400).json({
@@ -430,25 +564,21 @@ export default function businessTripRouter(pool: Pool) {
         params
       );
 
-      return res.json({
-        ok: true,
-        data: result.rows,
-      });
+      return res.json({ ok: true, data: result.rows });
     } catch (err: any) {
-      console.error("정산 내역 기간조회 실패:", err?.message ?? err);
+      console.error("정산 내역 기간조회 실패 FULL:", err);
+      console.error("정산 내역 기간조회 실패 MESSAGE:", err?.message);
       return res.status(500).json({ ok: false, message: "DB 오류" });
     }
   });
 
   /* =====================================================
      6) (관리자용) 정산 내역 기간 조회 - 전체 직원 + 상태 필터
-        GET /api/business-trip/settlements-range-admin
-        ?from=...&to=...&status=pending|approved|rejected|all
   ===================================================== */
   router.get("/settlements-range-admin", async (req, res) => {
     const from = String(req.query.from ?? "").trim();
     const to = String(req.query.to ?? "").trim();
-    const rawStatus = String(req.query.status ?? "").trim(); // optional
+    const rawStatus = String(req.query.status ?? "").trim();
 
     if (!from || !to) {
       return res.status(400).json({
@@ -457,7 +587,6 @@ export default function businessTripRouter(pool: Pool) {
       });
     }
 
-    // 🔹 status 문자열 정규화
     let status: "all" | "pending" | "approved" | "rejected" = "all";
     if (rawStatus === "pending") status = "pending";
     else if (rawStatus === "approved") status = "approved";
@@ -468,14 +597,12 @@ export default function businessTripRouter(pool: Pool) {
       const params: any[] = [from, to];
       let where = "bt.trip_date BETWEEN $1::date AND $2::date";
 
-      // ✅ pending → approve_status IS NULL (대기건)
       if (status === "approved" || status === "rejected") {
         where += " AND bt.approve_status = $3";
         params.push(status);
       } else if (status === "pending") {
         where += " AND bt.approve_status IS NULL";
       }
-      // status === "all" 이면 추가 조건 없음
 
       const result = await pool.query(
         `
@@ -501,15 +628,10 @@ export default function businessTripRouter(pool: Pool) {
         params
       );
 
-      return res.json({
-        ok: true,
-        data: result.rows,
-      });
+      return res.json({ ok: true, data: result.rows });
     } catch (err: any) {
-      console.error(
-        "관리자용 정산 내역 기간조회 실패:",
-        err?.message ?? err
-      );
+      console.error("관리자용 정산 내역 기간조회 실패 FULL:", err);
+      console.error("관리자용 정산 내역 기간조회 실패 MESSAGE:", err?.message);
       return res.status(500).json({ ok: false, message: "DB 오류" });
     }
   });
@@ -533,30 +655,20 @@ export default function businessTripRouter(pool: Pool) {
       WHERE trip_id = $1
       RETURNING trip_id, approve_status, approve_by, approve_at, approve_comment;
     `;
-    const result = await pool.query(sql, [
-      tripId,
-      decision,
-      approver,
-      comment,
-    ]);
+    const result = await pool.query(sql, [tripId, decision, approver, comment]);
     return result.rows[0];
   }
 
   /* =====================================================
      8) 승인 / 반려 API
-        POST /api/business-trip/:trip_id/approve
-        POST /api/business-trip/:trip_id/reject
   ===================================================== */
 
-  // 승인
   router.post("/:trip_id/approve", async (req, res) => {
     const tripId = req.params.trip_id;
     const { approver, comment } = req.body ?? {};
 
     if (!tripId) {
-      return res
-        .status(400)
-        .json({ ok: false, message: "trip_id가 필요합니다." });
+      return res.status(400).json({ ok: false, message: "trip_id가 필요합니다." });
     }
 
     try {
@@ -566,27 +678,25 @@ export default function businessTripRouter(pool: Pool) {
         approver ?? null,
         comment ?? null
       );
+
       if (!row) {
-        return res
-          .status(404)
-          .json({ ok: false, message: "해당 출장 건을 찾을 수 없습니다." });
+        return res.status(404).json({ ok: false, message: "해당 출장 건을 찾을 수 없습니다." });
       }
+
       return res.json({ ok: true, data: row });
     } catch (err: any) {
-      console.error("[approve] error:", err?.message ?? err);
+      console.error("[approve] error FULL:", err);
+      console.error("[approve] error MESSAGE:", err?.message);
       return res.status(500).json({ ok: false, message: "서버 오류" });
     }
   });
 
-  // 반려
   router.post("/:trip_id/reject", async (req, res) => {
     const tripId = req.params.trip_id;
     const { approver, comment } = req.body ?? {};
 
     if (!tripId) {
-      return res
-        .status(400)
-        .json({ ok: false, message: "trip_id가 필요합니다." });
+      return res.status(400).json({ ok: false, message: "trip_id가 필요합니다." });
     }
 
     try {
@@ -596,14 +706,15 @@ export default function businessTripRouter(pool: Pool) {
         approver ?? null,
         comment ?? null
       );
+
       if (!row) {
-        return res
-          .status(404)
-          .json({ ok: false, message: "해당 출장 건을 찾을 수 없습니다." });
+        return res.status(404).json({ ok: false, message: "해당 출장 건을 찾을 수 없습니다." });
       }
+
       return res.json({ ok: true, data: row });
     } catch (err: any) {
-      console.error("[reject] error:", err?.message ?? err);
+      console.error("[reject] error FULL:", err);
+      console.error("[reject] error MESSAGE:", err?.message);
       return res.status(500).json({ ok: false, message: "서버 오류" });
     }
   });

@@ -27,6 +27,30 @@ function safeJsonParse<T>(raw: any, fallback: T): T {
 
 export default function businessMasterRouter(pool: Pool) {
   const router = express.Router();
+  async function getConfigRow() {
+    const r = await pool.query(`
+      SELECT id, config_json
+      FROM business_trip_config
+      ORDER BY id
+      LIMIT 1
+    `);
+
+    if (r.rows.length === 0) {
+      const ins = await pool.query(
+        `INSERT INTO business_trip_config (config_json) VALUES ($1) RETURNING id, config_json`,
+        [{}]
+      );
+      return { id: ins.rows[0].id, config_json: ins.rows[0].config_json || {} };
+    }
+    return { id: r.rows[0].id, config_json: r.rows[0].config_json || {} };
+  }
+
+  async function saveConfigJson(id: number, cfg: AnyObj) {
+    await pool.query(
+      `UPDATE business_trip_config SET config_json=$1, updated_at=NOW() WHERE id=$2`,
+      [cfg, id]
+    );
+  }
 
   // =====================================================
   // 1) 출장 기본 설정 조회/저장
@@ -202,7 +226,37 @@ export default function businessMasterRouter(pool: Pool) {
       return res.status(500).json({ ok: false, error: "설정 저장 에러" });
     }
   });
+  // =====================================================
+  // 1-1) ✅ 공지 전용 조회/저장 (config_json에서 notice만 관리)
+  // =====================================================
+  router.get("/notice", async (_req, res) => {
+    try {
+      const row = await getConfigRow();
+      const cfg: AnyObj = row.config_json || {};
+      return res.json({ ok: true, notice: String(cfg.notice ?? cfg.note ?? "") });
+    } catch (err) {
+      console.error("[notice][GET] err:", err);
+      return res.status(500).json({ ok: false, error: "공지 조회 에러" });
+    }
+  });
 
+  router.post("/notice", async (req, res) => {
+    try {
+      const notice = String(req.body?.notice ?? "").trim();
+
+      const row = await getConfigRow();
+      const cfg: AnyObj = row.config_json || {};
+
+      cfg.notice = notice; // ✅ 새 구조
+      cfg.note = notice;   // ✅ 구 구조 호환(레거시 대비)
+
+      await saveConfigJson(row.id, cfg);
+      return res.json({ ok: true, notice });
+    } catch (err) {
+      console.error("[notice][POST] err:", err);
+      return res.status(500).json({ ok: false, error: "공지 저장 에러" });
+    }
+  });
   // =====================================================
   // 2) ✅ 거리 마스터 (원복 핵심)
   // =====================================================
@@ -412,30 +466,6 @@ export default function businessMasterRouter(pool: Pool) {
     created_at: string;
   };
 
-  async function getConfigRow() {
-    const r = await pool.query(`
-      SELECT id, config_json
-      FROM business_trip_config
-      ORDER BY id
-      LIMIT 1
-    `);
-
-    if (r.rows.length === 0) {
-      const ins = await pool.query(
-        `INSERT INTO business_trip_config (config_json) VALUES ($1) RETURNING id, config_json`,
-        [{}]
-      );
-      return { id: ins.rows[0].id, config_json: ins.rows[0].config_json || {} };
-    }
-    return { id: r.rows[0].id, config_json: r.rows[0].config_json || {} };
-  }
-
-  async function saveConfigJson(id: number, cfg: AnyObj) {
-    await pool.query(
-      `UPDATE business_trip_config SET config_json=$1, updated_at=NOW() WHERE id=$2`,
-      [cfg, id]
-    );
-  }
 
   router.get("/vacations", async (_req, res) => {
     try {
@@ -535,6 +565,123 @@ export default function businessMasterRouter(pool: Pool) {
       return res.status(500).json({ ok: false, error: "휴가 현황 조회 에러" });
     }
   });
+  // =====================================================
+  // 5) ✅ 캘린더 일정 (config_json.calendar_events_text에 저장)
+  // =====================================================
+  type CalendarEventItem = {
+    id: number;
+    date: string;       // YYYY-MM-DD
+    title: string;      // 예: "장비검수"
+    created_at: string; // ISO
+    created_by?: number | null; // (선택)
+  };
 
+  // yyyy-mm 형태인지
+  function isYm(s: any) {
+    return typeof s === "string" && /^\d{4}-\d{2}$/.test(s);
+  }
+
+  // ym(yyyy-mm) 범위 필터
+  function inYm(dateYmd: string, ym: string) {
+    // dateYmd: "2026-01-05", ym:"2026-01"
+    return typeof dateYmd === "string" && dateYmd.startsWith(ym + "-");
+  }
+
+  // ✅ 목록 조회: /calendar-events?ym=2026-01 (없으면 전체)
+  router.get("/calendar-events", async (req, res) => {
+    try {
+      const ym = isYm(req.query.ym) ? String(req.query.ym) : null;
+
+      const row = await getConfigRow();
+      const cfg: AnyObj = row.config_json || {};
+
+      const parsed = safeJsonParse<{ items: CalendarEventItem[] }>(
+        cfg.calendar_events_text,
+        { items: [] }
+      );
+
+      const items = Array.isArray(parsed.items) ? parsed.items : [];
+
+      const filtered = ym ? items.filter((it) => isYmd(it.date) && inYm(it.date, ym)) : items;
+
+      return res.json({ ok: true, ym, items: filtered });
+    } catch (err) {
+      console.error("[calendar-events][GET] err:", err);
+      return res.status(500).json({ ok: false, error: "일정 목록 조회 에러" });
+    }
+  });
+
+  // ✅ 일정 추가: POST { date:"YYYY-MM-DD", title:"장비검수", created_by?: number }
+  router.post("/calendar-events", async (req, res) => {
+    try {
+      const { date, title, created_by } = req.body ?? {};
+
+      if (!isYmd(date)) {
+        return res.status(400).json({ ok: false, error: "date는 YYYY-MM-DD 형식" });
+      }
+      const t = String(title ?? "").trim();
+      if (!t) {
+        return res.status(400).json({ ok: false, error: "title(내용)은 필수입니다." });
+      }
+
+      const row = await getConfigRow();
+      const cfg: AnyObj = row.config_json || {};
+
+      const parsed = safeJsonParse<{ items: CalendarEventItem[] }>(
+        cfg.calendar_events_text,
+        { items: [] }
+      );
+      const items = Array.isArray(parsed.items) ? parsed.items : [];
+
+      const nextId = items.reduce((m, it) => Math.max(m, Number(it?.id || 0)), 0) + 1;
+
+      const item: CalendarEventItem = {
+        id: nextId,
+        date: String(date),
+        title: t,
+        created_at: new Date().toISOString(),
+        created_by: created_by != null ? Number(created_by) : null,
+      };
+
+      cfg.calendar_events_text = JSON.stringify({
+        items: [item, ...items],
+        updatedAt: new Date().toISOString(),
+      });
+
+      await saveConfigJson(row.id, cfg);
+      return res.json({ ok: true, item });
+    } catch (err) {
+      console.error("[calendar-events][POST] err:", err);
+      return res.status(500).json({ ok: false, error: "일정 등록 에러" });
+    }
+  });
+
+  // ✅ 일정 삭제: DELETE /calendar-events/:id
+  router.delete("/calendar-events/:id", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "id 오류" });
+
+      const row = await getConfigRow();
+      const cfg: AnyObj = row.config_json || {};
+
+      const parsed = safeJsonParse<{ items: CalendarEventItem[] }>(
+        cfg.calendar_events_text,
+        { items: [] }
+      );
+      const items = Array.isArray(parsed.items) ? parsed.items : [];
+
+      cfg.calendar_events_text = JSON.stringify({
+        items: items.filter((it) => Number(it.id) !== id),
+        updatedAt: new Date().toISOString(),
+      });
+
+      await saveConfigJson(row.id, cfg);
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error("[calendar-events][DELETE] err:", err);
+      return res.status(500).json({ ok: false, error: "일정 삭제 에러" });
+    }
+  });
   return router;
 }

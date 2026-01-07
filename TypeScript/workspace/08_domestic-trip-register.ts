@@ -4,11 +4,11 @@ import { ModalUtil } from "./utils/ModalUtil";
 type DomesticTripRegisterPayload = {
   trip_type: "domestic";
   req_name: string;
-  depart_place: string;      // 출발지
-  destination: string;       // 출장지(고객사/지역)
-  start_date: string;        // YYYY-MM-DD
-  depart_time: string;       // HH:mm
-  arrive_time: string;       // HH:mm
+  depart_place: string; // company/home/기타텍스트
+  destination: string;  // client_name
+  start_date: string;   // YYYY-MM-DD
+  depart_time: string;  // HH:mm
+  arrive_time: string;  // HH:mm
   purpose: string;
 };
 
@@ -18,61 +18,138 @@ function getEl<T extends HTMLElement>(id: string): T {
   return el as T;
 }
 
+function textOrEmpty(v: any) {
+  return String(v ?? "").trim();
+}
+
 export function initDomesticTripRegisterPanel(API_BASE: string) {
   const panel = document.getElementById("panel-국내출장-출장등록");
   if (!panel) return;
 
   const saveBtn = getEl<HTMLButtonElement>("reg_save");
-  // 이미 바인딩 되었으면 재바인딩 방지
   if ((saveBtn as any)._bound) return;
   (saveBtn as any)._bound = true;
 
   const resetBtn = getEl<HTMLButtonElement>("reg_reset");
   const resultBox = getEl<HTMLDivElement>("reg_result");
 
-  // 🔹 이어작성 버튼
   const continueBtn = document.getElementById("reg_continue") as HTMLButtonElement | null;
-  // 🔹 같은 패널 안의 정산 작성 섹션 (숨겼다가 펼칠 영역)
   const settlementSection = document.getElementById("bt_settlement_section") as HTMLDivElement | null;
 
   const userNameEl = document.getElementById("userName");
   const reqNameInput = getEl<HTMLInputElement>("bt_req_name");
-  const departPlaceInput = getEl<HTMLInputElement>("bt_place");
-  const destinationInput = getEl<HTMLInputElement>("bt_destination");
+
+  // ✅ 출발지 select (value: company/home/other)
+  const departPlaceSelect = getEl<HTMLSelectElement>("bt_place");
+  const departPlaceOther = document.getElementById("bt_place_other") as HTMLInputElement | null;
+
+  // ✅ 출장지 select (clients API)
+  const destinationSelect = getEl<HTMLSelectElement>("bt_destination");
+
   const startInput = getEl<HTMLInputElement>("bt_start");
   const departTimeInput = getEl<HTMLInputElement>("bt_depart_time");
   const arriveTimeInput = getEl<HTMLInputElement>("bt_arrive_time");
   const purposeInput = getEl<HTMLTextAreaElement>("bt_purpose");
 
-  // 요청자 자동 채우기
+  // 요청자 자동
   reqNameInput.value = (userNameEl?.textContent ?? "").trim() || "사용자";
 
-  // 초기: 이어작성 버튼/정산섹션 숨김
+  // 초기 숨김
   if (continueBtn) continueBtn.classList.add("hidden");
   if (settlementSection) settlementSection.classList.add("hidden");
 
-  // 🔹 폼 리셋
+  // ✅ 출발지 기타 토글
+  departPlaceSelect.addEventListener("change", () => {
+    if (!departPlaceOther) return;
+    const isOther = departPlaceSelect.value === "other";
+    departPlaceOther.classList.toggle("hidden", !isOther);
+    if (!isOther) departPlaceOther.value = "";
+  });
+
+  // ✅ 거래처 목록 로딩 (강력 방어 + 디버그 로그 포함)
+  async function loadClients() {
+    try {
+      destinationSelect.innerHTML = `<option value="">거래처(출장지) 선택</option>`;
+
+      const res = await fetch(`${API_BASE}/api/business-trip/clients`);
+      if (!res.ok) {
+        console.error("[REGISTER] clients API HTTP error:", res.status);
+        return;
+      }
+
+      const json = await res.json().catch(() => null);
+      console.log("[REGISTER] clients API response =", json);
+
+      // ✅ 서버가 어떤 키로 주든 최대한 대응
+      const raw =
+        Array.isArray(json?.data) ? json.data :
+        Array.isArray(json?.rows) ? json.rows :
+        Array.isArray(json?.clients) ? json.clients :
+        Array.isArray(json) ? json :
+        [];
+
+      for (const item of raw) {
+        // ✅ 문자열/객체 둘 다 대응
+        const name =
+          typeof item === "string"
+            ? item
+            : (item?.client_name ?? item?.name ?? item?.destination);
+
+        const clean = textOrEmpty(name);
+        if (!clean) continue;
+
+        const opt = document.createElement("option");
+        opt.value = clean;
+        opt.textContent = clean;
+        destinationSelect.appendChild(opt);
+      }
+
+      // ✅ 그래도 1개(기본옵션)만 있으면 뭔가 비어온 것
+      if (destinationSelect.options.length <= 1) {
+        console.warn("[REGISTER] 거래처 목록이 비었습니다. 서버 응답 구조 확인 필요:", json);
+      }
+    } catch (err) {
+      console.warn("[REGISTER] 거래처 목록 로딩 실패:", err);
+    }
+  }
+
+  // ✅ (중요) 여기서 실제로 실행해야 목록이 뜸!!
+  loadClients();
+
+  // 🔹 리셋
   resetBtn.addEventListener("click", () => {
-    departPlaceInput.value = "";
-    destinationInput.value = "";
+    departPlaceSelect.value = "";
+    if (departPlaceOther) {
+      departPlaceOther.value = "";
+      departPlaceOther.classList.add("hidden");
+    }
+
+    destinationSelect.value = "";
     startInput.value = "";
     departTimeInput.value = "";
     arriveTimeInput.value = "";
     purposeInput.value = "";
     resultBox.textContent = "";
 
-    // 리셋 시 이어작성 버튼/정산영역 숨기기
     if (continueBtn) continueBtn.classList.add("hidden");
     if (settlementSection) settlementSection.classList.add("hidden");
+
+    // ✅ 리셋 시 거래처 목록도 다시 불러오고 싶으면 아래 줄 유지
+    loadClients();
   });
 
-  // 🔹 출장 등록
+  // 🔹 저장
   saveBtn.addEventListener("click", async () => {
+    const depart_place =
+      departPlaceSelect.value === "other"
+        ? textOrEmpty(departPlaceOther?.value)
+        : textOrEmpty(departPlaceSelect.value); // company | home
+
     const payload: DomesticTripRegisterPayload = {
       trip_type: "domestic",
       req_name: reqNameInput.value.trim(),
-      depart_place: departPlaceInput.value.trim(),
-      destination: destinationInput.value.trim(),
+      depart_place,
+      destination: textOrEmpty(destinationSelect.value),
       start_date: startInput.value,
       depart_time: departTimeInput.value,
       arrive_time: arriveTimeInput.value,
@@ -81,7 +158,7 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
 
     console.log("[REGISTER] payload =", payload);
 
-    // 필수값 체크 (이제 work_start_time 없음)
+    // 필수 체크
     if (
       !payload.req_name ||
       !payload.depart_place ||
@@ -101,15 +178,24 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
       return;
     }
 
+    if (departPlaceSelect.value === "other" && !payload.depart_place) {
+      await ModalUtil.show({
+        type: "alert",
+        title: "입력 확인",
+        message: "기타 출발지를 입력해주세요.",
+        showOk: true,
+        showCancel: false,
+      });
+      return;
+    }
+
     try {
       saveBtn.disabled = true;
       resultBox.textContent = "서버에 저장 중...";
 
       const res = await fetch(`${API_BASE}/api/business-trip/domestic`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
@@ -132,26 +218,20 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
       const data = await res.json().catch(() => null);
       console.log("출장등록 성공 응답:", data);
 
-
-
-      // 정산 화면에서 참고할 초안 저장
       localStorage.setItem("domesticTripDraft", JSON.stringify(payload));
-
       resultBox.textContent = "✅ 출장 등록 완료 (서버 저장 완료)";
 
       await ModalUtil.show({
         type: "alert",
         title: "저장 완료",
         message:
-          "출장 등록 내용이 서버에 저장되었습니다.\n[이어 정산 작성] 버튼을 눌러 정산을 작성하세요.",
+          "출장 등록 내용이 서버에 저장되었습니다.\n[이어서 정산] 버튼을 눌러 정산을 작성하세요.",
         showOk: true,
         showCancel: false,
       });
 
       if (continueBtn) continueBtn.classList.remove("hidden");
-      if (settlementSection) {
-        settlementSection.classList.add("hidden");
-      }
+      if (settlementSection) settlementSection.classList.add("hidden");
 
       localStorage.setItem("settleTargetDate", payload.start_date);
       localStorage.setItem("settleTargetReqName", payload.req_name);
@@ -175,7 +255,7 @@ export function initDomesticTripRegisterPanel(API_BASE: string) {
     }
   });
 
-  // 🔹 이어작성 버튼 클릭 → 정산 섹션 펼치기
+  // 🔹 이어서 정산
   continueBtn?.addEventListener("click", () => {
     const date = startInput.value;
     const name = reqNameInput.value.trim();

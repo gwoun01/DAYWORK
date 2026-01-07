@@ -1,5 +1,6 @@
 // src/TypeScript/workspace/02_trip-approval.ts
 
+
 type TripRow = {
     trip_id: string;
     req_name: string;

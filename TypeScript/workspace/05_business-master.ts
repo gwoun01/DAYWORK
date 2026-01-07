@@ -4,6 +4,7 @@
 // ✅ 추가 수정: F5 새로고침해도 당직표 유지(마지막 생성 결과를 duty_members_text에 같이 저장/복원)
 // ✅ 추가: 휴가자 설정(등록/삭제) + 대시보드 휴가자현황 갱신 이벤트
 // ✅ 추가: 휴가/당직 요약 캘린더 (월 이동 + 자동 표기)
+// ✅ 추가: 📌 캘린더 일정(등록 → 캘린더에 표시)
 
 type BusinessConfig = {
   fuel_price_gasoline: number | null;
@@ -52,6 +53,15 @@ type VacationItem = {
   end_date: string; // YYYY-MM-DD
   note?: string;
   created_at: string;
+};
+
+// ✅✅✅ 일정(캘린더 이벤트) 타입
+type CalendarEventItem = {
+  id: number;
+  date: string;       // YYYY-MM-DD
+  title: string;      // 예: "장비검수"
+  created_at: string; // ISO
+  created_by?: number | null;
 };
 
 // ======================
@@ -125,6 +135,9 @@ function vacTypeLabel(t: string) {
   if (t === "half") return "반차";
   return "기타";
 }
+function openVacNoteModal(name: string, range: string, note: string) {
+  alert(`[비고]\n${name}\n${range}\n\n${note}`);
+}
 
 // ✅ 월 계산 유틸(로테이션 프리뷰에 필요)
 function addMonthsToYm(ymStr: string, delta: number) {
@@ -140,16 +153,21 @@ function mod(n: number, m: number) {
   return ((n % m) + m) % m;
 }
 
+// ✅✅✅ YYYY-MM-DD 체크(일정/필터에 사용)
+function isYmd(s: any) {
+  return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
 // ======================
-// ✅ 요약 캘린더 유틸 (휴가/당직 날짜별 펼치기)
+// ✅ 요약 캘린더 유틸 (휴가/당직/일정 날짜별 펼치기)
 // ======================
 
 type SumCalEvent = {
   date: string; // YYYY-MM-DD
-  kind: "VACATION" | "DUTY";
+  kind: "VACATION" | "DUTY" | "SCHEDULE";
   text: string;
+  id?: number; // ✅ 일정 삭제용 (SCHEDULE만 사용)
 };
-
 function datesBetweenInclusive(start: string, end: string) {
   const out: string[] = [];
   const s = new Date(start + "T00:00:00");
@@ -192,6 +210,168 @@ function buildDutyEvents(assigns: DutyAssign[]) {
     });
   }
   return map;
+}
+
+// ✅✅✅ 일정(캘린더 이벤트) 펼치기
+function buildScheduleEvents(items: CalendarEventItem[]) {
+  const map = new Map<string, SumCalEvent[]>();
+  for (const it of items) {
+    if (!it?.date || !isYmd(it.date)) continue;
+
+    const title = String(it.title ?? "").trim();
+    if (!title) continue;
+
+    if (!map.has(it.date)) map.set(it.date, []);
+    map.get(it.date)!.push({
+      date: it.date,
+      kind: "SCHEDULE",
+      text: title,
+      id: Number(it.id), // ✅ 삭제용 id
+    });
+  }
+  return map;
+}
+
+// ======================
+// ✅ 대시보드 휴가/당직 캘린더 (당직생성과 무관하게 자동 표시)
+// ======================
+
+type DashEvent = { kind: "VACATION" | "DUTY"; text: string };
+
+function buildVacationMapForDash(items: VacationItem[]) {
+  const map = new Map<string, DashEvent[]>();
+  for (const it of items) {
+    if (!it?.start_date || !it?.end_date) continue;
+    const label = `${it.user_name}(${vacTypeLabel(it.vac_type)})`;
+    const days = datesBetweenInclusive(it.start_date, it.end_date);
+    for (const ds of days) {
+      if (!map.has(ds)) map.set(ds, []);
+      map.get(ds)!.push({ kind: "VACATION", text: label });
+    }
+  }
+  return map;
+}
+
+function buildDutyMapForDash(assigns: DutyAssign[]) {
+  const map = new Map<string, DashEvent[]>();
+  for (const a of assigns) {
+    if (!a?.date || !a?.name) continue;
+    if (!map.has(a.date)) map.set(a.date, []);
+    map.get(a.date)!.push({ kind: "DUTY", text: a.name });
+  }
+  return map;
+}
+
+function renderDashboardCalGrid(
+  viewingYm: string,
+  holidays: HolidayItem[],
+  dutyAssigns: DutyAssign[],
+  vacations: VacationItem[]
+) {
+  const grid = document.getElementById("dutyCalGrid") as HTMLDivElement | null;
+  const label = document.getElementById("dutyCalLabel") as HTMLDivElement | null;
+  if (!grid || !label) return;
+
+  label.textContent = viewingYm;
+
+  const [y, m] = viewingYm.split("-").map(Number);
+  if (!y || !m) return;
+
+  const first = new Date(y, m - 1, 1);
+  const lastDate = new Date(y, m, 0).getDate();
+  const startDow = first.getDay(); // 0=일
+
+  const holidayMap = new Map<string, HolidayItem>();
+  for (const h of holidays) holidayMap.set(h.date, h);
+
+  const vacMap = buildVacationMapForDash(vacations);
+  const dutyMap = buildDutyMapForDash(dutyAssigns);
+
+  grid.innerHTML = "";
+
+  // 앞 빈칸
+  for (let i = 0; i < startDow; i++) {
+    const empty = document.createElement("div");
+    empty.className = "min-h-[90px] border-b border-r bg-gray-50/50";
+    grid.appendChild(empty);
+  }
+
+  // 날짜 셀
+  for (let day = 1; day <= lastDate; day++) {
+    const ds = `${y}-${pad2(m)}-${pad2(day)}`;
+
+    const cell = document.createElement("div");
+    cell.className = "min-h-[90px] border-b border-r p-1 overflow-hidden bg-white";
+    cell.dataset.date = ds;
+
+    const h = holidayMap.get(ds);
+    const dow = new Date(ds + "T00:00:00").getDay();
+    const isRed = (h && h.type === "공휴일") || dow === 0;
+
+    const dayEl = document.createElement("div");
+    dayEl.className = `text-[11px] font-bold mb-1 ${isRed ? "text-rose-600" : "text-gray-900"}`;
+    dayEl.textContent = String(day);
+    cell.appendChild(dayEl);
+
+    // ✅ 휴일 뱃지(주말/공휴일)
+    if (h) {
+      const badge = document.createElement("div");
+      const isHoliday = h.type === "공휴일";
+      badge.className =
+        "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 " +
+        (isHoliday ? "bg-rose-50 text-rose-700" : "bg-gray-100 text-gray-700");
+      badge.textContent = isHoliday
+        ? h.holidayName
+          ? `공휴일(${h.holidayName})`
+          : "공휴일"
+        : "주말";
+      cell.appendChild(badge);
+    }
+
+    // ✅ 휴가(최대 1줄 + 더보기)
+    const vacs = vacMap.get(ds) ?? [];
+    if (vacs.length) {
+      const v = vacs[0];
+      const vLine = document.createElement("div");
+      vLine.className =
+        "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 bg-amber-50 text-amber-800 whitespace-normal break-keep";
+      vLine.textContent = `휴가 ${v.text}`;
+      cell.appendChild(vLine);
+
+      if (vacs.length > 1) {
+        const more = document.createElement("div");
+        more.className = "text-[10px] text-amber-700 underline cursor-pointer select-none";
+        more.textContent = `+${vacs.length - 1}명 더보기`;
+        more.onclick = (e) => {
+          e.stopPropagation();
+          alert(`[${ds}]\n\n휴가:\n` + vacs.map((x) => `- ${x.text}`).join("\n"));
+        };
+        cell.appendChild(more);
+      }
+    }
+
+    // ✅ 당직(최대 1줄)
+    const duties = dutyMap.get(ds) ?? [];
+    if (duties.length) {
+      const d = duties[0];
+      const dLine = document.createElement("div");
+      dLine.className =
+        "px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 whitespace-normal break-keep";
+      dLine.textContent = `당직 ${d.text}`;
+      cell.appendChild(dLine);
+    }
+
+    grid.appendChild(cell);
+  }
+
+  // 뒤 빈칸
+  const totalCells = startDow + lastDate;
+  const remain = (7 - (totalCells % 7)) % 7;
+  for (let i = 0; i < remain; i++) {
+    const empty = document.createElement("div");
+    empty.className = "min-h-[90px] border-b border-r bg-gray-50/30";
+    grid.appendChild(empty);
+  }
 }
 
 // ======================
@@ -247,11 +427,36 @@ function renderDutyTable(assigns: DutyAssign[]) {
 }
 
 // ======================
+// ✅ (중요) dutyCalLabel 없으면 자동 생성 + 현재월 세팅
+// ======================
+function ensureDutyCalLabel() {
+  let label = document.getElementById("dutyCalLabel") as HTMLDivElement | null;
+
+  // ✅ label이 HTML에 없으면 자동으로 만들어서 숨겨 둠
+  if (!label) {
+    label = document.createElement("div");
+    label.id = "dutyCalLabel";
+    label.className = "hidden";
+    document.body.appendChild(label);
+  }
+
+  const txt = (label.textContent || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(txt)) {
+    const now = new Date();
+    label.textContent = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`;
+  }
+}
+
+// ======================
 // ✅ 대시보드 "휴일/당직 캘린더" 표 채우기
+// ✅ (수정) 표를 채운 뒤 → 달력도 자동 갱신
 // ======================
 function renderDashboardHolidayDuty(holidays: HolidayItem[], assignsMap: Record<string, string>) {
   const tbody = document.getElementById("dutyHolidayBody") as HTMLTableSectionElement | null;
   if (!tbody) return;
+
+  // ✅ label 없으면 만들고 현재월 세팅
+  ensureDutyCalLabel();
 
   if (!holidays.length) {
     tbody.innerHTML = `
@@ -259,6 +464,9 @@ function renderDashboardHolidayDuty(holidays: HolidayItem[], assignsMap: Record<
         <td class="px-2 py-2 text-center text-gray-400" colspan="4">표시할 휴일이 없습니다.</td>
       </tr>
     `;
+
+    // ✅ 표 비어도 달력은 비운 상태로 렌더
+    renderDashboardDutyCalendarFromTable();
     return;
   }
 
@@ -282,6 +490,112 @@ function renderDashboardHolidayDuty(holidays: HolidayItem[], assignsMap: Record<
       `;
     })
     .join("");
+
+  // ✅✅✅ 핵심: 표 채운 직후 달력도 갱신
+  renderDashboardDutyCalendarFromTable();
+}
+
+// ======================
+// ✅ 대시보드 "휴일/당직 캘린더" 달력 렌더 (표(dutyHolidayBody) → grid(dutyCalGrid))
+// ✅ (수정) dutyCalLabel이 없어도 ensureDutyCalLabel로 자동 처리
+// ======================
+function renderDashboardDutyCalendarFromTable() {
+  const grid = document.getElementById("dutyCalGrid") as HTMLDivElement | null;
+  const tbody = document.getElementById("dutyHolidayBody") as HTMLTableSectionElement | null;
+  if (!grid || !tbody) return;
+
+  ensureDutyCalLabel();
+  const label = document.getElementById("dutyCalLabel") as HTMLDivElement | null;
+  if (!label) return;
+
+  const ymTxt = (label.textContent || "").trim(); // "YYYY-MM"
+  const m = ymTxt.match(/^(\d{4})-(\d{2})$/);
+  if (!m) return;
+
+  const y = Number(m[1]);
+  const mo = Number(m[2]); // 1~12
+
+  const first = new Date(y, mo - 1, 1);
+  const lastDay = new Date(y, mo, 0).getDate();
+  const startDow = first.getDay(); // 0=일
+
+  // 표에서 이벤트 읽기: key="YYYY-MM-DD" -> { typeTxt, dutyTxt }
+  const eventMap = new Map<string, { typeTxt: string; dutyTxt: string }[]>();
+  const rows = Array.from(tbody.querySelectorAll("tr"));
+
+  for (const tr of rows) {
+    const tds = Array.from(tr.querySelectorAll("td"));
+    if (tds.length < 4) continue;
+
+    const mmdd = (tds[0].textContent || "").trim(); // "01-03"
+    const typeTxt = (tds[2].textContent || "").trim(); // "주말" / "공휴일(...)"
+    const dutyTxt = (tds[3].textContent || "").trim(); // "홍길동" or "-"
+
+    const md = mmdd.match(/^(\d{2})-(\d{2})$/);
+    if (!md) continue;
+
+    const key = `${y}-${md[1]}-${md[2]}`;
+    if (!eventMap.has(key)) eventMap.set(key, []);
+    eventMap.get(key)!.push({ typeTxt, dutyTxt });
+  }
+
+  grid.innerHTML = "";
+
+  // 앞 빈칸
+  for (let i = 0; i < startDow; i++) {
+    const empty = document.createElement("div");
+    empty.className = "min-h-[90px] border-b border-r bg-gray-50/50";
+    grid.appendChild(empty);
+  }
+
+  // 날짜
+  for (let d = 1; d <= lastDay; d++) {
+    const dd = String(d).padStart(2, "0");
+    const mm = String(mo).padStart(2, "0");
+    const key = `${y}-${mm}-${dd}`;
+
+    const cell = document.createElement("div");
+    cell.className = "min-h-[90px] border-b border-r p-1 overflow-hidden bg-white";
+    cell.dataset.date = key;
+
+    const dow = new Date(key + "T00:00:00").getDay();
+    const isSun = dow === 0;
+
+    const dayEl = document.createElement("div");
+    dayEl.className = `text-[11px] font-bold mb-1 ${isSun ? "text-rose-600" : "text-gray-900"}`;
+    dayEl.textContent = String(d);
+    cell.appendChild(dayEl);
+
+    const items = eventMap.get(key) || [];
+    for (const it of items) {
+      const isHoliday = it.typeTxt.includes("공휴일");
+
+      const badge = document.createElement("div");
+      badge.className =
+        "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 " +
+        (isHoliday ? "bg-rose-50 text-rose-700" : "bg-gray-100 text-gray-700");
+      badge.textContent = it.typeTxt;
+      cell.appendChild(badge);
+
+      if (it.dutyTxt && it.dutyTxt !== "-") {
+        const duty = document.createElement("div");
+        duty.className = "px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700";
+        duty.textContent = `당직 ${it.dutyTxt}`;
+        cell.appendChild(duty);
+      }
+    }
+
+    grid.appendChild(cell);
+  }
+
+  // 뒤 빈칸(7배수 맞춤)
+  const totalCells = startDow + lastDay;
+  const remain = (7 - (totalCells % 7)) % 7;
+  for (let i = 0; i < remain; i++) {
+    const empty = document.createElement("div");
+    empty.className = "min-h-[90px] border-b border-r bg-gray-50/30";
+    grid.appendChild(empty);
+  }
 }
 
 // ======================
@@ -294,7 +608,11 @@ export function initBusinessMasterPanel(API_BASE: string) {
   const panel = document.getElementById("panel-출장업무-관리") as HTMLDivElement | null;
   const distanceTbodyEl = document.getElementById("distanceTbody") as HTMLTableSectionElement | null;
 
-  const btnConfigSave = document.getElementById("btnConfigSave") as HTMLButtonElement | null;
+  // ✅✅✅ 유류/환율 통합 저장 버튼(신규)
+  const btnFuelFxSave = document.getElementById("btnFuelFxSave") as HTMLButtonElement | null;
+
+  const btnNoticeUpload = document.getElementById("btnNoticeUpload") as HTMLButtonElement | null;
+  const noticeUploadMsg = document.getElementById("noticeUploadMsg") as HTMLSpanElement | null;
   const btnDistanceAddRow = document.getElementById("btnDistanceAddRow") as HTMLButtonElement | null;
   const btnDistanceSave = document.getElementById("btnDistanceSave") as HTMLButtonElement | null;
 
@@ -332,10 +650,26 @@ export function initBusinessMasterPanel(API_BASE: string) {
   const sumCalPrev = document.getElementById("sumCalPrev") as HTMLButtonElement | null;
   const sumCalNext = document.getElementById("sumCalNext") as HTMLButtonElement | null;
 
+  // ✅✅✅ 일정 추가 DOM (캘린더 아래)
+  const calTodoDate = document.getElementById("calTodoDate") as HTMLInputElement | null;
+  const calTodoText = document.getElementById("calTodoText") as HTMLInputElement | null;
+  const btnCalTodoAdd = document.getElementById("btnCalTodoAdd") as HTMLButtonElement | null;
+  const calTodoMsg = document.getElementById("calTodoMsg") as HTMLDivElement | null;
+
+  // ✅ 당직 후보 추가 UI
+  const dutyAddSelect = document.getElementById("dutyAddSelect") as HTMLSelectElement | null;
+  const btnDutyAddUser = document.getElementById("btnDutyAddUser") as HTMLButtonElement | null;
+
   function setVacMsg(msg: string) {
     if (vacAdminMsg) vacAdminMsg.textContent = msg;
   }
 
+  function setTodoMsg(msg: string) {
+    if (calTodoMsg) calTodoMsg.textContent = msg;
+  }
+  function setNoticeMsg(msg: string) {
+    if (noticeUploadMsg) noticeUploadMsg.textContent = msg;
+  }
   if (!panel || !distanceTbodyEl) {
     console.warn("[출장업무관리] 필수 DOM(panel-출장업무-관리, distanceTbody) 없음");
     return;
@@ -347,7 +681,14 @@ export function initBusinessMasterPanel(API_BASE: string) {
   }
   (panel as any)._bound = true;
 
+
   const distanceTbody = distanceTbodyEl;
+
+  // ✅✅✅ 통합 저장 핸들러 (유류/환율/공지/당직 등 saveConfig에 들어있는 값 저장)
+  const onSave = async () => {
+    await saveConfig(); // ✅ 기존 설정 저장 함수 그대로 사용
+    window.dispatchEvent(new CustomEvent("business-config-changed"));
+  };
 
   let distanceRows: DistanceRow[] = [];
   let deletedIds: number[] = [];
@@ -357,6 +698,9 @@ export function initBusinessMasterPanel(API_BASE: string) {
   // =====================================================
   let dutyMembers: DutyMember[] = [];
   let dutyStartIndex = 0;
+
+  // ✅ 사용자관리 전체 목록(삭제해도 남아있어서 다시 추가 가능)
+  let allUsers: DutyMember[] = [];
 
   // ✅ F5 복원을 위해 "마지막 생성 결과"도 저장해둠
   let dutyLastYm = ""; // "2026-01"
@@ -373,6 +717,9 @@ export function initBusinessMasterPanel(API_BASE: string) {
   let cachedDutyPreviewYm = "";
   let cachedDutyPreviewAssigns: DutyAssign[] = [];
 
+  // ✅✅✅ 일정 캐시(현재 달)
+  let cachedCalendarEvents: CalendarEventItem[] = [];
+
   async function fetchVacationsAll(): Promise<VacationItem[]> {
     try {
       const res = await fetch(`${API_BASE}/api/business-master/vacations`, { credentials: "include" });
@@ -384,6 +731,92 @@ export function initBusinessMasterPanel(API_BASE: string) {
     }
   }
 
+  // ✅✅✅ 일정(현재 월) 가져오기
+  async function fetchCalendarEvents(ymStr: string): Promise<CalendarEventItem[]> {
+    try {
+      const res = await fetch(`${API_BASE}/api/business-master/calendar-events?ym=${ymStr}`, {
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || json?.ok !== true) return [];
+      return Array.isArray(json.items) ? (json.items as CalendarEventItem[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  // ✅✅✅ 일정 추가(등록 버튼)
+  async function addCalendarTodo() {
+    if (!calTodoDate || !calTodoText) return;
+
+    const date = String(calTodoDate.value || "");
+    const title = String(calTodoText.value || "").trim();
+
+    if (!date) return setTodoMsg("날짜를 선택하세요.");
+    if (!title) return setTodoMsg("내용을 입력하세요.");
+
+    setTodoMsg("등록 중...");
+
+    try {
+      const res = await fetch(`${API_BASE}/api/business-master/calendar-events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ date, title }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || json?.ok !== true) {
+        setTodoMsg(json?.error || "등록 실패");
+        return;
+      }
+
+      // 입력 초기화
+      calTodoText.value = "";
+      setTodoMsg("등록 완료");
+
+      // 현재 보고있는 달 다시 로드 → 캘린더 갱신
+      const base = new Date(sumYear, sumMonth, 1);
+      const viewingYm = ym(base);
+
+      cachedCalendarEvents = await fetchCalendarEvents(viewingYm);
+      renderSummaryCalendar();
+    } catch (e) {
+      console.error("[calendar-events][add] err:", e);
+      setTodoMsg("등록 중 오류");
+    }
+  }
+  // ✅✅✅ 일정 삭제
+  async function deleteCalendarTodo(id: number) {
+    if (!Number.isFinite(id) || id <= 0) return;
+
+    const ok = confirm("이 일정을 삭제할까요?");
+    if (!ok) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/business-master/calendar-events/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || json?.ok !== true) {
+        setTodoMsg(json?.error || "삭제 실패");
+        return;
+      }
+
+      setTodoMsg("삭제 완료");
+
+      // ✅ 현재 보고있는 달 다시 로드 → 캘린더 갱신
+      const base = new Date(sumYear, sumMonth, 1);
+      const viewingYm = ym(base);
+      cachedCalendarEvents = await fetchCalendarEvents(viewingYm);
+      renderSummaryCalendar();
+    } catch (e) {
+      console.error("[calendar-events][delete] err:", e);
+      setTodoMsg("삭제 중 오류");
+    }
+  }
   // =====================================================
   // ✅ 공휴일 API + 주말 합쳐서 “휴일 리스트”
   // =====================================================
@@ -434,9 +867,34 @@ export function initBusinessMasterPanel(API_BASE: string) {
 
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
   }
+  async function uploadNoticeOnly() {
+    const notice = String(textareaNotice?.value ?? "").trim();
+    setNoticeMsg("업로드 중...");
 
+    try {
+      const res = await fetch(`${API_BASE}/api/business-master/notice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ notice }),
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || json?.ok !== true) {
+        setNoticeMsg(json?.error || "공지 업로드 실패");
+        return;
+      }
+
+      setNoticeMsg("✅ 공지 업로드 완료");
+      // 다른 화면(대시보드)에서 공지 다시 읽게 만들고 싶으면 이벤트 쏴주기
+      window.dispatchEvent(new CustomEvent("notice-changed"));
+    } catch (e) {
+      console.error("[notice][upload] err:", e);
+      setNoticeMsg("업로드 중 오류");
+    }
+  }
   // ==========================
-  // ✅ 요약 캘린더 렌더
+  // ✅ 요약 캘린더 렌더 (교체본)
   // ==========================
   function renderSummaryCalendar() {
     if (!sumCalGrid || !sumCalLabel) return;
@@ -461,23 +919,32 @@ export function initBusinessMasterPanel(API_BASE: string) {
       dutyMap = buildDutyEvents(cachedDutyPreviewAssigns);
     }
 
+    // ✅ 일정: 현재 달 캐시로 표시
+    const schMap = buildScheduleEvents(cachedCalendarEvents);
+
     const holidayMap = new Map<string, HolidayItem>();
     for (const h of cachedHolidays) holidayMap.set(h.date, h);
 
     // ✅ 표시 제한
-    const MAX_VAC_LINES = 1; // 휴가 1명만
+    const MAX_VAC_LINES = 1;
     const MAX_DUTY_LINES = 1;
+    const MAX_SCH_LINES = 1;
 
-    function openDayDetail(dateStr: string, vacs: SumCalEvent[], duties: SumCalEvent[]) {
+    // --------------------------
+    // 모달 열기 (휴가/당직/일정 상세)
+    // --------------------------
+    function openDayDetail(dateStr: string, vacs: SumCalEvent[], duties: SumCalEvent[], schs: SumCalEvent[]) {
       const modal = document.getElementById("sumCalModal") as HTMLDivElement | null;
       const title = document.getElementById("sumCalModalTitle") as HTMLDivElement | null;
       const body = document.getElementById("sumCalModalBody") as HTMLDivElement | null;
       const btnClose = document.getElementById("sumCalModalClose") as HTMLButtonElement | null;
       const btnOk = document.getElementById("sumCalModalOk") as HTMLButtonElement | null;
 
+      // ✅ 모달 DOM 없으면 alert fallback
       if (!modal || !title || !body) {
         const lines: string[] = [];
         lines.push(`[${dateStr}]`);
+
         if (vacs.length) {
           lines.push("");
           lines.push(`휴가 (${vacs.length})`);
@@ -487,6 +954,11 @@ export function initBusinessMasterPanel(API_BASE: string) {
           lines.push("");
           lines.push(`당직 (${duties.length})`);
           for (const d of duties) lines.push(`- ${d.text}`);
+        }
+        if (schs.length) {
+          lines.push("");
+          lines.push(`일정 (${schs.length})`);
+          for (const s of schs) lines.push(`- ${s.text}`);
         }
         alert(lines.join("\n"));
         return;
@@ -500,14 +972,14 @@ export function initBusinessMasterPanel(API_BASE: string) {
             <div class="px-3 py-2 bg-amber-50 text-amber-800 font-bold text-xs border-b">휴가 (${vacs.length})</div>
             <div class="p-3 space-y-2">
               ${vacs
-                .map(
-                  (v) => `
+          .map(
+            (v) => `
                   <div class="px-2 py-1 rounded-lg bg-amber-50 text-amber-800 text-xs">
                     휴가 ${escapeHtml(v.text)}
                   </div>
                 `
-                )
-                .join("")}
+          )
+          .join("")}
             </div>
           </div>
         `
@@ -519,23 +991,67 @@ export function initBusinessMasterPanel(API_BASE: string) {
             <div class="px-3 py-2 bg-indigo-50 text-indigo-800 font-bold text-xs border-b">당직 (${duties.length})</div>
             <div class="p-3 space-y-2">
               ${duties
-                .map(
-                  (d) => `
+          .map(
+            (d) => `
                   <div class="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-800 text-xs">
                     당직 ${escapeHtml(d.text)}
                   </div>
                 `
-                )
-                .join("")}
+          )
+          .join("")}
+            </div>
+          </div>
+        `
+        : "";
+
+      // ✅✅✅ 일정: 삭제 버튼 포함 (id 있을 때만)
+      const schHtml = schs.length
+        ? `
+          <div class="border rounded-xl overflow-hidden">
+            <div class="px-3 py-2 bg-slate-50 text-slate-800 font-bold text-xs border-b">일정 (${schs.length})</div>
+            <div class="p-3 space-y-2">
+              ${schs
+          .map((s) => {
+            const idAttr = Number.isFinite(Number(s.id)) ? `data-id="${Number(s.id)}"` : "";
+            const btn =
+              idAttr
+                ? `<button type="button" ${idAttr}
+                           class="sumcal-sch-del ml-2 px-2 py-0.5 rounded-lg bg-red-100 text-red-700 text-[11px] hover:bg-red-200">
+                           삭제
+                         </button>`
+                : "";
+            return `
+                    <div class="flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-slate-50 text-slate-800 text-xs">
+                      <div class="min-w-0 whitespace-normal break-keep">일정 ${escapeHtml(s.text)}</div>
+                      <div class="shrink-0">${btn}</div>
+                    </div>
+                  `;
+          })
+          .join("")}
             </div>
           </div>
         `
         : "";
 
       body.innerHTML =
-        vacHtml ||
-        dutyHtml ||
-        `<div class="text-xs text-gray-500 text-center py-6">표시할 내용이 없습니다.</div>`;
+        (vacHtml || dutyHtml || schHtml)
+          ? `<div class="space-y-3">${vacHtml}${dutyHtml}${schHtml}</div>`
+          : `<div class="text-xs text-gray-500 text-center py-6">표시할 내용이 없습니다.</div>`;
+
+      // ✅✅✅ 모달 안 "일정 삭제" 이벤트(위임)
+      body.onclick = (e) => {
+        const t = e.target as HTMLElement | null;
+        if (!t) return;
+
+        if (t.classList.contains("sumcal-sch-del")) {
+          e.preventDefault();
+          e.stopPropagation();
+          const id = Number((t as HTMLButtonElement).dataset.id);
+          if (Number.isFinite(id) && id > 0) {
+            deleteCalendarTodo(id); // ✅ 위에 정의된 함수 호출
+          }
+        }
+      };
 
       const close = () => modal.classList.add("hidden");
       if (btnClose) btnClose.onclick = close;
@@ -545,30 +1061,47 @@ export function initBusinessMasterPanel(API_BASE: string) {
         const t = e.target as HTMLElement | null;
         if (!t) return;
         if (t === modal) close();
+        // 오버레이를 class로 닫고 싶으면(네 HTML에 맞춰 유지)
         if (t.classList && t.classList.contains("bg-black/40")) close();
       };
 
       modal.classList.remove("hidden");
     }
 
-    function makeLine(kind: "VACATION" | "DUTY", text: string) {
+    // --------------------------
+    // 셀 내부 라인
+    // --------------------------
+    function makeLine(kind: "VACATION" | "DUTY" | "SCHEDULE", text: string) {
       const div = document.createElement("div");
-      // ✅ truncate 완전 제거 → “이재…/권택…” 절대 안 생김
-      div.className =
-        kind === "VACATION"
-          ? "px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 text-[10px] leading-tight whitespace-normal break-keep"
-          : "px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 text-[10px] leading-tight whitespace-normal break-keep";
-      div.textContent = (kind === "VACATION" ? "휴가 " : "당직 ") + text;
+
+      if (kind === "VACATION") {
+        div.className =
+          "px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 text-[10px] leading-tight whitespace-normal break-keep";
+        div.textContent = "휴가 " + text;
+      } else if (kind === "DUTY") {
+        div.className =
+          "px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 text-[10px] leading-tight whitespace-normal break-keep";
+        div.textContent = "당직 " + text;
+      } else {
+        div.className =
+          "px-1.5 py-0.5 rounded bg-slate-50 text-slate-800 text-[10px] leading-tight whitespace-normal break-keep";
+        div.textContent = "일정 " + text;
+      }
+
       return div;
     }
 
-    function makeMore(kind: "VACATION" | "DUTY", moreCount: number, onClick: () => void) {
+    // --------------------------
+    // ✅ 더보기 (makeMore)
+    // --------------------------
+    function makeMore(kind: "VACATION" | "DUTY" | "SCHEDULE", moreCount: number, onClick: () => void) {
       const div = document.createElement("div");
-      div.className =
-        kind === "VACATION"
-          ? "text-[10px] text-amber-700 underline cursor-pointer select-none"
-          : "text-[10px] text-indigo-700 underline cursor-pointer select-none";
-      div.textContent = `+${moreCount}명 더보기`;
+
+      if (kind === "VACATION") div.className = "text-[10px] text-amber-700 underline cursor-pointer select-none";
+      else if (kind === "DUTY") div.className = "text-[10px] text-indigo-700 underline cursor-pointer select-none";
+      else div.className = "text-[10px] text-slate-700 underline cursor-pointer select-none";
+
+      div.textContent = `+${moreCount}건 더보기`;
       div.addEventListener("click", (e) => {
         e.stopPropagation();
         onClick();
@@ -589,15 +1122,14 @@ export function initBusinessMasterPanel(API_BASE: string) {
 
       const vacs = vacMap.get(ds) ?? [];
       const duties = dutyMap.get(ds) ?? [];
+      const schs = schMap.get(ds) ?? [];
 
       const cell = document.createElement("div");
-      // ✅ 높이 고정, 셀 커지는 거 방지
-      cell.className = "min-h-[90px] border-r border-b p-1 overflow-hidden";
+      cell.className = "min-h-[90px] border-r border-b p-1 overflow-hidden bg-white";
       cell.dataset.date = ds;
 
-      // ✅ 공휴일/일요일 빨강
       const h = holidayMap.get(ds);
-      const dow = new Date(ds + "T00:00:00").getDay(); // 0=일
+      const dow = new Date(ds + "T00:00:00").getDay();
       const isRed = (h && h.type === "공휴일") || dow === 0;
 
       const dateDiv = document.createElement("div");
@@ -607,29 +1139,43 @@ export function initBusinessMasterPanel(API_BASE: string) {
       const evBox = document.createElement("div");
       evBox.className = "flex flex-col gap-1";
 
-      // ✅ 휴가: 1명 + 더보기
       if (vacs.length) {
         const show = vacs.slice(0, MAX_VAC_LINES);
         for (const v of show) evBox.appendChild(makeLine("VACATION", v.text));
 
         if (vacs.length > MAX_VAC_LINES) {
-          evBox.appendChild(makeMore("VACATION", vacs.length - MAX_VAC_LINES, () => openDayDetail(ds, vacs, duties)));
+          evBox.appendChild(
+            makeMore("VACATION", vacs.length - MAX_VAC_LINES, () => openDayDetail(ds, vacs, duties, schs))
+          );
         }
       }
 
-      // ✅ 당직: 1명 + 더보기(실제로는 1명만이라 거의 안 뜸)
       if (duties.length) {
         const show = duties.slice(0, MAX_DUTY_LINES);
         for (const d of show) evBox.appendChild(makeLine("DUTY", d.text));
 
         if (duties.length > MAX_DUTY_LINES) {
-          evBox.appendChild(makeMore("DUTY", duties.length - MAX_DUTY_LINES, () => openDayDetail(ds, vacs, duties)));
+          evBox.appendChild(
+            makeMore("DUTY", duties.length - MAX_DUTY_LINES, () => openDayDetail(ds, vacs, duties, schs))
+          );
         }
       }
 
+      if (schs.length) {
+        const show = schs.slice(0, MAX_SCH_LINES);
+        for (const s of show) evBox.appendChild(makeLine("SCHEDULE", s.text));
+
+        if (schs.length > MAX_SCH_LINES) {
+          evBox.appendChild(
+            makeMore("SCHEDULE", schs.length - MAX_SCH_LINES, () => openDayDetail(ds, vacs, duties, schs))
+          );
+        }
+      }
+
+      // ✅ 셀 클릭: 하나라도 있으면 상세
       cell.addEventListener("click", () => {
-        if (!vacs.length && !duties.length) return;
-        openDayDetail(ds, vacs, duties);
+        if (!vacs.length && !duties.length && !schs.length) return;
+        openDayDetail(ds, vacs, duties, schs);
       });
 
       cell.appendChild(dateDiv);
@@ -647,20 +1193,19 @@ export function initBusinessMasterPanel(API_BASE: string) {
     }
   }
 
-  // ✅ 요약 캘린더 리프레시(휴가 + 휴일 + 당직 로테이션 프리뷰)
+  // ✅ 요약 캘린더 리프레시(휴가 + 휴일 + 당직 로테이션 프리뷰 + ✅ 일정)
   async function refreshSummaryCalendar() {
     if (!sumCalGrid || !sumCalLabel) return;
 
     const base = new Date(sumYear, sumMonth, 1);
     const viewingYm = ym(base);
 
-    // 1) 휴가
     cachedVacations = await fetchVacationsAll();
-
-    // 2) 현재 보고있는 달 휴일
     cachedHolidays = await fetchHolidayItemsForMonth(base);
 
-    // 3) 당직 프리뷰(어느 달이든 로테이션 표시)
+    // ✅✅✅ 일정도 월 기준으로 로드
+    cachedCalendarEvents = await fetchCalendarEvents(viewingYm);
+
     cachedDutyPreviewYm = viewingYm;
     cachedDutyPreviewAssigns = [];
 
@@ -682,7 +1227,6 @@ export function initBusinessMasterPanel(API_BASE: string) {
 
     let startIdx = 0;
 
-    // ✅ 마지막 생성월이면 저장된 결과 그대로 표시
     if (compareYm(viewingYm, dutyLastYm) === 0 && dutyLastAssigns.length) {
       cachedDutyPreviewAssigns = dutyLastAssigns;
       renderSummaryCalendar();
@@ -690,20 +1234,16 @@ export function initBusinessMasterPanel(API_BASE: string) {
     }
 
     if (compareYm(viewingYm, dutyLastYm) > 0) {
-      // 미래 월
       let idx = mod(dutyStartIndex, len);
 
-      // dutyLastYm 다음달부터 viewingYm 전 달까지 누적
       for (let cur = addMonthsToYm(dutyLastYm, 1); compareYm(cur, viewingYm) < 0; cur = addMonthsToYm(cur, 1)) {
         const cnt = await getHolidayCount(cur);
         idx = mod(idx + cnt, len);
       }
       startIdx = idx;
     } else {
-      // 과거 월
       let idxAfter = mod(dutyStartIndex, len);
 
-      // dutyLastYm부터 viewingYm+1까지 거꾸로 빼기
       for (let cur = dutyLastYm; compareYm(cur, addMonthsToYm(viewingYm, 1)) >= 0; cur = addMonthsToYm(cur, -1)) {
         const cnt = await getHolidayCount(cur);
         idxAfter = mod(idxAfter - cnt, len);
@@ -714,7 +1254,6 @@ export function initBusinessMasterPanel(API_BASE: string) {
       startIdx = mod(idxAfter - viewingCnt, len);
     }
 
-    // ✅ viewingYm 휴일에 배정
     const assigns: DutyAssign[] = [];
     let idx = startIdx;
     for (const h of cachedHolidays) {
@@ -725,6 +1264,20 @@ export function initBusinessMasterPanel(API_BASE: string) {
 
     cachedDutyPreviewAssigns = assigns;
     renderSummaryCalendar();
+  }
+
+  // =====================================================
+  // ✅ 당직 후보 추가 select 채우기(전체 사용자 - 현재 후보)
+  // =====================================================
+  function fillDutyAddSelect() {
+    if (!dutyAddSelect) return;
+
+    const exists = new Set(dutyMembers.map((m) => m.no));
+    const candidates = allUsers.filter((u) => !exists.has(u.no));
+
+    dutyAddSelect.innerHTML =
+      `<option value="">추가할 사용자 선택</option>` +
+      candidates.map((u) => `<option value="${u.no}">${escapeHtml(u.name)}</option>`).join("");
   }
 
   // =====================================================
@@ -741,6 +1294,8 @@ export function initBusinessMasterPanel(API_BASE: string) {
           </td>
         </tr>
       `;
+      // ✅ 후보가 없어도 select는 갱신
+      fillDutyAddSelect();
       return;
     }
 
@@ -760,6 +1315,9 @@ export function initBusinessMasterPanel(API_BASE: string) {
       `;
       dutyTbody.appendChild(tr);
     });
+
+    // ✅ 렌더 후 select 갱신
+    fillDutyAddSelect();
   }
 
   async function loadDutyMembersFromUsers() {
@@ -787,22 +1345,25 @@ export function initBusinessMasterPanel(API_BASE: string) {
       }
 
       const rows = await res.json();
-      dutyMembers = Array.isArray(rows)
+
+      // ✅ 전체 사용자 목록(복구용)
+      allUsers = Array.isArray(rows)
         ? rows
-            .map((u: any) => ({
-              no: Number(u.no ?? 0),
-              name: String(u.name ?? u.Name ?? "").trim(),
-            }))
-            .filter((u: DutyMember) => u.no > 0 && u.name)
-            .sort((a: DutyMember, b: DutyMember) => a.no - b.no)
+          .map((u: any) => ({
+            no: Number(u.no ?? 0),
+            name: String(u.name ?? u.Name ?? "").trim(),
+          }))
+          .filter((u: DutyMember) => u.no > 0 && u.name)
+          .sort((a: DutyMember, b: DutyMember) => a.no - b.no)
         : [];
+
+      // ✅ 기존 기능 유지: 처음엔 전체 사용자를 당직 후보로 세팅
+      dutyMembers = allUsers.map((u) => ({ no: u.no, name: u.name }));
 
       if (dutyMembers.length === 0) dutyStartIndex = 0;
       else dutyStartIndex = dutyStartIndex % dutyMembers.length;
 
       renderDutyMembers();
-
-      // ✅ 멤버가 바뀌면(삭제/추가/로드) 현재 달 프리뷰도 즉시 갱신
       refreshSummaryCalendar();
     } catch (err) {
       console.error("[출장업무관리] 사용자 목록 로딩 오류:", err);
@@ -884,7 +1445,18 @@ export function initBusinessMasterPanel(API_BASE: string) {
               <td class="border-b px-2 py-2 text-center">${escapeHtml(it.user_name)}</td>
               <td class="border-b px-2 py-2 text-center">${vacTypeLabel(it.vac_type)}</td>
               <td class="border-b px-2 py-2 text-center">${escapeHtml(it.start_date)} ~ ${escapeHtml(it.end_date)}</td>
-              <td class="border-b px-2 py-2">${escapeHtml(it.note ?? "")}</td>
+              <td class="border-b px-2 py-2 text-center whitespace-nowrap">
+                ${(it.note ?? "").trim()
+              ? `<button type="button"
+                        class="vac-note-btn px-2 py-1 text-[11px] rounded-lg border bg-white hover:bg-gray-50"
+                        data-name="${escapeHtml(it.user_name)}"
+                        data-range="${escapeHtml(it.start_date)} ~ ${escapeHtml(it.end_date)}"
+                        data-note="${escapeHtml(it.note ?? "")}">
+                        + 내용보기
+                      </button>`
+              : `<span class="text-[11px] text-gray-400">-</span>`
+            }
+              </td>
               <td class="border-b px-2 py-2 text-center">
                 <button type="button" data-id="${it.id}"
                   class="px-2 py-1 text-[11px] rounded-lg bg-red-100 text-red-700 hover:bg-red-200 vac-del-btn">
@@ -940,7 +1512,6 @@ export function initBusinessMasterPanel(API_BASE: string) {
       await loadVacationList();
       window.dispatchEvent(new CustomEvent("vacation-status-refresh"));
 
-      // ✅ 요약 캘린더 즉시 갱신
       refreshSummaryCalendar();
     } catch (e) {
       console.error("[vac] add err:", e);
@@ -957,8 +1528,13 @@ export function initBusinessMasterPanel(API_BASE: string) {
       return;
     }
 
+    ensureDutyCalLabel();
+
     const base = new Date();
     base.setDate(1);
+
+    const dutyLabel = document.getElementById("dutyCalLabel") as HTMLDivElement | null;
+    if (dutyLabel) dutyLabel.textContent = ym(base);
 
     const holidays = await fetchHolidayItemsForMonth(base);
 
@@ -1001,8 +1577,7 @@ export function initBusinessMasterPanel(API_BASE: string) {
     renderDashboardHolidayDuty(holidays, assignsMap);
 
     await saveConfig(true);
-
-    // ✅ 로테이션 프리뷰도 즉시 갱신(다른 달도 보여야 함)
+    window.dispatchEvent(new CustomEvent("duty-config-changed"));
     refreshSummaryCalendar();
 
     alert("이번달 휴일(주말+공휴일) 기준으로 당직이 생성되었습니다.");
@@ -1062,8 +1637,15 @@ export function initBusinessMasterPanel(API_BASE: string) {
       if (dutyLastAssigns.length) renderDutyTable(dutyLastAssigns);
       else renderDutyTable([]);
 
-      // ✅ config 로드 후 달력 갱신(로테이션 프리뷰 포함)
+      ensureDutyCalLabel();
+      const dutyLabel = document.getElementById("dutyCalLabel") as HTMLDivElement | null;
+      if (dutyLabel) {
+        const fallback = /^\d{4}-\d{2}$/.test(dutyLastYm) ? dutyLastYm : ym(new Date());
+        dutyLabel.textContent = fallback;
+      }
+
       refreshSummaryCalendar();
+      renderDashboardDutyCalendarFromTable();
     } catch (err) {
       console.error("[출장업무관리] 설정 조회 중 오류:", err);
     }
@@ -1104,6 +1686,7 @@ export function initBusinessMasterPanel(API_BASE: string) {
         if (!forceSilent) alert(json?.error || "설정 저장 중 오류가 발생했습니다.");
         return;
       }
+      window.dispatchEvent(new CustomEvent("duty-config-changed"));
 
       if (!forceSilent) alert("설정이 저장되었습니다.");
     } catch (err) {
@@ -1272,18 +1855,43 @@ export function initBusinessMasterPanel(API_BASE: string) {
     renderDistanceTable();
   }
 
+
+
   // =====================================================
   // 이벤트 바인딩
   // =====================================================
-  btnConfigSave?.addEventListener("click", () => saveConfig(false));
+  //btnConfigSave?.addEventListener("click", () => saveConfig(false));
   btnDistanceAddRow?.addEventListener("click", () => addEmptyRow());
   btnDistanceSave?.addEventListener("click", () => saveDistances());
+  btnNoticeUpload?.addEventListener("click", uploadNoticeOnly);
+  btnFuelFxSave?.addEventListener("click", onSave);
+
+
+
+
+
+
+
 
   btnVacAdd?.addEventListener("click", () => addVacation());
 
+  // ✅✅✅ 일정 등록 버튼
+  btnCalTodoAdd?.addEventListener("click", () => addCalendarTodo());
+
   vacationAdminTbody?.addEventListener("click", async (e) => {
     const target = e.target as HTMLElement;
-    if (!target?.classList.contains("vac-del-btn")) return;
+    if (!target) return;
+
+    if (target.classList.contains("vac-note-btn")) {
+      const btn = target as HTMLButtonElement;
+      const name = btn.dataset.name || "";
+      const range = btn.dataset.range || "";
+      const note = btn.dataset.note || "";
+      openVacNoteModal(name, range, note);
+      return;
+    }
+
+    if (!target.classList.contains("vac-del-btn")) return;
 
     const id = Number((target as HTMLButtonElement).dataset.id);
     if (!Number.isFinite(id)) return;
@@ -1345,8 +1953,27 @@ export function initBusinessMasterPanel(API_BASE: string) {
     else dutyStartIndex = dutyStartIndex % dutyMembers.length;
 
     renderDutyMembers();
+    refreshSummaryCalendar();
+  });
 
-    // ✅ 멤버 삭제되면 프리뷰 즉시 반영
+  // ✅ 삭제한 사용자 다시 넣기 (select -> 추가)
+  btnDutyAddUser?.addEventListener("click", () => {
+    if (!dutyAddSelect) return;
+
+    const no = Number(dutyAddSelect.value);
+    if (!Number.isFinite(no) || no <= 0) return;
+
+    const user = allUsers.find((u) => u.no === no);
+    if (!user) return;
+
+    if (dutyMembers.some((m) => m.no === user.no)) return;
+
+    dutyMembers.push({ no: user.no, name: user.name });
+
+    if (dutyMembers.length === 0) dutyStartIndex = 0;
+    else dutyStartIndex = dutyStartIndex % dutyMembers.length;
+
+    renderDutyMembers();
     refreshSummaryCalendar();
   });
 
@@ -1354,7 +1981,6 @@ export function initBusinessMasterPanel(API_BASE: string) {
     generateDutyForCurrentMonth();
   });
 
-  // ✅ 월 이동: renderSummaryCalendar() 말고 refreshSummaryCalendar()로 바꿈(휴일/당직 프리뷰 갱신 필요)
   sumCalPrev?.addEventListener("click", () => {
     sumMonth--;
     if (sumMonth < 0) {

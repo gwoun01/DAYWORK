@@ -78,13 +78,13 @@
                         <button
                             class="nav-btn w-full text-left px-4 py-2 rounded-lg text-[13px] font-bold text-gray-700 hover:bg-gray-100"
                             data-panel="panel-사용자-관리">
-                           ⛔사용자 관리
+                            ⛔사용자 관리
                         </button>
 
                         <button
                             class="nav-btn w-full text-left px-4 py-2 rounded-lg text-[13px] font-bold text-gray-700 hover:bg-gray-100"
                             data-panel="panel-출장업무-관리">
-                           ⚙️설정
+                            ⚙️설정
                         </button>
                     </div>
                 </div>
@@ -191,52 +191,103 @@
                 <!-- =====================================================
         📊 대시보드 패널
         ====================================================== -->
-                <div id="panel-dashboard" class="p-3 space-y-4 bg-white rounded-xl shadow-sm border border-gray-200">
-                    <!-- 1. 상단 3개 KPI -->
-                    <section class="grid grid-cols-3 gap-3">
-                        <!-- 출장 인원 -->
-                        <div
-                            class="bg-white rounded-xl shadow p-3 border border-gray-200 flex flex-col justify-between">
-                            <div class="text-[11px] text-gray-500">오늘 출장 인원</div>
-                            <div id="kpiTripToday" class="text-2xl font-extrabold text-orange-500 mt-1">0</div>
-                            <div class="text-[10px] text-gray-400 mt-1"></div>
+                <div id="panel-dashboard" class="space-y-4">
+
+                    <!-- =========================
+    TOP BAR : KPI + 날씨 + 공지  (✅ 3열 고정)
+  ========================== -->
+                    <section class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+
+                        <!-- KPI 3개 (왼쪽 큰 박스 안에 3개) -->
+                        <div class="bg-white rounded-2xl shadow border border-gray-200 p-3">
+                            <div class="grid grid-cols-3 gap-3">
+                                <!-- 오늘 출장 인원 -->
+                                <div class="rounded-2xl border border-gray-200 p-3 flex items-center gap-3 bg-white">
+                                    <div
+                                        class="w-14 h-14 rounded-full border border-gray-200 grid place-items-center bg-gray-50">
+                                        <div id="kpiTripToday" class="text-xl font-extrabold text-orange-500">0</div>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="text-[11px] text-gray-500">오늘 출장 인원</div>
+                                        <div class="text-[10px] text-gray-400">Today Trip</div>
+                                    </div>
+                                </div>
+
+                                <!-- 오늘 휴가 인원 -->
+                                <div class="rounded-2xl border border-gray-200 p-3 flex items-center gap-3 bg-white">
+                                    <div
+                                        class="w-14 h-14 rounded-full border border-gray-200 grid place-items-center bg-gray-50">
+                                        <div id="kpiVacationToday" class="text-xl font-extrabold text-indigo-600">0
+                                        </div>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="text-[11px] text-gray-500">오늘 휴가 인원</div>
+                                        <div class="text-[10px] text-gray-400">연차 / 반차 포함</div>
+                                    </div>
+                                </div>
+
+                                <!-- 오늘 훈련·교육 인원 -->
+                                <div class="rounded-2xl border border-gray-200 p-3 flex items-center gap-3 bg-white">
+                                    <div
+                                        class="w-14 h-14 rounded-full border border-gray-200 grid place-items-center bg-gray-50">
+                                        <div id="kpiTrainingToday" class="text-xl font-extrabold text-emerald-600">0
+                                        </div>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="text-[11px] text-gray-500">오늘 교육 인원</div>
+                                        <div class="text-[10px] text-gray-400">사내·외 교육 포함</div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
-                        <!-- 휴가 인원 -->
-                        <div
-                            class="bg-white rounded-xl shadow p-3 border border-gray-200 flex flex-col justify-between">
-                            <div class="text-[11px] text-gray-500">오늘 휴가 인원</div>
-                            <div id="kpiVacationToday" class="text-2xl font-extrabold text-indigo-600 mt-1">0</div>
-                            <div class="text-[10px] text-gray-400 mt-1">연차 / 반차 포함</div>
+                        <!-- 오늘 날씨 -->
+                        <div class="bg-white rounded-2xl shadow border border-gray-200 p-4">
+                            <div class="flex items-center justify-between">
+                                <div class="font-bold text-gray-800">오늘 날씨</div>
+                                <span class="text-[11px] text-gray-500">API 붙이면 자동표시</span>
+                            </div>
+                            <div class="mt-3 text-sm text-gray-700">
+                                ☁️/🌧️/💨 이모티콘 + 온도 (예: 3℃) 표시 영역
+                            </div>
+                            <div class="mt-1 text-[11px] text-gray-400">
+                                * 지금은 UI 자리만 만들어둠
+                            </div>
                         </div>
 
-                        <!-- 훈련/교육 인원 -->
-                        <div
-                            class="bg-white rounded-xl shadow p-3 border border-gray-200 flex flex-col justify-between">
-                            <div class="text-[11px] text-gray-500">오늘 훈련·교육 인원</div>
-                            <div id="kpiTrainingToday" class="text-2xl font-extrabold text-emerald-600 mt-1">0</div>
-                            <div class="text-[10px] text-gray-400 mt-1">사내·외 교육 포함</div>
+                        <!-- 공지사항 알림판 -->
+                        <div class="bg-white rounded-2xl shadow border border-gray-200 p-4">
+                            <div class="flex items-center justify-between">
+                                <div class="font-bold text-gray-800">공지사항 알림판</div>
+                                <span
+                                    class="text-[11px] px-2 py-1 rounded-full bg-amber-50 text-amber-700 font-semibold">NOTICE</span>
+                            </div>
+
                         </div>
+
                     </section>
 
-                    <!-- 2. 출장/휴가/당직 + 유류대 + 환율 -->
-                    <section class="space-y-4">
-                        <!-- 2-1. 출장자 현황 -->
-                        <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
-                            <div class="px-3 py-2 border-b bg-gray-50 flex items-center justify-between">
+                    <!-- =========================
+    MAIN : 출장 / 휴가 / 당직  (✅ 3열 동일 폭)
+  ========================== -->
+                    <section class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+
+                        <!-- 출장자 현황 -->
+                        <div class="bg-white rounded-2xl shadow border border-gray-200 overflow-hidden flex flex-col">
+                            <div class="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
                                 <div class="text-sm font-bold text-gray-800">출장자 현황</div>
                                 <div class="text-[11px] text-gray-500">기준: <span id="tripStatusDateLabel">오늘</span>
                                 </div>
                             </div>
 
-                            <div class="p-3 flex flex-col gap-2">
+                            <div class="p-4 flex flex-col gap-2">
                                 <input id="tripSearchInput" type="text"
-                                    class="w-full border rounded-lg px-3 py-2 text-xs"
+                                    class="w-full border rounded-xl px-3 py-2 text-xs"
                                     placeholder="검색: 이름 / 고객사 / 지역" />
 
                                 <div class="flex gap-2">
                                     <select id="tripFilterType"
-                                        class="flex-1 border rounded-lg px-3 py-2 text-xs bg-white">
+                                        class="flex-1 border rounded-xl px-3 py-2 text-xs bg-white">
                                         <option value="all">전체</option>
                                         <option value="domestic">국내출장</option>
                                         <option value="overseas">해외출장</option>
@@ -244,49 +295,53 @@
                                     </select>
 
                                     <button id="btnTripReload"
-                                        class="px-3 py-2 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700">
+                                        class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700">
                                         새로고침
                                     </button>
                                 </div>
                             </div>
 
-                            <div class="p-3">
-                                <table class="w-full text-xs text-gray-700 border-collapse">
-                                    <thead class="bg-gray-100 text-[11px]">
-                                        <tr>
-                                            <th class="border px-2 py-2 text-center w-10">No</th>
-                                            <th class="border px-2 py-2 text-center">이름</th>
-                                            <th class="border px-2 py-2 text-center">고객사</th>
-                                            <th class="border px-2 py-2 text-center">출발시간</th>
-                                            <th class="border px-2 py-2 text-center">도착시간</th>
-                                            <th class="border px-2 py-2 text-center w-16">상태</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="tripStatusTbody">
-                                        <tr>
-                                            <td colspan="6" class="border px-2 py-3 text-center text-xs text-gray-400">
-                                                데이터 로딩 대기중...</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                            <div class="px-4 pb-4 flex-1 min-h-0">
+                                <div class="border rounded-xl overflow-auto h-full max-h-[420px]">
+                                    <table class="w-full text-xs text-gray-700 border-collapse">
+                                        <thead class="bg-gray-100 text-[11px] sticky top-0 z-10">
+                                            <tr>
+                                                <th class="border px-2 py-2 text-center w-10">No</th>
+                                                <th class="border px-2 py-2 text-center">이름</th>
+                                                <th class="border px-2 py-2 text-center">고객사</th>
+                                                <th class="border px-2 py-2 text-center">출발시간</th>
+                                                <th class="border px-2 py-2 text-center">도착시간</th>
+                                                <th class="border px-2 py-2 text-center w-16">상태</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tripStatusTbody">
+                                            <tr>
+                                                <td colspan="6"
+                                                    class="border px-2 py-3 text-center text-xs text-gray-400">
+                                                    데이터 로딩 대기중...
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- 2-2. 휴가자 현황 -->
-                        <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
-                            <div class="px-3 py-2 border-b bg-gray-50 flex items-center justify-between">
+                        <!-- 휴가자 현황 -->
+                        <div class="bg-white rounded-2xl shadow border border-gray-200 overflow-hidden flex flex-col">
+                            <div class="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
                                 <div class="text-sm font-bold text-gray-800">휴가자 현황</div>
                                 <div class="text-[11px] text-gray-500">기준: <span id="vacationStatusDateLabel">오늘</span>
                                 </div>
                             </div>
 
-                            <div class="p-3 flex flex-col gap-2">
+                            <div class="p-4 flex flex-col gap-2">
                                 <input id="vacationSearchInput" type="text"
-                                    class="w-full border rounded-lg px-3 py-2 text-xs" placeholder="검색: 이름 / 메모" />
+                                    class="w-full border rounded-xl px-3 py-2 text-xs" placeholder="검색: 이름 / 메모" />
 
                                 <div class="flex gap-2">
                                     <select id="vacationFilterType"
-                                        class="flex-1 border rounded-lg px-3 py-2 text-xs bg-white">
+                                        class="flex-1 border rounded-xl px-3 py-2 text-xs bg-white">
                                         <option value="all">전체</option>
                                         <option value="annual">연차</option>
                                         <option value="half">반차</option>
@@ -294,22 +349,22 @@
                                     </select>
 
                                     <button id="btnVacationReload"
-                                        class="px-3 py-2 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700">
+                                        class="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700">
                                         새로고침
                                     </button>
                                 </div>
                             </div>
 
-                            <div class="px-3 pb-3">
-                                <div class="border rounded-lg overflow-auto max-h-[260px]">
+                            <div class="px-4 pb-4 flex-1 min-h-0">
+                                <div class="border rounded-xl overflow-auto h-full max-h-[420px]">
                                     <table class="min-w-full text-xs text-gray-700">
-                                        <thead class="bg-gray-100 text-[11px]">
+                                        <thead class="bg-gray-100 text-[11px] sticky top-0 z-10">
                                             <tr>
-                                                <th class="border px-2 py-1 w-10">No</th>
-                                                <th class="border px-2 py-1">이름</th>
-                                                <th class="border px-2 py-1">구분</th>
-                                                <th class="border px-2 py-1">기간</th>
-                                                <th class="border px-2 py-1">비고</th>
+                                                <th class="border px-2 py-2 w-10">No</th>
+                                                <th class="border px-2 py-2">이름</th>
+                                                <th class="border px-2 py-2">구분</th>
+                                                <th class="border px-2 py-2">기간</th>
+                                                <th class="border px-2 py-2">비고</th>
                                             </tr>
                                         </thead>
                                         <tbody id="vacationStatusTableBody" class="divide-y">
@@ -320,166 +375,189 @@
                                         </tbody>
                                     </table>
                                 </div>
+                                <div class="mt-2 text-[10px] text-gray-400">
+                                    * “비고”를 “+내용보기”로 바꾸는 건 다음 단계에서 TS 코드 5줄만 고치면 됨.
+                                </div>
                             </div>
                         </div>
-
-                        <!-- 2-3. 휴일/당직 캘린더 -->
-                        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                            <div
-                                class="px-4 py-3 border-b bg-gradient-to-r from-gray-50 to-white flex items-center justify-between">
+                        <!-- 휴일/당직 캘린더 -->
+                        <div class="bg-white rounded-2xl shadow border border-gray-200 overflow-hidden flex flex-col">
+                            <!-- ✅ 상단 타이틀 + 월 이동 -->
+                            <div class="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
                                 <div>
                                     <div class="text-sm font-extrabold text-gray-900">휴일 / 당직 캘린더</div>
-                                    <div class="text-[11px] text-gray-500 mt-0.5">
-                                        해당 월의 <span class="font-semibold text-gray-700">주말·공휴일</span>만 표시
-                                    </div>
+                                    <div class="text-[11px] text-gray-500">해당 월 주말·공휴일만 표시</div>
                                 </div>
 
                                 <div class="flex items-center gap-1 text-xs">
                                     <button id="dutyCalPrev"
                                         class="px-2 py-1 rounded-lg border bg-white hover:bg-gray-50 active:bg-gray-100">◀</button>
+
                                     <div id="dutyCalLabel"
                                         class="font-semibold text-gray-900 min-w-[84px] text-center px-2 py-1 rounded-lg bg-white border">
                                         YYYY-MM
                                     </div>
+
                                     <button id="dutyCalNext"
                                         class="px-2 py-1 rounded-lg border bg-white hover:bg-gray-50 active:bg-gray-100">▶</button>
                                 </div>
                             </div>
 
-                            <div class="p-4">
-                                <div class="flex flex-wrap items-center gap-2 mb-3">
-                                    <span
-                                        class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-rose-50 text-rose-700 text-[11px] font-semibold">●
-                                        공휴일/주말</span>
-                                    <span class="text-[11px] text-gray-500">당직자는 자동 로테이션 결과를 표시합니다.</span>
-                                </div>
-
+                            <div class="p-4 flex-1 min-h-0">
+                                <!-- ✅ 화면에 보일 달력 -->
                                 <div class="border rounded-2xl overflow-hidden bg-white">
-                                    <div class="max-h-[260px] overflow-auto">
-                                        <table class="min-w-full text-xs text-gray-700">
-                                            <thead class="bg-gray-50 text-[11px] sticky top-0 z-10">
-                                                <tr>
-                                                    <th class="border-b px-3 py-2 w-24 text-center">날짜</th>
-                                                    <th class="border-b px-3 py-2 w-16 text-center">요일</th>
-                                                    <th class="border-b px-3 py-2 w-20 text-center">구분</th>
-                                                    <th class="border-b px-3 py-2 text-center">당직자</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="dutyHolidayBody" class="divide-y">
-                                                <tr>
-                                                    <td class="px-3 py-3 text-center text-gray-400" colspan="4">데이터 로딩
-                                                        대기중...</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
+                                    <!-- 요일 헤더 -->
+                                    <div
+                                        class="grid grid-cols-7 bg-gray-50 text-[11px] font-bold text-gray-600 border-b">
+                                        <div class="py-2 text-center text-rose-600">일</div>
+                                        <div class="py-2 text-center">월</div>
+                                        <div class="py-2 text-center">화</div>
+                                        <div class="py-2 text-center">수</div>
+                                        <div class="py-2 text-center">목</div>
+                                        <div class="py-2 text-center">금</div>
+                                        <div class="py-2 text-center text-indigo-600">토</div>
                                     </div>
+
+                                    <!-- ✅ 달력 그리드(여기에 JS가 셀을 그려줌) -->
+                                    <div id="dutyCalGrid" class="grid grid-cols-7 bg-white"></div>
                                 </div>
 
-                                <div class="mt-2 text-[10px] text-gray-400 leading-relaxed">
-                                    ※ 주말/공휴일만 리스트로 보여주며, 이름이 줄바꿈되지 않도록 UI가 최적화되어 있습니다.
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 2-4. 유류대 현황 -->
-                        <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
-                            <div class="px-3 py-2 border-b bg-gray-50 flex items-center justify-between">
-                                <div class="text-sm font-bold text-gray-800">유류대 현황</div>
-                                <button id="btnFuelReload"
-                                    class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700">새로고침</button>
-                            </div>
-
-                            <div class="p-3 space-y-2">
-                                <div class="text-[11px] text-gray-500">
-                                    기준일:
-                                    <span id="fuelPriceBaseDate" class="text-gray-800 font-medium">-</span>
-                                    <span class="ml-1 text-gray-400">(관리자 입력 기준)</span>
-                                </div>
-
-                                <div class="border rounded-lg overflow-hidden">
-                                    <table class="w-full text-xs text-gray-700">
-                                        <thead class="bg-gray-100 text-[11px]">
+                                <!-- ✅ 기존 TS가 채우는 표는 숨겨서 유지 (ID 절대 유지) -->
+                                <div class="hidden">
+                                    <table>
+                                        <tbody id="dutyHolidayBody">
                                             <tr>
-                                                <th class="border px-2 py-1 w-20">구분</th>
-                                                <th class="border px-2 py-1 w-24">단가(원)</th>
-                                                <th class="border px-2 py-1">비고</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr>
-                                                <td class="border px-2 py-1 text-center">경유</td>
-                                                <td class="border px-2 py-1 text-right"><span
-                                                        id="fuelUnitDiesel">0</span></td>
-                                                <td class="border px-2 py-1 text-[11px] text-gray-500">L당 단가</td>
-                                            </tr>
-                                            <tr>
-                                                <td class="border px-2 py-1 text-center">휘발유</td>
-                                                <td class="border px-2 py-1 text-right"><span
-                                                        id="fuelUnitGasoline">0</span></td>
-                                                <td class="border px-2 py-1 text-[11px] text-gray-500">L당 단가</td>
-                                            </tr>
-                                            <tr>
-                                                <td class="border px-2 py-1 text-center">가스</td>
-                                                <td class="border px-2 py-1 text-right"><span id="fuelUnitGas">0</span>
+                                                <td class="px-3 py-3 text-center text-gray-400" colspan="4">
+                                                    데이터 로딩 대기중...
                                                 </td>
-                                                <td class="border px-2 py-1 text-[11px] text-gray-500">kg 또는 m³ 단가</td>
-                                            </tr>
-                                            <tr>
-                                                <td class="border px-2 py-1 text-center">전기</td>
-                                                <td class="border px-2 py-1 text-right"><span
-                                                        id="fuelUnitElectric">0</span></td>
-                                                <td class="border px-2 py-1 text-[11px] text-gray-500">kWh 단가</td>
                                             </tr>
                                         </tbody>
                                     </table>
                                 </div>
 
-                                <div class="text-[10px] text-gray-400 mt-1">
-                                    ※ TypeScript에서 <code>#fuelPriceBaseDate</code>, <code>#fuelUnitDiesel</code>,
-                                    <code>#fuelUnitGasoline</code>, <code>#fuelUnitGas</code>,
-                                    <code>#fuelUnitElectric</code> 값을 채워주면 됩니다.
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 2-5. 환율 정보 -->
-                        <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
-                            <div class="px-3 py-2 border-b bg-gray-50 flex items-center justify-between">
-                                <div class="text-sm font-bold text-gray-800">환율 정보</div>
-                                <button id="btnFxReload"
-                                    class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700">새로고침</button>
-                            </div>
-
-                            <div class="p-3 space-y-2">
-                                <div class="text-[11px] text-gray-500">
-                                    기준일: <span id="fxBaseDate" class="text-gray-800 font-medium">-</span>
-                                </div>
-
-                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                                    <div class="border rounded-lg p-2">
-                                        <div class="text-gray-500">USD / KRW</div>
-                                        <div id="fxUsdKrw" class="text-lg font-bold mt-1">0.00</div>
-                                    </div>
-                                    <div class="border rounded-lg p-2">
-                                        <div class="text-gray-500">JPY(100) / KRW</div>
-                                        <div id="fxJpyKrw" class="text-lg font-bold mt-1">0.00</div>
-                                    </div>
-                                    <div class="border rounded-lg p-2">
-                                        <div class="text-gray-500">CNY / KRW</div>
-                                        <div id="fxCnyKrw" class="text-lg font-bold mt-1">0.00</div>
-                                    </div>
-                                </div>
-
-                                <div class="text-[10px] text-gray-400 mt-1">
-                                    ※ TypeScript에서 <code>#fxBaseDate</code>, <code>#fxUsdKrw</code>,
-                                    <code>#fxJpyKrw</code>,
-                                    <code>#fxCnyKrw</code> 값을 환율 API로 채우면 됩니다.
+                                <div class="mt-2 text-[10px] text-gray-400">
+                                    * 표 데이터(#dutyHolidayBody)를 읽어서 달력으로 자동 변환합니다.
                                 </div>
                             </div>
                         </div>
 
                     </section>
+
+                    <!-- =========================
+    BOTTOM : (✅ 너가 그린 배열 그대로)
+    - 아래 줄: [유류][환율]은 "첫 번째 열" 안에서 2칸
+    - 회사소식은 "2~3열"을 합쳐서 크게
+  ========================== -->
+                    <section class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+
+                        <!-- ✅ 첫 번째 열: 유류 + 환율 (2칸) -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                            <!-- ✅ 유류대 (작게) -->
+                            <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
+                                <div class="px-3 py-2 border-b bg-gray-50 flex items-center justify-between">
+                                    <div class="text-sm font-bold text-gray-800">유류대</div>
+                                    <button id="btnFuelReload"
+                                        class="px-2 py-1 rounded-lg text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700">
+                                        새로고침
+                                    </button>
+                                </div>
+
+                                <div class="p-3 space-y-2">
+                                    <div class="text-[11px] text-gray-500">
+                                        기준일: <span id="fuelPriceBaseDate" class="text-gray-800 font-medium">-</span>
+                                    </div>
+
+                                    <div class="space-y-1 text-[12px]">
+                                        <div class="flex items-center justify-between border rounded-lg px-2 py-2">
+                                            <span class="text-gray-600">경유</span>
+                                            <span class="font-bold text-gray-900"><span
+                                                    id="fuelUnitDiesel">0</span></span>
+                                        </div>
+                                        <div class="flex items-center justify-between border rounded-lg px-2 py-2">
+                                            <span class="text-gray-600">휘발유</span>
+                                            <span class="font-bold text-gray-900"><span
+                                                    id="fuelUnitGasoline">0</span></span>
+                                        </div>
+                                        <div class="flex items-center justify-between border rounded-lg px-2 py-2">
+                                            <span class="text-gray-600">가스</span>
+                                            <span class="font-bold text-gray-900"><span id="fuelUnitGas">0</span></span>
+                                        </div>
+                                        <div class="flex items-center justify-between border rounded-lg px-2 py-2">
+                                            <span class="text-gray-600">전기</span>
+                                            <span class="font-bold text-gray-900"><span
+                                                    id="fuelUnitElectric">0</span></span>
+                                        </div>
+                                    </div>
+
+                                    <div class="text-[10px] text-gray-400 leading-relaxed">
+                                        ※ 단위/설명은 필요하면 추가
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- ✅ 환율 (작게) -->
+                            <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
+                                <div class="px-3 py-2 border-b bg-gray-50 flex items-center justify-between">
+                                    <div class="text-sm font-bold text-gray-800">환율</div>
+                                    <button id="btnFxReload"
+                                        class="px-2 py-1 rounded-lg text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700">
+                                        새로고침
+                                    </button>
+                                </div>
+
+                                <div class="p-3 space-y-2">
+                                    <div class="text-[11px] text-gray-500">
+                                        기준일: <span id="fxBaseDate" class="text-gray-800 font-medium">-</span>
+                                    </div>
+
+                                    <div class="space-y-2 text-[12px]">
+                                        <div class="border rounded-lg p-2">
+                                            <div class="text-gray-500 text-[11px]">USD / KRW</div>
+                                            <div id="fxUsdKrw" class="text-lg font-extrabold">0.00</div>
+                                        </div>
+                                        <div class="border rounded-lg p-2">
+                                            <div class="text-gray-500 text-[11px]">JPY(100) / KRW</div>
+                                            <div id="fxJpyKrw" class="text-lg font-extrabold">0.00</div>
+                                        </div>
+                                        <div class="border rounded-lg p-2">
+                                            <div class="text-gray-500 text-[11px]">CNY / KRW</div>
+                                            <div id="fxCnyKrw" class="text-lg font-extrabold">0.00</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- ✅ 2~3열 합침: 회사 소식 / 회사 스케줄 -->
+                        <div class="xl:col-span-2 bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
+                            <div class="px-3 py-2 border-b bg-gray-50 flex items-center justify-between">
+                                <div class="text-sm font-bold text-gray-800">회사 소식 / 회사 스케줄</div>
+                                <span
+                                    class="px-2 py-1 text-[11px] rounded-full bg-gray-100 text-gray-700 font-semibold">INFO</span>
+                            </div>
+
+                            <div class="p-4">
+                                <div class="text-sm text-gray-700">
+                                    예) 공지사항을 “전광판”처럼, 회식/행사/교육 일정 등
+                                </div>
+                                <div class="mt-2 text-[11px] text-gray-500">
+                                    * 원하면 이 카드도 공지(notice)랑 연동해서 대시보드에 보여주게 같이 설계해줄게.
+                                </div>
+
+                                <div class="mt-3 border rounded-xl p-4 min-h-[120px] bg-white">
+                                    <div class="text-[12px] text-gray-400">
+                                        (표시 영역) 내용이 여기에 크게 보이게
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </section>
+
                 </div>
+
                 <!-- 🔚 panel-dashboard 끝 -->
 
 
@@ -828,7 +906,7 @@
                     </div>
                 </section>
 
-
+                <!-- (이 아래 나머지 패널들은 원문 그대로 — 너가 붙여준 것과 동일) -->
                 <!-- =====================================================
         ✅ 국내출장 - 출장내역(정산 내역 보기) 패널
         ====================================================== -->
@@ -901,439 +979,511 @@
 
 
                 <!-- =====================================================
-        🚗 출장업무 관리 패널 (✅ 그림판 레이아웃, 공지/유류/환율/당직 포함)
-        ====================================================== -->
-                <section id="panel-출장업무-관리" class="hidden h-full min-h-0">
-                    <!-- ✅ 전체: 12컬럼(큰 화면에서), 작은 화면에서는 1컬럼 -->
-                    <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 h-full min-h-0">
+🚗 출장업무 관리 패널 (원하는 배치 버전 + 로우(노란줄) 정렬)
+- 좌: 거리(크게) → 유류(작게) → 환율(작게)
+- 우: 공지(작게) → (스페이서) → 휴가/당직 요약 캘린더(크게)  ✅ 환율 하단선에 맞춰 내려감
+- 하단 3칸: 휴가자 설정 / (스페이서) 당직 설정 / (스페이서) 당직근무 일정 ✅ 휴가자 하단선에 맞춰 내려감
+====================================================== -->
+                <section id="panel-출장업무-관리" class="hidden">
+                    <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
 
-                        <!-- ========================= -->
-                        <!-- ✅ LEFT: 거리 마스터 (줄임) -->
-                        <!-- ========================= -->
-                        <div
-                            class="xl:col-span-4 bg-white rounded-2xl shadow border border-gray-100 flex flex-col min-h-0">
-                            <div class="px-4 py-2 border-b flex items-center justify-between">
-                                <div class="font-semibold text-gray-800 text-sm">거리 마스터</div>
-                                <div class="flex items-center gap-2">
-                                    <button id="btnDistanceAddRow" type="button"
-                                        class="px-3 py-1.5 rounded-xl border border-indigo-500 text-indigo-600 text-xs font-semibold hover:bg-indigo-50">
-                                        + 행 추가
-                                    </button>
-                                    <button id="btnDistanceSave" type="button"
-                                        class="px-3 py-1.5 rounded-xl bg-indigo-500 text-white text-xs font-semibold hover:bg-indigo-600 shadow-sm">
-                                        저장
-                                    </button>
-                                </div>
-                            </div>
+                        <!-- =========================
+LEFT COLUMN (4칸)
+========================= -->
+                        <div class="xl:col-span-4 space-y-4">
 
-                            <div class="p-4 flex-1 min-h-0">
-                                <div class="border rounded-2xl overflow-hidden bg-white">
-                                    <!-- ✅ 높이 살짝 줄여서 오른쪽 레이아웃이 덜 눌리게 -->
-                                    <div class="max-h-[420px] overflow-auto">
-                                        <table class="w-full border-collapse text-[11px]">
-                                            <thead class="sticky top-0 bg-gray-50 z-10">
-                                                <tr class="text-gray-600">
-                                                    <th class="border-b px-2 py-2 w-12 text-center">NO</th>
-                                                    <th class="border-b px-2 py-2 w-20 text-center">지역</th>
-                                                    <th class="border-b px-2 py-2 text-center">거래처</th>
-                                                    <th class="border-b px-2 py-2 w-20 text-center">km</th>
-                                                    <th class="border-b px-2 py-2 w-16 text-center">삭제</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="distanceTbody"></tbody>
-                                        </table>
-                                    </div>
-                                </div>
-
-                                <p class="mt-2 text-[10px] text-gray-500 leading-relaxed">
-                                    * 이 거리마스터는 “거래처/사용자거리/정산”에서 공통으로 씁니다.
-                                </p>
-                            </div>
-                        </div>
-
-                        <!-- ========================= -->
-                        <!-- ✅ RIGHT: 설정 영역 (확장) -->
-                        <!-- ========================= -->
-                        <div class="xl:col-span-8 min-h-0">
-                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
-
-                                <!-- ✅ 공지: 가로로 길게(2칸) + 높이 제한 -->
-                                <div class="lg:col-span-2 border rounded-2xl bg-white p-4 flex flex-col">
-                                    <div class="flex items-center justify-between mb-2">
-                                        <div class="font-bold text-gray-800">공지 (대시보드 노출)</div>
-                                        <span
-                                            class="px-2 py-1 text-[11px] rounded-full bg-amber-50 text-amber-700 font-semibold">공지</span>
-                                    </div>
-
-                                    <textarea id="cfgNotice"
-                                        class="w-full border rounded-xl px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-200 resize-none h-[120px]"
-                                        placeholder="예: 안전수칙 준수하여 출장 시 주의해주세요."></textarea>
-
-                                    <p class="text-[11px] text-gray-500 mt-2">
-                                        * 저장한 공지는 대시보드에 표시됩니다.
-                                    </p>
-
-                                    <div class="flex justify-end mt-3">
-                                        <button id="btnConfigSave" type="button"
-                                            class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700">
-                                            설정 저장
+                            <!-- ✅ 거리 마스터 (크게) -->
+                            <div class="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
+                                <div class="px-4 py-2 border-b flex items-center justify-between">
+                                    <div class="font-semibold text-gray-800 text-sm">거리 마스터</div>
+                                    <div class="flex items-center gap-2">
+                                        <button id="btnDistanceAddRow" type="button"
+                                            class="px-3 py-1.5 rounded-xl border border-indigo-500 text-indigo-600 text-xs font-semibold hover:bg-indigo-50">
+                                            + 행 추가
+                                        </button>
+                                        <button id="btnDistanceSave" type="button"
+                                            class="px-3 py-1.5 rounded-xl bg-indigo-500 text-white text-xs font-semibold hover:bg-indigo-600 shadow-sm">
+                                            저장
                                         </button>
                                     </div>
                                 </div>
 
-                                <!-- ✅ 유류 -->
-                                <div class="border rounded-2xl bg-white p-4">
-                                    <div class="flex items-center justify-between mb-3">
-                                        <div class="font-bold text-gray-800">유류 설정</div>
-                                        <span
-                                            class="px-2 py-1 text-[11px] rounded-full bg-indigo-50 text-indigo-700 font-semibold">리터당(원)</span>
-                                    </div>
-
-                                    <div class="space-y-2">
-                                        <div class="grid grid-cols-3 items-center gap-2">
-                                            <div class="text-sm text-gray-700">휘발유</div>
-                                            <div class="col-span-2">
-                                                <input id="cfgFuelGasoline" type="number"
-                                                    class="w-full border rounded-xl px-3 py-2 text-sm text-right"
-                                                    placeholder="예: 1700" />
-                                            </div>
-                                        </div>
-
-                                        <div class="grid grid-cols-3 items-center gap-2">
-                                            <div class="text-sm text-gray-700">경유</div>
-                                            <div class="col-span-2">
-                                                <input id="cfgFuelDiesel" type="number"
-                                                    class="w-full border rounded-xl px-3 py-2 text-sm text-right"
-                                                    placeholder="예: 1500" />
-                                            </div>
-                                        </div>
-
-                                        <div class="grid grid-cols-3 items-center gap-2">
-                                            <div class="text-sm text-gray-700">가스(LPG)</div>
-                                            <div class="col-span-2">
-                                                <input id="cfgFuelGas" type="number"
-                                                    class="w-full border rounded-xl px-3 py-2 text-sm text-right"
-                                                    placeholder="예: 990" />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <p class="text-[11px] text-gray-500 mt-3">
-                                        * 연비는 회사 기준 7km 고정(입력 없음).
-                                    </p>
-                                </div>
-
-                                <!-- ✅ 환율 -->
-                                <div class="border rounded-2xl bg-white p-4">
-                                    <div class="flex items-center justify-between mb-3">
-                                        <div class="font-bold text-gray-800">환율 설정</div>
-                                        <span
-                                            class="px-2 py-1 text-[11px] rounded-full bg-emerald-50 text-emerald-700 font-semibold">원
-                                            기준</span>
-                                    </div>
-
-                                    <div class="space-y-2">
-                                        <div class="grid grid-cols-3 items-center gap-2">
-                                            <div class="text-sm text-gray-700">USD (1달러)</div>
-                                            <div class="col-span-2">
-                                                <input id="cfgUsd" type="number"
-                                                    class="w-full border rounded-xl px-3 py-2 text-sm text-right"
-                                                    placeholder="예: 1350" />
-                                            </div>
-                                        </div>
-
-                                        <div class="grid grid-cols-3 items-center gap-2">
-                                            <div class="text-sm text-gray-700">JPY (100엔)</div>
-                                            <div class="col-span-2">
-                                                <input id="cfgJpy" type="number"
-                                                    class="w-full border rounded-xl px-3 py-2 text-sm text-right"
-                                                    placeholder="예: 950" />
-                                            </div>
-                                        </div>
-
-                                        <div class="grid grid-cols-3 items-center gap-2">
-                                            <div class="text-sm text-gray-700">CNY (1위안)</div>
-                                            <div class="col-span-2">
-                                                <input id="cfgCny" type="number"
-                                                    class="w-full border rounded-xl px-3 py-2 text-sm text-right"
-                                                    placeholder="예: 190" />
-                                            </div>
+                                <div class="p-3">
+                                    <div class="border rounded-2xl overflow-hidden bg-white">
+                                        <!-- ✅ 여기만 변경: max-h → h (고정 높이), 세로 스크롤 -->
+                                        <div class="h-[520px] overflow-y-auto overflow-x-auto">
+                                            <table class="w-full border-collapse text-[11px]">
+                                                <thead class="sticky top-0 bg-gray-50 z-10">
+                                                    <tr class="text-gray-600">
+                                                        <th class="border-b px-2 py-2 w-12 text-center">NO</th>
+                                                        <th class="border-b px-2 py-2 w-20 text-center">지역</th>
+                                                        <th class="border-b px-2 py-2 text-center">거래처</th>
+                                                        <th class="border-b px-2 py-2 w-20 text-center">km</th>
+                                                        <th class="border-b px-2 py-2 w-16 text-center">삭제</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="distanceTbody"></tbody>
+                                            </table>
                                         </div>
                                     </div>
                                 </div>
-
-                                <!-- ✅ 휴가 + 캘린더: 한 줄에 크게(2칸 전체 사용) -->
-                                <div class="lg:col-span-2 min-h-0">
-                                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-0">
-
-                                        <!-- ✅ 휴가자 설정(조금 줄임) -->
-                                        <div class="lg:col-span-5 border rounded-2xl bg-white p-4 min-h-0">
-                                            <div class="flex items-center justify-between mb-2">
-                                                <div>
-                                                    <div class="font-bold text-gray-800">휴가자 설정</div>
-                                                    <div class="text-[11px] text-gray-500">등록하면 대시보드 “휴가자 현황”에 표시됩니다.
-                                                    </div>
-                                                </div>
-                                                <span
-                                                    class="px-2 py-1 text-[11px] rounded-full bg-emerald-50 text-emerald-700 font-semibold">
-                                                    VACATION
-                                                </span>
-                                            </div>
-
-                                            <div class="border rounded-xl p-3 text-[11px] text-gray-600 bg-gray-50">
-                                                <ul class="list-disc pl-4 space-y-1">
-                                                    <li>대상/구분/기간을 입력 후 등록하세요.</li>
-                                                    <li>기간이 오늘을 포함하면 “오늘 휴가 인원”에 포함됩니다.</li>
-                                                    <li>삭제하면 즉시 대시보드에서 사라집니다.</li>
-                                                </ul>
-                                            </div>
-
-                                            <div class="mt-3 space-y-2">
-                                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                    <div>
-                                                        <div class="text-[11px] font-semibold text-gray-700 mb-1">대상(이름)
-                                                            *</div>
-                                                        <select id="vacUserSelect"
-                                                            class="w-full border rounded-xl px-3 py-2 text-sm bg-white">
-                                                            <option value="">선택</option>
-                                                        </select>
-                                                    </div>
-
-                                                    <div>
-                                                        <div class="text-[11px] font-semibold text-gray-700 mb-1">구분 *
-                                                        </div>
-                                                        <select id="vacTypeSelect"
-                                                            class="w-full border rounded-xl px-3 py-2 text-sm bg-white">
-                                                            <option value="annual">연차</option>
-                                                            <option value="half">반차</option>
-                                                            <option value="etc">기타</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-
-                                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                    <div>
-                                                        <div class="text-[11px] font-semibold text-gray-700 mb-1">시작일 *
-                                                        </div>
-                                                        <input id="vacFrom" type="date"
-                                                            class="w-full border rounded-xl px-3 py-2 text-sm bg-white" />
-                                                    </div>
-                                                    <div>
-                                                        <div class="text-[11px] font-semibold text-gray-700 mb-1">종료일 *
-                                                        </div>
-                                                        <input id="vacTo" type="date"
-                                                            class="w-full border rounded-xl px-3 py-2 text-sm bg-white" />
-                                                    </div>
-                                                </div>
-
-                                                <div>
-                                                    <div class="text-[11px] font-semibold text-gray-700 mb-1">비고(메모)
-                                                    </div>
-                                                    <input id="vacNote" type="text"
-                                                        class="w-full border rounded-xl px-3 py-2 text-sm bg-white"
-                                                        placeholder="예: 오전반차 / 병가 / 개인사유 등" />
-                                                </div>
-
-                                                <div class="flex items-center gap-2 pt-1">
-                                                    <div id="vacAdminMsg"
-                                                        class="flex-1 text-[11px] text-gray-500 min-h-[16px]"></div>
-                                                    <button id="btnVacAdd"
-                                                        class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700">
-                                                        휴가 등록
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            <div class="border rounded-xl overflow-auto max-h-64 mt-3">
-                                                <table class="w-full border-collapse text-[12px] table-fixed">
-                                                    <thead class="bg-gray-50 text-gray-600">
-                                                        <tr>
-                                                            <th
-                                                                class="border-b px-2 py-2 w-14 text-center whitespace-nowrap">
-                                                                No</th>
-                                                            <th
-                                                                class="border-b px-2 py-2 w-24 text-center whitespace-nowrap">
-                                                                이름</th>
-                                                            <th
-                                                                class="border-b px-2 py-2 w-16 text-center whitespace-nowrap">
-                                                                구분</th>
-                                                            <th
-                                                                class="border-b px-2 py-2 w-44 text-center whitespace-nowrap">
-                                                                기간</th>
-                                                            <th
-                                                                class="border-b px-2 py-2 text-center whitespace-nowrap">
-                                                                비고</th>
-                                                            <th
-                                                                class="border-b px-2 py-2 w-16 text-center whitespace-nowrap">
-                                                                삭제</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody id="vacationAdminTbody">
-                                                        <tr>
-                                                            <td colspan="6"
-                                                                class="border-b px-2 py-3 text-center text-gray-400">
-                                                                데이터 로딩 중...
-                                                            </td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-
-                                        <!-- ✅ 캘린더(크게) -->
-                                        <div class="lg:col-span-7 border rounded-2xl bg-white p-4 min-h-0">
-                                            <div class="flex items-center justify-between mb-2">
-                                                <div>
-                                                    <div class="font-bold text-gray-800">휴가 / 당직 요약 캘린더</div>
-                                                    <div class="text-[11px] text-gray-500">
-                                                        * 휴가(노랑) / 당직(파랑) 표시
-                                                    </div>
-                                                </div>
-
-                                                <div class="flex items-center gap-1 text-xs">
-                                                    <button id="sumCalPrev"
-                                                        class="px-2 py-1 rounded-lg border bg-white hover:bg-gray-50 active:bg-gray-100">◀</button>
-
-                                                    <div id="sumCalLabel"
-                                                        class="font-semibold text-gray-900 min-w-[84px] text-center px-2 py-1 rounded-lg bg-white border">
-                                                        YYYY-MM
-                                                    </div>
-
-                                                    <button id="sumCalNext"
-                                                        class="px-2 py-1 rounded-lg border bg-white hover:bg-gray-50 active:bg-gray-100">▶</button>
-                                                </div>
-                                            </div>
-
-                                            <div class="flex flex-wrap gap-2 mb-3 text-[11px]">
-                                                <span
-                                                    class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 text-amber-700 font-semibold">
-                                                    ■ 휴가
-                                                </span>
-                                                <span
-                                                    class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 font-semibold">
-                                                    ■ 당직
-                                                </span>
-                                            </div>
-
-                                            <div class="border rounded-2xl overflow-hidden bg-white">
-                                                <div
-                                                    class="grid grid-cols-7 bg-gray-50 text-[11px] font-bold text-gray-600 border-b">
-                                                    <div class="py-2 text-center text-rose-600">일</div>
-                                                    <div class="py-2 text-center">월</div>
-                                                    <div class="py-2 text-center">화</div>
-                                                    <div class="py-2 text-center">수</div>
-                                                    <div class="py-2 text-center">목</div>
-                                                    <div class="py-2 text-center">금</div>
-                                                    <div class="py-2 text-center text-indigo-600">토</div>
-                                                </div>
-
-                                                <!-- ✅ 여기 셀 깨짐 방지용 클래스 하나만 추가 추천 -->
-                                                <div id="sumCalGrid" class="grid grid-cols-7 bg-white sumcal-grid">
-                                                    <!-- TS에서 채움 -->
-                                                </div>
-                                            </div>
-
-                                            <div class="mt-2 text-[10px] text-gray-400">
-                                                ※ 달력 칸 안에 “휴가/당직”이 자동으로 표시됩니다.
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <!-- ✅ 요약캘린더 상세 모달 (휴가/당직 더보기/날짜클릭 공용) -->
-                                <div id="sumCalModal" class="fixed inset-0 z-50 hidden">
-                                    <div class="absolute inset-0 bg-black/40"></div>
-
-                                    <div class="absolute inset-0 flex items-center justify-center p-4">
-                                        <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
-                                            <div class="flex items-center justify-between px-4 py-3 border-b">
-                                                <div class="font-bold text-gray-900 text-sm" id="sumCalModalTitle">상세
-                                                </div>
-                                                <button id="sumCalModalClose"
-                                                    class="px-2 py-1 rounded-lg border text-xs hover:bg-gray-50 active:bg-gray-100">
-                                                    닫기
-                                                </button>
-                                            </div>
-
-                                            <div class="p-4 space-y-3 max-h-[60vh] overflow-auto" id="sumCalModalBody">
-                                                <!-- TS에서 채움 -->
-                                            </div>
-
-                                            <div class="px-4 py-3 border-t bg-gray-50 flex justify-end">
-                                                <button id="sumCalModalOk"
-                                                    class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 active:bg-indigo-800">
-                                                    확인
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- ✅ 당직: 맨 아래 크게(2칸 전체) -->
-                                <div class="lg:col-span-2">
-                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-                                        <div class="border rounded-2xl bg-white p-4">
-                                            <div class="flex items-center justify-between mb-2">
-                                                <div>
-                                                    <div class="font-bold text-gray-800">당직자 설정</div>
-                                                    <div class="text-[11px] text-gray-500">사용자관리 인원 기준 · 제외는 삭제로 처리
-                                                    </div>
-                                                </div>
-                                                <span
-                                                    class="px-2 py-1 text-[11px] rounded-full bg-indigo-50 text-indigo-700 font-semibold">ROTATION</span>
-                                            </div>
-
-                                            <div class="border rounded-xl p-3 text-[11px] text-gray-600 bg-gray-50">
-                                                <ul class="list-disc pl-4 space-y-1">
-                                                    <li>후보는 자동 로딩됩니다.</li>
-                                                    <li>제외하고 싶은 사람은 삭제를 누르세요.</li>
-                                                    <li>생성은 휴일(주말+공휴일) 기준으로 자동 배정됩니다.</li>
-                                                </ul>
-                                            </div>
-
-                                            <div class="border rounded-xl overflow-auto max-h-56 mt-3">
-                                                <table class="w-full border-collapse text-[12px]">
-                                                    <thead class="bg-gray-50 text-gray-600">
-                                                        <tr>
-                                                            <th class="border-b px-2 py-2 w-16 text-center">No</th>
-                                                            <th class="border-b px-2 py-2 text-center">이름</th>
-                                                            <th class="border-b px-2 py-2 w-20 text-center">삭제</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody id="dutyTbody">
-                                                        <tr>
-                                                            <td colspan="3"
-                                                                class="border-b px-2 py-3 text-center text-gray-400">
-                                                                사용자
-                                                                목록 로딩 중...</td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-
-                                            <button id="btnDutyGenThisMonth" type="button"
-                                                class="w-full mt-3 px-3 py-3 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700">
-                                                당직 자동 생성
-                                            </button>
-
-                                            <div
-                                                class="border rounded-xl p-3 text-[12px] text-gray-700 bg-gray-50 mt-3">
-                                                <div class="font-bold text-gray-800 mb-1">생성 결과(요약)</div>
-                                                <div id="dutyResultBox" class="text-gray-600">- 아직 생성된 데이터가 없습니다.
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div class="border rounded-2xl bg-white p-4">
-                                            <div id="dutyTableBox"></div>
-                                        </div>
-
-                                    </div>
-                                </div>
-
                             </div>
+                            <!-- ✅ 유류/환율 통합 저장 바 (거리 마스터 아래 / 유류 설정 위) -->
+                            <div class="flex items-center justify-end">
+                                <button id="btnFuelFxSave" type="button"
+                                    class="px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 shadow-sm">
+                                    유류/환율 저장
+                                </button>
+                            </div>
+                            <!-- ✅ 유류 설정 (컴팩트) -->
+                            <div class="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
+                                <div class="px-4 py-1.5 border-b flex items-center justify-between">
+                                    <div class="font-bold text-gray-800 text-sm">유류 설정</div>
+
+                                    <span
+                                        class="px-2 py-0.5 text-[11px] rounded-full bg-indigo-50 text-indigo-700 font-semibold">
+                                        리터당(원)
+                                    </span>
+                                </div>
+
+                                <div class="p-3 space-y-1.5">
+                                    <div class="grid grid-cols-3 items-center gap-2">
+                                        <div class="text-[12px] text-gray-700">휘발유</div>
+                                        <div class="col-span-2">
+                                            <input id="cfgFuelGasoline" type="number"
+                                                class="w-full border rounded-xl px-3 py-1.5 text-sm text-right"
+                                                placeholder="예: 1700" />
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-3 items-center gap-2">
+                                        <div class="text-[12px] text-gray-700">경유</div>
+                                        <div class="col-span-2">
+                                            <input id="cfgFuelDiesel" type="number"
+                                                class="w-full border rounded-xl px-3 py-1.5 text-sm text-right"
+                                                placeholder="예: 1500" />
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-3 items-center gap-2">
+                                        <div class="text-[12px] text-gray-700">가스</div>
+                                        <div class="col-span-2">
+                                            <input id="cfgFuelGas" type="number"
+                                                class="w-full border rounded-xl px-3 py-1.5 text-sm text-right"
+                                                placeholder="예: 990" />
+                                        </div>
+                                    </div>
+
+                                    <div class="text-[10px] text-gray-400 leading-tight">연비 7km 고정</div>
+                                </div>
+                            </div>
+
+                            <!-- ✅ 환율 설정 (작게) -->
+
+                            <div class="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
+                                <div class="px-4 py-1.5 border-b flex items-center justify-between">
+                                    <div class="font-bold text-gray-800 text-sm">환율 설정</div>
+
+                                    <span
+                                        class="px-2 py-0.5 text-[11px] rounded-full bg-emerald-50 text-emerald-700 font-semibold">
+                                        원 기준
+                                    </span>
+                                </div>
+
+                                <div class="p-3 space-y-1.5">
+                                    <div class="grid grid-cols-3 items-center gap-2">
+                                        <div class="text-[12px] text-gray-700">USD</div>
+                                        <div class="col-span-2">
+                                            <input id="cfgUsd" type="number"
+                                                class="w-full border rounded-xl px-3 py-1.5 text-sm text-right"
+                                                placeholder="예: 1350" />
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-3 items-center gap-2">
+                                        <div class="text-[12px] text-gray-700">JPY(100)</div>
+                                        <div class="col-span-2">
+                                            <input id="cfgJpy" type="number"
+                                                class="w-full border rounded-xl px-3 py-1.5 text-sm text-right"
+                                                placeholder="예: 950" />
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-3 items-center gap-2">
+                                        <div class="text-[12px] text-gray-700">CNY</div>
+                                        <div class="col-span-2">
+                                            <input id="cfgCny" type="number"
+                                                class="w-full border rounded-xl px-3 py-1.5 text-sm text-right"
+                                                placeholder="예: 190" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                        <!-- =========================
+<!-- =====================================================
+RIGHT COLUMN (8칸)  ✅ 왼쪽 높이에 맞춰 자동 정렬
+====================================================== -->
+                        <div class="xl:col-span-8 flex flex-col gap-4 h-full min-h-0">
+
+                            <!-- ✅ 공지 (위) : 조금 더 크게 -->
+                            <div class="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
+                                <div class="px-4 py-2 border-b flex items-center justify-between">
+                                    <div class="font-bold text-gray-800 text-sm">공지</div>
+                                    <!-- ✅ 공지 올리기 버튼 -->
+                                    <button id="btnNoticeUpload" type="button"
+                                        class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700">
+                                        공지 올리기
+                                    </button>
+                                
+                                </div>
+
+                                <div class="p-3">
+                                    <textarea id="cfgNotice"
+                                        class="w-full border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200 resize-none h-[140px]"
+                                        placeholder="예: 안전수칙 준수해주세요."></textarea>
+                                </div>
+                            </div>
+
+                            <!-- ✅ 휴가/당직 요약 캘린더 (아래) : 남은 높이 전부 차지 -->
+                            <div
+                                class="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden flex flex-col flex-1 min-h-0">
+
+                                <!-- 헤더 -->
+                                <div class="px-4 py-2 border-b flex items-center justify-between">
+                                    <div class="font-bold text-gray-800 text-sm">휴가/당직 요약 캘린더</div>
+
+                                    <div class="flex items-center gap-1 text-xs">
+                                        <button id="sumCalPrev"
+                                            class="px-2 py-1 rounded-lg border bg-white hover:bg-gray-50 active:bg-gray-100">◀</button>
+
+                                        <div id="sumCalLabel"
+                                            class="font-semibold text-gray-900 min-w-[84px] text-center px-2 py-1 rounded-lg bg-white border">
+                                            YYYY-MM
+                                        </div>
+
+                                        <button id="sumCalNext"
+                                            class="px-2 py-1 rounded-lg border bg-white hover:bg-gray-50 active:bg-gray-100">▶</button>
+                                    </div>
+                                </div>
+
+                                <!-- 본문 -->
+                                <div class="p-3 flex flex-col gap-3 flex-1 min-h-0">
+
+                                    <!-- 범례 -->
+                                    <div class="flex flex-wrap gap-2 text-[11px]">
+                                        <span
+                                            class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 text-amber-700 font-semibold">
+                                            ■ 휴가
+                                        </span>
+                                        <span
+                                            class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 font-semibold">
+                                            ■ 당직
+                                        </span>
+                                        <span
+                                            class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold">
+                                            ■ 일정
+                                        </span>
+                                    </div>
+
+                                    <!-- ✅ 캘린더 영역 -->
+                                    <div
+                                        class="border rounded-2xl overflow-hidden bg-white flex flex-col flex-1 min-h-0">
+                                        <div
+                                            class="grid grid-cols-7 bg-gray-50 text-[11px] font-bold text-gray-600 border-b">
+                                            <div class="py-2 text-center text-rose-600">일</div>
+                                            <div class="py-2 text-center">월</div>
+                                            <div class="py-2 text-center">화</div>
+                                            <div class="py-2 text-center">수</div>
+                                            <div class="py-2 text-center">목</div>
+                                            <div class="py-2 text-center">금</div>
+                                            <div class="py-2 text-center text-indigo-600">토</div>
+                                        </div>
+
+                                        <div id="sumCalGrid"
+                                            class="grid grid-cols-7 bg-white sumcal-grid flex-1 min-h-0">
+                                            <!-- TS에서 채움 -->
+                                        </div>
+                                    </div>
+
+                                    <!-- ✅ 일정 추가 영역 (캘린더 아래 고정) -->
+                                    <div class="border rounded-2xl bg-white p-3">
+                                        <div class="text-xs font-bold text-gray-800 mb-2">일정 추가</div>
+
+                                        <div class="grid grid-cols-12 gap-2 items-center">
+                                            <!-- 날짜 -->
+                                            <div class="col-span-3">
+                                                <input id="calTodoDate" type="date"
+                                                    class="w-full border rounded-xl px-3 py-2 text-sm bg-white" />
+                                            </div>
+
+                                            <!-- 내용 -->
+                                            <div class="col-span-7">
+                                                <input id="calTodoText" type="text"
+                                                    class="w-full border rounded-xl px-3 py-2 text-sm bg-white"
+                                                    placeholder="예: 장비검수" />
+                                            </div>
+
+                                            <!-- 등록 -->
+                                            <div class="col-span-2">
+                                                <button id="btnCalTodoAdd" type="button"
+                                                    class="w-full px-3 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700">
+                                                    등록
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div id="calTodoMsg" class="mt-2 text-[11px] text-gray-500 min-h-[16px]"></div>
+
+
+                                    </div>
+
+                                </div>
+                            </div>
+
                         </div>
 
+                        <!-- =========================
+BOTTOM ROW (12칸): 3개 카드
+========================= -->
+                        <div class="xl:col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+
+                            <!-- ✅ 휴가자 설정 (4칸) -->
+                            <div
+                                class="lg:col-span-4 bg-white rounded-2xl shadow border border-gray-100 overflow-hidden h-full flex flex-col">
+                                <div class="px-4 py-2 border-b flex items-center justify-between">
+                                    <div class="font-bold text-gray-800 text-sm">휴가자 설정</div>
+                                    <span
+                                        class="px-2 py-1 text-[11px] rounded-full bg-emerald-50 text-emerald-700 font-semibold">VACATION</span>
+                                </div>
+
+                                <div class="p-3 space-y-2 flex-1 flex flex-col">
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <select id="vacUserSelect"
+                                            class="w-full border rounded-xl px-3 py-2 text-sm bg-white">
+                                            <option value="">이름</option>
+                                        </select>
+
+                                        <select id="vacTypeSelect"
+                                            class="w-full border rounded-xl px-3 py-2 text-sm bg-white">
+                                            <option value="annual">연차</option>
+                                            <option value="half">반차</option>
+                                            <option value="etc">기타</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <input id="vacFrom" type="date"
+                                            class="w-full border rounded-xl px-3 py-2 text-sm bg-white" />
+                                        <input id="vacTo" type="date"
+                                            class="w-full border rounded-xl px-3 py-2 text-sm bg-white" />
+                                    </div>
+
+                                    <input id="vacNote" type="text"
+                                        class="w-full border rounded-xl px-3 py-2 text-sm bg-white"
+                                        placeholder="비고(선택)" />
+
+                                    <div class="flex items-center gap-2">
+                                        <div id="vacAdminMsg" class="flex-1 text-[11px] text-gray-500 min-h-[16px]">
+                                        </div>
+                                        <button id="btnVacAdd"
+                                            class="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700">
+                                            등록
+                                        </button>
+                                    </div>
+
+                                    <div class="border rounded-xl overflow-auto max-h-56 mt-auto">
+                                        <table class="w-full border-collapse text-[11px] table-fixed">
+                                            <thead class="bg-gray-50 text-gray-600">
+                                                <tr>
+                                                    <th class="border-b px-2 py-2 w-12 text-center">No</th>
+                                                    <th class="border-b px-2 py-2 w-20 text-center">이름</th>
+                                                    <th class="border-b px-2 py-2 w-16 text-center">구분</th>
+                                                    <th class="border-b px-2 py-2 text-center">기간</th>
+                                                    <th class="border-b px-2 py-2 w-14 text-center">삭제</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="vacationAdminTbody">
+                                                <tr>
+                                                    <td colspan="5"
+                                                        class="border-b px-2 py-3 text-center text-gray-400">데이터 로딩
+                                                        중...
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- ✅ 당직 설정 (4칸) : 로우/높이 맞춤 + 컬럼 고정 + 사용자 추가 UI -->
+                            <div
+                                class="lg:col-span-4 bg-white rounded-2xl shadow border border-gray-100 overflow-hidden h-full flex flex-col">
+
+                                <!-- 헤더 -->
+                                <div class="px-4 py-2 border-b flex items-center justify-between">
+                                    <div class="font-bold text-gray-800 text-sm">당직 설정</div>
+                                    <span
+                                        class="px-2 py-1 text-[11px] rounded-full bg-indigo-50 text-indigo-700 font-semibold">ROTATION</span>
+                                </div>
+
+                                <!-- ✅ 스페이서 삭제 (줄 안맞는 원인) -->
+
+
+                                <!-- 본문: h-full + flex-1로 다른 카드와 높이 자동 맞춤 -->
+                                <div class="p-3 flex-1 flex flex-col min-h-0 gap-3">
+
+                                    <!-- ✅ 추가 UI (삭제한 사람 다시 넣기용) -->
+                                    <div class="flex items-center gap-2">
+                                        <select id="dutyAddSelect"
+                                            class="flex-1 border rounded-xl px-3 py-2 text-sm bg-white">
+                                            <option value="">추가할 사용자 선택</option>
+                                            <!-- TS에서 전체 사용자 목록 채우고(당직 후보), 이미 등록된 사람은 제외하면 좋음 -->
+                                        </select>
+
+                                        <button id="btnDutyAddUser" type="button"
+                                            class="px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700">
+                                            추가
+                                        </button>
+                                    </div>
+
+                                    <!-- ✅ 당직자 목록(스크롤) -->
+                                    <div class="border rounded-xl overflow-auto flex-1 min-h-0">
+                                        <table class="w-full border-collapse text-[11px] table-fixed">
+                                            <thead class="sticky top-0 bg-gray-50 text-gray-600 z-10">
+                                                <tr>
+                                                    <th class="border-b px-2 py-2 w-12 text-center">No</th>
+                                                    <th class="border-b px-2 py-2 text-left">이름</th>
+                                                    <th class="border-b px-2 py-2 w-16 text-center">삭제</th>
+                                                </tr>
+                                            </thead>
+
+                                            <tbody id="dutyTbody">
+                                                <tr>
+                                                    <td colspan="3"
+                                                        class="border-b px-2 py-3 text-center text-gray-400">
+                                                        사용자 목록 로딩 중...
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <!-- 버튼 -->
+                                    <button id="btnDutyGenThisMonth" type="button"
+                                        class="w-full px-3 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700">
+                                        당직 자동 생성
+                                    </button>
+
+                                    <!-- ✅ 요약(한 줄 느낌으로 컴팩트) -->
+                                    <div class="border rounded-xl p-3 text-[11px] text-gray-700 bg-gray-50">
+                                        <div id="dutyResultBox" class="text-gray-600">휴일(주말+공휴일)만 자동 배정</div>
+                                    </div>
+
+                                </div>
+                            </div>
+
+                            <!-- ✅ 당직근무 일정 (4칸) : 하단 로우 맞춤용(스트레치) 버전 -->
+                            <div
+                                class="lg:col-span-4 bg-white rounded-2xl shadow border border-gray-100 overflow-hidden h-full flex flex-col">
+
+                                <div class="px-4 py-2 border-b">
+                                    <div class="font-bold text-gray-800 text-sm">당직근무 일정</div>
+                                </div>
+
+                                <!-- ❌ 스페이서 삭제 (이게 계속 줄 안맞게 만듦) -->
+
+                                <!-- ✅ 본문을 flex-1로 늘려서 카드 높이에 맞게 자동 정렬 -->
+                                <div class="p-3 flex-1 flex flex-col min-h-0">
+                                    <!-- ✅ 스크롤 영역을 카드 높이에 맞춰 꽉 채움 -->
+                                    <div class="border rounded-xl overflow-auto flex-1 min-h-0">
+                                        <div id="dutyTableBox"></div>
+                                    </div>
+
+                                    <style>
+                                        /* dutyTableBox 내부 테이블을 강제로 컴팩트하게 */
+                                        #dutyTableBox table {
+                                            width: 100%;
+                                            table-layout: fixed;
+                                            font-size: 11px;
+                                        }
+
+                                        #dutyTableBox th,
+                                        #dutyTableBox td {
+                                            padding: 6px 8px;
+                                            white-space: nowrap;
+                                            overflow: hidden;
+                                            text-overflow: ellipsis;
+                                        }
+
+                                        /* 월일 */
+                                        #dutyTableBox th:nth-child(1),
+                                        #dutyTableBox td:nth-child(1) {
+                                            width: 64px;
+                                            text-align: center;
+                                        }
+
+                                        /* 소속 */
+                                        #dutyTableBox th:nth-child(2),
+                                        #dutyTableBox td:nth-child(2) {
+                                            width: 72px;
+                                            text-align: center;
+                                        }
+
+                                        /* 근무자 */
+                                        #dutyTableBox th:nth-child(3),
+                                        #dutyTableBox td:nth-child(3) {
+                                            width: auto;
+                                        }
+                                    </style>
+                                </div>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    <!-- ✅ 모달들(원본 유지) -->
+                    <div id="sumCalModal" class="fixed inset-0 z-50 hidden">
+                        <div class="absolute inset-0 bg-black/40"></div>
+                        <div class="absolute inset-0 flex items-center justify-center p-4">
+                            <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+                                <div class="flex items-center justify-between px-4 py-3 border-b">
+                                    <div class="font-bold text-gray-900 text-sm" id="sumCalModalTitle">상세</div>
+                                    <button id="sumCalModalClose"
+                                        class="px-2 py-1 rounded-lg border text-xs hover:bg-gray-50 active:bg-gray-100">닫기</button>
+                                </div>
+                                <div class="p-4 space-y-3 max-h-[60vh] overflow-auto" id="sumCalModalBody"></div>
+                                <div class="px-4 py-3 border-t bg-gray-50 flex justify-end">
+                                    <button id="sumCalModalOk"
+                                        class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 active:bg-indigo-800">
+                                        확인
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="noteModal" class="fixed inset-0 z-[9999] hidden">
+                        <div class="absolute inset-0 bg-black/40"></div>
+                        <div class="absolute inset-0 flex items-center justify-center p-4">
+                            <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+                                <div class="flex items-center justify-between px-4 py-3 border-b">
+                                    <div class="font-bold text-gray-900 text-sm" id="noteModalTitle">비고</div>
+                                    <button id="noteModalClose"
+                                        class="px-2 py-1 rounded-lg border text-xs hover:bg-gray-50">닫기</button>
+                                </div>
+                                <div class="p-4 space-y-2">
+                                    <div class="text-[11px] text-gray-500" id="noteModalSub"></div>
+                                    <div class="whitespace-pre-wrap break-words text-sm text-gray-800"
+                                        id="noteModalBody"></div>
+                                </div>
+                                <div class="px-4 py-3 border-t bg-gray-50 flex justify-end">
+                                    <button id="noteModalOk"
+                                        class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700">확인</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -1573,6 +1723,8 @@
 
     <script src="assets/js/workspace.bundle.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+
 </body>
 
 </html>
