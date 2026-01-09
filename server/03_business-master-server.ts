@@ -2,9 +2,6 @@
 import express from "express";
 import type { Pool } from "pg";
 
-// Node 18+ 에서는 fetch 기본 내장.
-// 만약 Node 16이면: npm i node-fetch 하고 import 필요함
-
 type AnyObj = Record<string, any>;
 
 function toNumberOrNull(v: any): number | null {
@@ -17,98 +14,92 @@ function isYmd(s: any) {
   return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-function safeJsonParse<T>(raw: any, fallback: T): T {
-  try {
-    return JSON.parse(String(raw ?? "")) as T;
-  } catch {
-    return fallback;
-  }
+function isYm(s: any) {
+  return typeof s === "string" && /^\d{4}-\d{2}$/.test(s);
 }
 
 export default function businessMasterRouter(pool: Pool) {
   const router = express.Router();
-  async function getConfigRow() {
-    const r = await pool.query(`
-      SELECT id, config_json
-      FROM business_trip_config
-      ORDER BY id
-      LIMIT 1
-    `);
 
-    if (r.rows.length === 0) {
-      const ins = await pool.query(
-        `INSERT INTO business_trip_config (config_json) VALUES ($1) RETURNING id, config_json`,
-        [{}]
-      );
-      return { id: ins.rows[0].id, config_json: ins.rows[0].config_json || {} };
-    }
-    return { id: r.rows[0].id, config_json: r.rows[0].config_json || {} };
+  // =====================================================
+  // ✅ 공통: settings / duty_roster "1행 보장"
+  // =====================================================
+  async function ensureBusinessTripSettingsRow() {
+    const r = await pool.query(`SELECT * FROM business_trip_settings WHERE id=1`);
+    if (r.rows.length > 0) return r.rows[0];
+
+    const ins = await pool.query(
+      `
+      INSERT INTO business_trip_settings (
+        id,
+        note, notice,
+        km_per_liter, default_oil_type,
+        fuel_price_gasoline, fuel_price_diesel, fuel_price_lpg,
+        exchange_rate_usd, exchange_rate_jpy, exchange_rate_cny,
+        fuel_price_per_liter
+      )
+      VALUES (
+        1,
+        '', '',
+        7, '휘발유',
+        0, 0, 0,
+        0, 0, 0,
+        0
+      )
+      RETURNING *
+      `
+    );
+    return ins.rows[0];
   }
 
-  async function saveConfigJson(id: number, cfg: AnyObj) {
-    await pool.query(
-      `UPDATE business_trip_config SET config_json=$1, updated_at=NOW() WHERE id=$2`,
-      [cfg, id]
+  async function ensureDutyRosterSettingsRow() {
+    const r = await pool.query(`SELECT * FROM duty_roster_settings WHERE id=1`);
+    if (r.rows.length > 0) return r.rows[0];
+
+    const ins = await pool.query(
+      `
+      INSERT INTO duty_roster_settings (id, duty_members_text)
+      VALUES (1, '')
+      RETURNING *
+      `
     );
+    return ins.rows[0];
   }
 
   // =====================================================
-  // 1) 출장 기본 설정 조회/저장
+  // 1) ✅ 출장 기본 설정 조회/저장 (새 테이블 기반)
+  //    - 프론트 호환을 위해 응답 key는 기존 그대로 유지
   // =====================================================
   router.get("/config", async (_req, res) => {
     try {
-      const result = await pool.query(`
-        SELECT id, config_json
-        FROM business_trip_config
-        ORDER BY id
-        LIMIT 1
-      `);
+      const s = await ensureBusinessTripSettingsRow();
+      const d = await ensureDutyRosterSettingsRow();
 
-      const defaultConfig = {
-        // --- 새 구조 ---
-        fuel_price_gasoline: null,
-        fuel_price_diesel: null,
-        fuel_price_lpg: null,
-        exchange_rate_usd: null,
-        exchange_rate_jpy: null,
-        exchange_rate_cny: null,
-        duty_members_text: "",
-        vacations_text: "",
-        notice: "",
-
-        // --- 구 구조 호환 ---
-        fuel_price_per_liter: null,
-        km_per_liter: 7,
-        default_oil_type: "휘발유",
-        note: "",
-      };
-
-      if (result.rows.length === 0) return res.json(defaultConfig);
-
-      const cfg: AnyObj = result.rows[0].config_json || {};
-
+      // 레거시 호환: gasoline 없으면 fuel_price_per_liter 사용
       const gasoline =
-        toNumberOrNull(cfg.fuel_price_gasoline) ??
-        toNumberOrNull(cfg.fuel_price_per_liter) ??
+        toNumberOrNull(s.fuel_price_gasoline) ??
+        toNumberOrNull(s.fuel_price_per_liter) ??
         null;
 
       return res.json({
-        // --- 새 구조 ---
+        // --- 새 구조(프론트가 쓰는 키) ---
         fuel_price_gasoline: gasoline,
-        fuel_price_diesel: toNumberOrNull(cfg.fuel_price_diesel) ?? null,
-        fuel_price_lpg: toNumberOrNull(cfg.fuel_price_lpg) ?? null,
-        exchange_rate_usd: toNumberOrNull(cfg.exchange_rate_usd) ?? null,
-        exchange_rate_jpy: toNumberOrNull(cfg.exchange_rate_jpy) ?? null,
-        exchange_rate_cny: toNumberOrNull(cfg.exchange_rate_cny) ?? null,
-        duty_members_text: String(cfg.duty_members_text ?? ""),
-        vacations_text: String(cfg.vacations_text ?? ""),
-        notice: String(cfg.notice ?? cfg.note ?? ""),
+        fuel_price_diesel: toNumberOrNull(s.fuel_price_diesel) ?? null,
+        fuel_price_lpg: toNumberOrNull(s.fuel_price_lpg) ?? null,
 
-        // --- 구 구조 호환 ---
+        exchange_rate_usd: toNumberOrNull(s.exchange_rate_usd) ?? null,
+        exchange_rate_jpy: toNumberOrNull(s.exchange_rate_jpy) ?? null,
+        exchange_rate_cny: toNumberOrNull(s.exchange_rate_cny) ?? null,
+
+        duty_members_text: String(d.duty_members_text ?? ""),
+        vacations_text: "", // ✅ 더이상 config에 안 씀(레거시 키만 유지)
+        notice: String(s.notice ?? s.note ?? ""),
+
+        // --- 구 구조 호환 키(남겨두면 안전) ---
         fuel_price_per_liter: gasoline,
-        km_per_liter: 7,
-        default_oil_type: String(cfg.default_oil_type ?? "휘발유"),
-        note: String(cfg.note ?? cfg.notice ?? ""),
+        km_per_liter: toNumberOrNull(s.km_per_liter) ?? 7,
+        default_oil_type: String(s.default_oil_type ?? "휘발유"),
+        note: String(s.note ?? s.notice ?? ""),
       });
     } catch (err) {
       console.error("[business-master][GET /config] 에러:", err);
@@ -118,122 +109,106 @@ export default function businessMasterRouter(pool: Pool) {
 
   router.post("/config", async (req, res) => {
     const body: AnyObj = req.body ?? {};
-
     try {
-      const check = await pool.query(`
-        SELECT id, config_json
-        FROM business_trip_config
-        ORDER BY id
-        LIMIT 1
-      `);
+      await ensureBusinessTripSettingsRow();
+      await ensureDutyRosterSettingsRow();
 
-      const existingCfg: AnyObj =
-        check.rows.length > 0 ? (check.rows[0].config_json || {}) : {};
+      const gasoline = toNumberOrNull(body.fuel_price_gasoline) ?? toNumberOrNull(body.fuel_price_per_liter) ?? null;
 
-      const gasoline =
-        toNumberOrNull(body.fuel_price_gasoline) ??
-        toNumberOrNull(body.fuel_price_per_liter) ??
-        toNumberOrNull(existingCfg.fuel_price_gasoline) ??
-        toNumberOrNull(existingCfg.fuel_price_per_liter) ??
-        null;
-
-      const nextCfg: AnyObj = {
-        ...existingCfg,
-
-        // --- 새 구조 ---
-        fuel_price_gasoline: gasoline,
-        fuel_price_diesel:
-          toNumberOrNull(body.fuel_price_diesel) ??
-          toNumberOrNull(existingCfg.fuel_price_diesel) ??
-          null,
-        fuel_price_lpg:
-          toNumberOrNull(body.fuel_price_lpg) ??
-          toNumberOrNull(existingCfg.fuel_price_lpg) ??
-          null,
-
-        exchange_rate_usd:
-          toNumberOrNull(body.exchange_rate_usd) ??
-          toNumberOrNull(existingCfg.exchange_rate_usd) ??
-          null,
-        exchange_rate_jpy:
-          toNumberOrNull(body.exchange_rate_jpy) ??
-          toNumberOrNull(existingCfg.exchange_rate_jpy) ??
-          null,
-        exchange_rate_cny:
-          toNumberOrNull(body.exchange_rate_cny) ??
-          toNumberOrNull(existingCfg.exchange_rate_cny) ??
-          null,
-
-        duty_members_text:
-          body.duty_members_text != null
-            ? String(body.duty_members_text)
-            : String(existingCfg.duty_members_text ?? ""),
-
-        notice:
-          body.notice != null
-            ? String(body.notice)
-            : body.note != null
-              ? String(body.note)
-              : String(existingCfg.notice ?? existingCfg.note ?? ""),
-
-        vacations_text:
-          body.vacations_text != null
-            ? String(body.vacations_text)
-            : String(existingCfg.vacations_text ?? ""),
-
-        // --- 구 구조 호환 ---
-        fuel_price_per_liter: gasoline,
-        km_per_liter: 7,
-        default_oil_type:
-          body.default_oil_type != null
-            ? String(body.default_oil_type)
-            : String(existingCfg.default_oil_type ?? "휘발유"),
-        note:
-          body.note != null
+      // business_trip_settings 업데이트
+      const notice =
+        body.notice != null
+          ? String(body.notice)
+          : body.note != null
             ? String(body.note)
-            : body.notice != null
-              ? String(body.notice)
-              : String(existingCfg.note ?? existingCfg.notice ?? ""),
-      };
+            : null;
 
-      if (check.rows.length === 0) {
-        const insertResult = await pool.query(
-          `
-          INSERT INTO business_trip_config (config_json)
-          VALUES ($1)
-          RETURNING config_json
-        `,
-          [nextCfg]
-        );
-        return res.json({ ok: true, config: insertResult.rows[0].config_json });
-      }
-
-      const id = check.rows[0].id;
-      const updateResult = await pool.query(
+      const updatedSettings = await pool.query(
         `
-        UPDATE business_trip_config
-        SET config_json = $1,
-            updated_at  = NOW()
-        WHERE id = $2
-        RETURNING config_json
-      `,
-        [nextCfg, id]
+        UPDATE business_trip_settings
+        SET
+          fuel_price_gasoline   = $1,
+          fuel_price_diesel     = $2,
+          fuel_price_lpg        = $3,
+          exchange_rate_usd     = $4,
+          exchange_rate_jpy     = $5,
+          exchange_rate_cny     = $6,
+          fuel_price_per_liter  = $7,
+          default_oil_type      = COALESCE($8, default_oil_type),
+          km_per_liter          = COALESCE($9, km_per_liter),
+          notice                = COALESCE($10, notice),
+          note                  = COALESCE($11, note)
+        WHERE id=1
+        RETURNING *
+        `,
+        [
+          gasoline,
+          toNumberOrNull(body.fuel_price_diesel),
+          toNumberOrNull(body.fuel_price_lpg),
+          toNumberOrNull(body.exchange_rate_usd),
+          toNumberOrNull(body.exchange_rate_jpy),
+          toNumberOrNull(body.exchange_rate_cny),
+          gasoline,
+          body.default_oil_type != null ? String(body.default_oil_type) : null,
+          body.km_per_liter != null ? toNumberOrNull(body.km_per_liter) : null,
+          notice,
+          notice,
+        ]
       );
 
-      return res.json({ ok: true, config: updateResult.rows[0].config_json });
+      // duty_roster_settings 업데이트(있으면 반영)
+      if (body.duty_members_text != null) {
+        await pool.query(
+          `
+          UPDATE duty_roster_settings
+          SET duty_members_text = $1
+          WHERE id=1
+          `,
+          [String(body.duty_members_text)]
+        );
+      }
+
+      const s = updatedSettings.rows[0];
+      const d = await pool.query(`SELECT * FROM duty_roster_settings WHERE id=1`);
+      const duty = d.rows[0];
+
+      const gasolineOut =
+        toNumberOrNull(s.fuel_price_gasoline) ??
+        toNumberOrNull(s.fuel_price_per_liter) ??
+        null;
+
+      return res.json({
+        ok: true,
+        config: {
+          fuel_price_gasoline: gasolineOut,
+          fuel_price_diesel: toNumberOrNull(s.fuel_price_diesel) ?? null,
+          fuel_price_lpg: toNumberOrNull(s.fuel_price_lpg) ?? null,
+          exchange_rate_usd: toNumberOrNull(s.exchange_rate_usd) ?? null,
+          exchange_rate_jpy: toNumberOrNull(s.exchange_rate_jpy) ?? null,
+          exchange_rate_cny: toNumberOrNull(s.exchange_rate_cny) ?? null,
+          duty_members_text: String(duty?.duty_members_text ?? ""),
+          vacations_text: "",
+          notice: String(s.notice ?? s.note ?? ""),
+
+          fuel_price_per_liter: gasolineOut,
+          km_per_liter: toNumberOrNull(s.km_per_liter) ?? 7,
+          default_oil_type: String(s.default_oil_type ?? "휘발유"),
+          note: String(s.note ?? s.notice ?? ""),
+        },
+      });
     } catch (err) {
       console.error("[business-master][POST /config] 에러:", err);
       return res.status(500).json({ ok: false, error: "설정 저장 에러" });
     }
   });
+
   // =====================================================
-  // 1-1) ✅ 공지 전용 조회/저장 (config_json에서 notice만 관리)
+  // 1-1) ✅ 공지 전용 조회/저장 (business_trip_settings.notice)
   // =====================================================
   router.get("/notice", async (_req, res) => {
     try {
-      const row = await getConfigRow();
-      const cfg: AnyObj = row.config_json || {};
-      return res.json({ ok: true, notice: String(cfg.notice ?? cfg.note ?? "") });
+      const s = await ensureBusinessTripSettingsRow();
+      return res.json({ ok: true, notice: String(s.notice ?? s.note ?? "") });
     } catch (err) {
       console.error("[notice][GET] err:", err);
       return res.status(500).json({ ok: false, error: "공지 조회 에러" });
@@ -243,22 +218,27 @@ export default function businessMasterRouter(pool: Pool) {
   router.post("/notice", async (req, res) => {
     try {
       const notice = String(req.body?.notice ?? "").trim();
+      await ensureBusinessTripSettingsRow();
 
-      const row = await getConfigRow();
-      const cfg: AnyObj = row.config_json || {};
+      await pool.query(
+        `
+        UPDATE business_trip_settings
+        SET notice = $1,
+            note   = $1
+        WHERE id=1
+        `,
+        [notice]
+      );
 
-      cfg.notice = notice; // ✅ 새 구조
-      cfg.note = notice;   // ✅ 구 구조 호환(레거시 대비)
-
-      await saveConfigJson(row.id, cfg);
       return res.json({ ok: true, notice });
     } catch (err) {
       console.error("[notice][POST] err:", err);
       return res.status(500).json({ ok: false, error: "공지 저장 에러" });
     }
   });
+
   // =====================================================
-  // 2) ✅ 거리 마스터 (원복 핵심)
+  // 2) ✅ 거리 마스터 (그대로 유지)
   // =====================================================
   router.get("/distances", async (_req, res) => {
     try {
@@ -387,7 +367,7 @@ export default function businessMasterRouter(pool: Pool) {
   });
 
   // =====================================================
-  // 3) ✅ 공휴일 조회
+  // 3) ✅ 공휴일 조회 (그대로 유지)
   // =====================================================
   router.get("/holidays", async (req, res) => {
     try {
@@ -415,8 +395,6 @@ export default function businessMasterRouter(pool: Pool) {
         `&ServiceKey=${serviceKey}`;
 
       const r = await fetch(url);
-
-      // 🔥 핵심: json() 바로 쓰지 말고 text()로 먼저 받기
       const rawText = await r.text();
 
       if (!r.ok) {
@@ -452,8 +430,9 @@ export default function businessMasterRouter(pool: Pool) {
       return res.status(500).json({ ok: false, error: String(err?.message ?? err) });
     }
   });
+
   // =====================================================
-  // 4) ✅ 휴가자 (config_json.vacations_text에 저장)
+  // 4) ✅ 휴가자 (vacations 테이블로 전환)
   // =====================================================
   type VacationItem = {
     id: number;
@@ -466,13 +445,22 @@ export default function businessMasterRouter(pool: Pool) {
     created_at: string;
   };
 
-
   router.get("/vacations", async (_req, res) => {
     try {
-      const row = await getConfigRow();
-      const cfg: AnyObj = row.config_json || {};
-      const parsed = safeJsonParse<{ items: VacationItem[] }>(cfg.vacations_text, { items: [] });
-      return res.json({ ok: true, items: Array.isArray(parsed.items) ? parsed.items : [] });
+      const r = await pool.query(`
+        SELECT
+          id,
+          user_no,
+          user_name,
+          vac_type,
+          start_date,
+          end_date,
+          note,
+          created_at
+        FROM vacations
+        ORDER BY id DESC
+      `);
+      return res.json({ ok: true, items: r.rows });
     } catch (err) {
       console.error("[vacations][GET] err:", err);
       return res.status(500).json({ ok: false, error: "휴가 목록 조회 에러" });
@@ -493,31 +481,28 @@ export default function businessMasterRouter(pool: Pool) {
         return res.status(400).json({ ok: false, error: "시작일이 종료일보다 클 수 없습니다." });
       }
 
-      const row = await getConfigRow();
-      const cfg: AnyObj = row.config_json || {};
-      const parsed = safeJsonParse<{ items: VacationItem[] }>(cfg.vacations_text, { items: [] });
-      const items = Array.isArray(parsed.items) ? parsed.items : [];
+      const ins = await pool.query(
+        `
+        INSERT INTO vacations (
+          user_no, user_name, vac_type,
+          start_date, end_date, note
+        )
+        VALUES ($1,$2,$3,$4,$5,$6)
+        RETURNING
+          id, user_no, user_name, vac_type,
+          start_date, end_date, note, created_at
+        `,
+        [
+          user_no != null && user_no !== "" ? Number(user_no) : null,
+          String(user_name),
+          String(vac_type),
+          String(start_date),
+          String(end_date),
+          String(note ?? ""),
+        ]
+      );
 
-      const nextId = items.reduce((m, it) => Math.max(m, Number(it?.id || 0)), 0) + 1;
-
-      const item: VacationItem = {
-        id: nextId,
-        user_no: user_no != null ? Number(user_no) : null,
-        user_name: String(user_name),
-        vac_type: String(vac_type) as any,
-        start_date: String(start_date),
-        end_date: String(end_date),
-        note: String(note ?? ""),
-        created_at: new Date().toISOString(),
-      };
-
-      cfg.vacations_text = JSON.stringify({
-        items: [item, ...items],
-        updatedAt: new Date().toISOString(),
-      });
-
-      await saveConfigJson(row.id, cfg);
-      return res.json({ ok: true, item });
+      return res.json({ ok: true, item: ins.rows[0] });
     } catch (err) {
       console.error("[vacations][POST] err:", err);
       return res.status(500).json({ ok: false, error: "휴가 등록 에러" });
@@ -529,17 +514,7 @@ export default function businessMasterRouter(pool: Pool) {
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "id 오류" });
 
-      const row = await getConfigRow();
-      const cfg: AnyObj = row.config_json || {};
-      const parsed = safeJsonParse<{ items: VacationItem[] }>(cfg.vacations_text, { items: [] });
-      const items = Array.isArray(parsed.items) ? parsed.items : [];
-
-      cfg.vacations_text = JSON.stringify({
-        items: items.filter((it) => Number(it.id) !== id),
-        updatedAt: new Date().toISOString(),
-      });
-
-      await saveConfigJson(row.id, cfg);
+      await pool.query(`DELETE FROM vacations WHERE id=$1`, [id]);
       return res.json({ ok: true });
     } catch (err) {
       console.error("[vacations][DELETE] err:", err);
@@ -552,66 +527,70 @@ export default function businessMasterRouter(pool: Pool) {
       const q = req.query.date;
       const today = isYmd(q) ? String(q) : new Date().toISOString().slice(0, 10);
 
-      const row = await getConfigRow();
-      const cfg: AnyObj = row.config_json || {};
-      const parsed = safeJsonParse<{ items: VacationItem[] }>(cfg.vacations_text, { items: [] });
-      const items = Array.isArray(parsed.items) ? parsed.items : [];
+      const r = await pool.query(
+        `
+        SELECT
+          id, user_no, user_name, vac_type,
+          start_date, end_date, note, created_at
+        FROM vacations
+        WHERE start_date <= $1 AND end_date >= $1
+        ORDER BY id DESC
+        `,
+        [today]
+      );
 
-      const todayItems = items.filter((it) => isYmd(it.start_date) && isYmd(it.end_date) && it.start_date <= today && today <= it.end_date);
-
-      return res.json({ ok: true, date: today, count: todayItems.length, items: todayItems });
+      return res.json({ ok: true, date: today, count: r.rows.length, items: r.rows });
     } catch (err) {
       console.error("[vacations][STATUS] err:", err);
       return res.status(500).json({ ok: false, error: "휴가 현황 조회 에러" });
     }
   });
+
   // =====================================================
-  // 5) ✅ 캘린더 일정 (config_json.calendar_events_text에 저장)
+  // 5) ✅ 캘린더 일정 (calendar_events 테이블로 전환)
   // =====================================================
   type CalendarEventItem = {
     id: number;
-    date: string;       // YYYY-MM-DD
-    title: string;      // 예: "장비검수"
-    created_at: string; // ISO
-    created_by?: number | null; // (선택)
+    date: string;
+    title: string;
+    created_at: string;
+    created_by?: number | null;
   };
-
-  // yyyy-mm 형태인지
-  function isYm(s: any) {
-    return typeof s === "string" && /^\d{4}-\d{2}$/.test(s);
-  }
-
-  // ym(yyyy-mm) 범위 필터
-  function inYm(dateYmd: string, ym: string) {
-    // dateYmd: "2026-01-05", ym:"2026-01"
-    return typeof dateYmd === "string" && dateYmd.startsWith(ym + "-");
-  }
 
   // ✅ 목록 조회: /calendar-events?ym=2026-01 (없으면 전체)
   router.get("/calendar-events", async (req, res) => {
     try {
       const ym = isYm(req.query.ym) ? String(req.query.ym) : null;
 
-      const row = await getConfigRow();
-      const cfg: AnyObj = row.config_json || {};
+      if (ym) {
+        const start = `${ym}-01`;
+        const end = `${ym}-31`; // 간단 필터(문자열 비교), date 타입이면 OK
 
-      const parsed = safeJsonParse<{ items: CalendarEventItem[] }>(
-        cfg.calendar_events_text,
-        { items: [] }
-      );
+        const r = await pool.query(
+          `
+          SELECT id, date, title, created_by, created_at
+          FROM calendar_events
+          WHERE date >= $1 AND date <= $2
+          ORDER BY id DESC
+          `,
+          [start, end]
+        );
+        return res.json({ ok: true, ym, items: r.rows });
+      }
 
-      const items = Array.isArray(parsed.items) ? parsed.items : [];
-
-      const filtered = ym ? items.filter((it) => isYmd(it.date) && inYm(it.date, ym)) : items;
-
-      return res.json({ ok: true, ym, items: filtered });
+      const r = await pool.query(`
+        SELECT id, date, title, created_by, created_at
+        FROM calendar_events
+        ORDER BY id DESC
+      `);
+      return res.json({ ok: true, ym: null, items: r.rows });
     } catch (err) {
       console.error("[calendar-events][GET] err:", err);
       return res.status(500).json({ ok: false, error: "일정 목록 조회 에러" });
     }
   });
 
-  // ✅ 일정 추가: POST { date:"YYYY-MM-DD", title:"장비검수", created_by?: number }
+  // ✅ 일정 추가
   router.post("/calendar-events", async (req, res) => {
     try {
       const { date, title, created_by } = req.body ?? {};
@@ -624,64 +603,35 @@ export default function businessMasterRouter(pool: Pool) {
         return res.status(400).json({ ok: false, error: "title(내용)은 필수입니다." });
       }
 
-      const row = await getConfigRow();
-      const cfg: AnyObj = row.config_json || {};
-
-      const parsed = safeJsonParse<{ items: CalendarEventItem[] }>(
-        cfg.calendar_events_text,
-        { items: [] }
+      const ins = await pool.query(
+        `
+        INSERT INTO calendar_events (date, title, created_by)
+        VALUES ($1,$2,$3)
+        RETURNING id, date, title, created_by, created_at
+        `,
+        [String(date), t, created_by != null && created_by !== "" ? Number(created_by) : null]
       );
-      const items = Array.isArray(parsed.items) ? parsed.items : [];
 
-      const nextId = items.reduce((m, it) => Math.max(m, Number(it?.id || 0)), 0) + 1;
-
-      const item: CalendarEventItem = {
-        id: nextId,
-        date: String(date),
-        title: t,
-        created_at: new Date().toISOString(),
-        created_by: created_by != null ? Number(created_by) : null,
-      };
-
-      cfg.calendar_events_text = JSON.stringify({
-        items: [item, ...items],
-        updatedAt: new Date().toISOString(),
-      });
-
-      await saveConfigJson(row.id, cfg);
-      return res.json({ ok: true, item });
+      return res.json({ ok: true, item: ins.rows[0] });
     } catch (err) {
       console.error("[calendar-events][POST] err:", err);
       return res.status(500).json({ ok: false, error: "일정 등록 에러" });
     }
   });
 
-  // ✅ 일정 삭제: DELETE /calendar-events/:id
+  // ✅ 일정 삭제
   router.delete("/calendar-events/:id", async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "id 오류" });
 
-      const row = await getConfigRow();
-      const cfg: AnyObj = row.config_json || {};
-
-      const parsed = safeJsonParse<{ items: CalendarEventItem[] }>(
-        cfg.calendar_events_text,
-        { items: [] }
-      );
-      const items = Array.isArray(parsed.items) ? parsed.items : [];
-
-      cfg.calendar_events_text = JSON.stringify({
-        items: items.filter((it) => Number(it.id) !== id),
-        updatedAt: new Date().toISOString(),
-      });
-
-      await saveConfigJson(row.id, cfg);
+      await pool.query(`DELETE FROM calendar_events WHERE id=$1`, [id]);
       return res.json({ ok: true });
     } catch (err) {
       console.error("[calendar-events][DELETE] err:", err);
       return res.status(500).json({ ok: false, error: "일정 삭제 에러" });
     }
   });
+
   return router;
 }
