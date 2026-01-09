@@ -2515,16 +2515,26 @@ function initBusinessMasterPanel(API_BASE) {
             });
             const json = await res.json().catch(() => null);
             if (!res.ok || json?.ok !== true) {
-                setNoticeMsg(json?.error || "공지 업로드 실패");
+                const msg = String(json?.error || "공지 업로드 실패");
+                setNoticeMsg(msg);
+                alert(msg);
                 return;
             }
+            const savedNotice = String(json.notice ?? notice);
+            // ✅ 화면 메시지
             setNoticeMsg("✅ 공지 업로드 완료");
-            // 다른 화면(대시보드)에서 공지 다시 읽게 만들고 싶으면 이벤트 쏴주기
-            window.dispatchEvent(new CustomEvent("notice-changed"));
+            // ✅✅✅ 완료 모달(초보용: alert이 가장 확실)
+            alert("공지 올리기 완료!");
+            // ✅✅✅ 대시보드 즉시 갱신(너 대시보드가 듣는 이벤트로 통일)
+            // 공지/유류/환율 갱신
+            window.dispatchEvent(new CustomEvent("business-config-changed"));
+            // (옵션) 혹시 다른 곳에서 notice-changed 쓰고 있으면 같이 쏴도 됨
+            window.dispatchEvent(new CustomEvent("notice-changed", { detail: { notice: savedNotice } }));
         }
         catch (e) {
             console.error("[notice][upload] err:", e);
             setNoticeMsg("업로드 중 오류");
+            alert("업로드 중 오류");
         }
     }
     // ==========================
@@ -3023,7 +3033,7 @@ function initBusinessMasterPanel(API_BASE) {
                         data-name="${escapeHtml(it.user_name)}"
                         data-range="${escapeHtml(it.start_date)} ~ ${escapeHtml(it.end_date)}"
                         data-note="${escapeHtml(it.note ?? "")}">
-                        + 내용보기
+                        + 내용
                       </button>`
                     : `<span class="text-[11px] text-gray-400">-</span>`}
               </td>
@@ -3398,9 +3408,8 @@ function initBusinessMasterPanel(API_BASE) {
         renderDistanceTable();
     }
     // =====================================================
-    // 이벤트 바인딩
+    // 이벤트 바인딩 (1회만)
     // =====================================================
-    //btnConfigSave?.addEventListener("click", () => saveConfig(false));
     btnDistanceAddRow?.addEventListener("click", () => addEmptyRow());
     btnDistanceSave?.addEventListener("click", () => saveDistances());
     btnNoticeUpload?.addEventListener("click", uploadNoticeOnly);
@@ -3522,16 +3531,88 @@ function initBusinessMasterPanel(API_BASE) {
         refreshSummaryCalendar();
     });
     // =====================================================
-    // 초기 로딩
+    // ✅✅✅ 핵심: "패널이 다시 보일 때마다" 리셋 + 서버 재조회
     // =====================================================
-    loadConfig().then(() => {
-        loadDutyMembersFromUsers();
-    });
-    loadDistances();
-    loadVacUserOptions();
-    loadVacationList().then(() => {
-        refreshSummaryCalendar();
-    });
+    // 1) 리셋(화면+메모리 캐시)
+    function resetBusinessMasterState() {
+        // 화면 입력값/표 먼저 비우기
+        if (textareaNotice)
+            textareaNotice.value = "";
+        if (distanceTbody) {
+            distanceTbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="border px-2 py-2 text-center text-xs text-gray-400">
+            로딩 중...
+          </td>
+        </tr>
+      `;
+        }
+        if (vacationAdminTbody) {
+            vacationAdminTbody.innerHTML = `
+        <tr><td colspan="6" class="border-b px-2 py-3 text-center text-gray-400">로딩 중...</td></tr>
+      `;
+        }
+        if (sumCalGrid)
+            sumCalGrid.innerHTML = "";
+        if (sumCalLabel)
+            sumCalLabel.textContent = "";
+        // 메모리 캐시도 비우기(이게 핵심)
+        distanceRows = [];
+        deletedIds = [];
+        cachedVacations = [];
+        cachedHolidays = [];
+        cachedDutyPreviewYm = "";
+        cachedDutyPreviewAssigns = [];
+        cachedCalendarEvents = [];
+        // 당직/유저 캐시도 초기화 (다시 로드)
+        dutyMembers = [];
+        allUsers = [];
+    }
+    // 2) 서버에서 다시 가져와서 렌더
+    let _reloadInFlight = false;
+    async function reloadBusinessMasterFromServer(reason = "") {
+        if (_reloadInFlight)
+            return;
+        _reloadInFlight = true;
+        console.log("[출장업무관리] ✅ 리로드 시작:", reason);
+        try {
+            resetBusinessMasterState();
+            // ✅ 순서 중요: 설정 -> 사용자(당직후보) -> 거리 -> 휴가옵션/목록 -> 캘린더
+            await loadConfig();
+            await loadDutyMembersFromUsers();
+            await loadDistances();
+            await loadVacUserOptions();
+            await loadVacationList();
+            await refreshSummaryCalendar();
+            renderSummaryCalendar(); // 혹시라도 비어있을 때 한 번 더
+        }
+        catch (e) {
+            console.error("[출장업무관리] reloadBusinessMasterFromServer error:", e);
+        }
+        finally {
+            _reloadInFlight = false;
+        }
+    }
+    // 3) 패널이 "숨김 -> 표시" 될 때 자동 감지 (showPanel 수정 안 해도 됨)
+    //    hidden 클래스가 빠지는 순간마다 reload 실행
+    if (!panel._bmObserver) {
+        const obs = new MutationObserver(() => {
+            // panel이 보이는 상태인지 체크
+            const isHidden = panel.classList.contains("hidden");
+            if (isHidden)
+                return;
+            // 화면에 실제로 표시되는 상태(대충 체크)
+            const isVisible = panel.offsetParent !== null;
+            if (!isVisible)
+                return;
+            // ✅ 다시 보이면 무조건 서버 재조회
+            reloadBusinessMasterFromServer("panel-visible");
+        });
+        obs.observe(panel, { attributes: true, attributeFilter: ["class"] });
+        panel._bmObserver = obs;
+    }
+    // 4) 최초 진입 1회 로드
+    reloadBusinessMasterFromServer("first-load");
 }
 
 
