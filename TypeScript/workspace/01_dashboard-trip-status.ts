@@ -111,7 +111,11 @@ function escapeHtml(s: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
-
+function ymdText(v: any) {
+  if (!v) return "";
+  const s = String(v);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
 function vacTypeLabel(t: string) {
   if (t === "annual") return "연차";
   if (t === "half") return "반차";
@@ -246,10 +250,16 @@ function buildVacationMapForMonth(items: VacationItem[], base: Date) {
 
   for (const v of items) {
     if (!v?.user_name) continue;
-    if (!isYmdStr(v.start_date) || !isYmdStr(v.end_date)) continue;
 
-    const s = new Date(v.start_date + "T00:00:00");
-    const e = new Date(v.end_date + "T00:00:00");
+    // ✅ start/end 정규화 (ISO -> YYYY-MM-DD)
+    const sStr = ymdText(v.start_date);
+    const eStr = ymdText(v.end_date);
+
+    if (!isYmdStr(sStr) || !isYmdStr(eStr)) continue;
+
+    const s = new Date(sStr + "T00:00:00");
+    const e = new Date(eStr + "T00:00:00");
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) continue;
 
     const start = s < monthStart ? monthStart : s;
     const end = e > monthEnd ? monthEnd : e;
@@ -261,6 +271,7 @@ function buildVacationMapForMonth(items: VacationItem[], base: Date) {
       if (!map[key].includes(v.user_name)) map[key].push(v.user_name);
     }
   }
+
   return map;
 }
 
@@ -377,9 +388,9 @@ async function refreshDashboardTopNoticeFuelFx(API_BASE: string) {
   if (!cfg) return;
 
   // 1) 공지(상단 공지판)
- 
+
   //const noticeCard = document.querySelector("#panel-dashboard .bg-white .font-bold.text-gray-800") as HTMLElement | null;
- 
+
   const noticeCard = Array.from(document.querySelectorAll<HTMLElement>("#panel-dashboard .bg-white"))
     .find((el) => (el.textContent || "").includes("공지사항 알림판")) ?? null;
 
@@ -757,9 +768,10 @@ function renderDashboardVacation(items: VacationItem[], baseDateYmd: string) {
   const filterSelect = document.getElementById("vacationFilterType") as HTMLSelectElement | null;
 
   let todayItems = items.filter((v) => {
-    const s = String(v.start_date || "");
-    const e = String(v.end_date || "");
-    return s && e && s <= baseDateYmd && baseDateYmd <= e;
+    const s = ymdText(v.start_date);
+    const e = ymdText(v.end_date);
+    if (!isYmdStr(s) || !isYmdStr(e)) return false;
+    return s <= baseDateYmd && baseDateYmd <= e; // YYYY-MM-DD 문자열 비교는 안전
   });
 
   const filter = filterSelect?.value ?? "all";
@@ -789,17 +801,22 @@ function renderDashboardVacation(items: VacationItem[], baseDateYmd: string) {
 
   tbody.innerHTML = todayItems
     .map((v, idx) => {
-      const range = v.start_date === v.end_date ? v.start_date : `${v.start_date} ~ ${v.end_date}`;
+      // ✅ ISO든 뭐든 무조건 YYYY-MM-DD로 잘라서 표시
+      const s = ymdText(v.start_date);
+      const e = ymdText(v.end_date);
+
+      const range = s && e ? (s === e ? s : `${s} ~ ${e}`) : "-";
       const note = v.note ? escapeHtml(v.note) : "";
+
       return `
-        <tr class="text-xs text-gray-700">
-          <td class="border px-2 py-2 text-center">${idx + 1}</td>
-          <td class="border px-2 py-2 text-center font-semibold">${escapeHtml(v.user_name)}</td>
-          <td class="border px-2 py-2 text-center">${vacTypeLabel(v.vac_type)}</td>
-          <td class="border px-2 py-2 text-center">${escapeHtml(range)}</td>
-          <td class="border px-2 py-2">${note}</td>
-        </tr>
-      `;
+      <tr class="text-xs text-gray-700">
+        <td class="border px-2 py-2 text-center">${idx + 1}</td>
+        <td class="border px-2 py-2 text-center font-semibold">${escapeHtml(v.user_name)}</td>
+        <td class="border px-2 py-2 text-center">${vacTypeLabel(v.vac_type)}</td>
+        <td class="border px-2 py-2 text-center">${escapeHtml(range)}</td>
+        <td class="border px-2 py-2">${note}</td>
+      </tr>
+    `;
     })
     .join("");
 }
@@ -844,7 +861,9 @@ async function loadDashboardVacation(API_BASE: string, dateYmd: string) {
     const kpiEl = document.getElementById("kpiVacationToday") as HTMLElement | null;
     if (kpiEl) kpiEl.textContent = "0";
   }
+
 }
+
 
 /**
  * 📌 대시보드 - 출장자 현황 + 오늘 출장 인원

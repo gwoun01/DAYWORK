@@ -1,10 +1,5 @@
 // 05_business-master.ts
-// 🚗 출장업무 관리 (거리 마스터 + 유류/환율/당직자/공지 설정) 프론트 코드
-// ✅ 수정본: "당직 자동 생성" = 휴일(주말+공휴일 API)만 배정 + 표 출력 + 대시보드 표도 자동 채움
-// ✅ 추가 수정: F5 새로고침해도 당직표 유지(마지막 생성 결과를 duty_members_text에 같이 저장/복원)
-// ✅ 추가: 휴가자 설정(등록/삭제) + 대시보드 휴가자현황 갱신 이벤트
-// ✅ 추가: 휴가/당직 요약 캘린더 (월 이동 + 자동 표기)
-// ✅ 추가: 📌 캘린더 일정(등록 → 캘린더에 표시)
+
 
 type BusinessConfig = {
   fuel_price_gasoline: number | null;
@@ -129,6 +124,12 @@ function escapeHtml(s: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
+// ✅ 날짜 표시용: "2026-01-07T00:00:00.000Z" → "2026-01-07"
+function ymdText(v: any) {
+  if (!v) return "";
+  const s = String(v);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
 
 function vacTypeLabel(t: string) {
   if (t === "annual") return "연차";
@@ -168,10 +169,23 @@ type SumCalEvent = {
   text: string;
   id?: number; // ✅ 일정 삭제용 (SCHEDULE만 사용)
 };
-function datesBetweenInclusive(start: string, end: string) {
+function datesBetweenInclusive(start: any, end: any) {
   const out: string[] = [];
-  const s = new Date(start + "T00:00:00");
-  const e = new Date(end + "T00:00:00");
+
+  // ✅ ISO("2026-01-07T00:00:00.000Z")든 뭐든 앞 10글자만 사용
+  const s0 = ymdText(start);
+  const e0 = ymdText(end);
+
+  // ✅ 유효성 체크
+  if (!isYmd(s0) || !isYmd(e0)) return out;
+  if (s0 > e0) return out;
+
+  const s = new Date(s0 + "T00:00:00");
+  const e = new Date(e0 + "T00:00:00");
+
+  // 혹시라도 Date가 깨지면 방어
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return out;
+
   for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
     out.push(ymd(d));
   }
@@ -182,9 +196,13 @@ function buildVacationEvents(items: VacationItem[]) {
   const map = new Map<string, SumCalEvent[]>();
 
   for (const it of items) {
-    if (!it?.start_date || !it?.end_date) continue;
+    // ✅ ISO든 뭐든 앞 10글자 정규화
+    const s = ymdText(it?.start_date);
+    const e = ymdText(it?.end_date);
+    if (!isYmd(s) || !isYmd(e)) continue;
+
     const label = `${it.user_name}(${vacTypeLabel(it.vac_type)})`;
-    const days = datesBetweenInclusive(it.start_date, it.end_date);
+    const days = datesBetweenInclusive(s, e);
 
     for (const ds of days) {
       if (!map.has(ds)) map.set(ds, []);
@@ -195,8 +213,10 @@ function buildVacationEvents(items: VacationItem[]) {
       });
     }
   }
+
   return map;
 }
+
 
 function buildDutyEvents(assigns: DutyAssign[]) {
   const map = new Map<string, SumCalEvent[]>();
@@ -240,15 +260,21 @@ type DashEvent = { kind: "VACATION" | "DUTY"; text: string };
 
 function buildVacationMapForDash(items: VacationItem[]) {
   const map = new Map<string, DashEvent[]>();
+
   for (const it of items) {
-    if (!it?.start_date || !it?.end_date) continue;
+    const s = ymdText(it?.start_date);
+    const e = ymdText(it?.end_date);
+    if (!isYmd(s) || !isYmd(e)) continue;
+
     const label = `${it.user_name}(${vacTypeLabel(it.vac_type)})`;
-    const days = datesBetweenInclusive(it.start_date, it.end_date);
+    const days = datesBetweenInclusive(s, e);
+
     for (const ds of days) {
       if (!map.has(ds)) map.set(ds, []);
       map.get(ds)!.push({ kind: "VACATION", text: label });
     }
   }
+
   return map;
 }
 
@@ -1429,8 +1455,8 @@ export function initBusinessMasterPanel(API_BASE: string) {
     if (!vacationAdminTbody) return;
 
     vacationAdminTbody.innerHTML = `
-      <tr><td colspan="6" class="border-b px-2 py-3 text-center text-gray-400">로딩 중...</td></tr>
-    `;
+    <tr><td colspan="6" class="border-b px-2 py-3 text-center text-gray-400">로딩 중...</td></tr>
+  `;
 
     try {
       const res = await fetch(`${API_BASE}/api/business-master/vacations`, { credentials: "include" });
@@ -1438,8 +1464,8 @@ export function initBusinessMasterPanel(API_BASE: string) {
 
       if (!res.ok || json?.ok !== true) {
         vacationAdminTbody.innerHTML = `
-          <tr><td colspan="6" class="border-b px-2 py-3 text-center text-red-500">휴가 목록 조회 실패</td></tr>
-        `;
+        <tr><td colspan="6" class="border-b px-2 py-3 text-center text-red-500">휴가 목록 조회 실패</td></tr>
+      `;
         return;
       }
 
@@ -1447,46 +1473,54 @@ export function initBusinessMasterPanel(API_BASE: string) {
 
       if (!items.length) {
         vacationAdminTbody.innerHTML = `
-          <tr><td colspan="6" class="border-b px-2 py-3 text-center text-gray-400">등록된 휴가가 없습니다.</td></tr>
-        `;
+        <tr><td colspan="6" class="border-b px-2 py-3 text-center text-gray-400">등록된 휴가가 없습니다.</td></tr>
+      `;
         return;
       }
 
       vacationAdminTbody.innerHTML = items
         .map((it, idx) => {
+          const s = ymdText(it.start_date);
+          const e = ymdText(it.end_date);
+          const range = s && e && s === e ? s : `${s} ~ ${e}`;
+
+          const noteText = String(it.note ?? "").trim();
+
           return `
-            <tr class="hover:bg-gray-50">
-              <td class="border-b px-2 py-2 text-center">${idx + 1}</td>
-              <td class="border-b px-2 py-2 text-center">${escapeHtml(it.user_name)}</td>
-              <td class="border-b px-2 py-2 text-center">${vacTypeLabel(it.vac_type)}</td>
-              <td class="border-b px-2 py-2 text-center">${escapeHtml(it.start_date)} ~ ${escapeHtml(it.end_date)}</td>
-              <td class="border-b px-2 py-2 text-center whitespace-nowrap">
-                ${(it.note ?? "").trim()
+          <tr class="hover:bg-gray-50">
+            <td class="border-b px-2 py-2 text-center">${idx + 1}</td>
+            <td class="border-b px-2 py-2 text-center">${escapeHtml(it.user_name)}</td>
+            <td class="border-b px-2 py-2 text-center">${vacTypeLabel(it.vac_type)}</td>
+            <td class="border-b px-2 py-2 text-center">${escapeHtml(range)}</td>
+
+            <td class="border-b px-2 py-2 text-center whitespace-nowrap">
+              ${noteText
               ? `<button type="button"
-                        class="vac-note-btn px-2 py-1 text-[11px] rounded-lg border bg-white hover:bg-gray-50"
-                        data-name="${escapeHtml(it.user_name)}"
-                        data-range="${escapeHtml(it.start_date)} ~ ${escapeHtml(it.end_date)}"
-                        data-note="${escapeHtml(it.note ?? "")}">
-                        + 내용
-                      </button>`
+                      class="vac-note-btn px-2 py-1 text-[11px] rounded-lg border bg-white hover:bg-gray-50"
+                      data-name="${escapeHtml(it.user_name)}"
+                      data-range="${escapeHtml(range)}"
+                      data-note="${escapeHtml(noteText)}">
+                      + 내용
+                    </button>`
               : `<span class="text-[11px] text-gray-400">-</span>`
             }
-              </td>
-              <td class="border-b px-2 py-2 text-center">
-                <button type="button" data-id="${it.id}"
-                  class="px-2 py-1 text-[11px] rounded-lg bg-red-100 text-red-700 hover:bg-red-200 vac-del-btn">
-                  삭제
-                </button>
-              </td>
-            </tr>
-          `;
+            </td>
+
+            <td class="border-b px-2 py-2 text-center">
+              <button type="button" data-id="${it.id}"
+                class="px-2 py-1 text-[11px] rounded-lg bg-red-100 text-red-700 hover:bg-red-200 vac-del-btn">
+                삭제
+              </button>
+            </td>
+          </tr>
+        `;
         })
         .join("");
     } catch (e) {
       console.error("[vac] load list err:", e);
       vacationAdminTbody.innerHTML = `
-        <tr><td colspan="6" class="border-b px-2 py-3 text-center text-red-500">휴가 목록 로딩 오류</td></tr>
-      `;
+      <tr><td colspan="6" class="border-b px-2 py-3 text-center text-red-500">휴가 목록 로딩 오류</td></tr>
+    `;
     }
   }
 
@@ -1510,11 +1544,15 @@ export function initBusinessMasterPanel(API_BASE: string) {
     if (start_date > end_date) return setVacMsg("시작일이 종료일보다 클 수 없습니다.");
 
     try {
+      setVacMsg("등록 중...");
+
       const res = await fetch(`${API_BASE}/api/business-master/vacations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ user_no, user_name, vac_type, start_date, end_date, note }),
       });
+
       const json = await res.json().catch(() => null);
 
       if (!res.ok || json?.ok !== true) {
@@ -1524,10 +1562,16 @@ export function initBusinessMasterPanel(API_BASE: string) {
 
       setVacMsg("등록 완료");
       if (vacNote) vacNote.value = "";
-      await loadVacationList();
-      window.dispatchEvent(new CustomEvent("vacation-status-refresh"));
 
-      refreshSummaryCalendar();
+      // ✅ 테이블 갱신
+      await loadVacationList();
+
+      // ✅✅✅ 핵심: 요약캘린더 캐시를 '즉시' 최신화 후 렌더
+      cachedVacations = await fetchVacationsAll();
+      renderSummaryCalendar();
+
+      // (옵션) 다른 화면(대시보드)에서 듣고 있으면 유지
+      window.dispatchEvent(new CustomEvent("vacation-status-refresh"));
     } catch (e) {
       console.error("[vac] add err:", e);
       setVacMsg("휴가 등록 중 오류");
@@ -1697,6 +1741,7 @@ export function initBusinessMasterPanel(API_BASE: string) {
       const json = await res.json().catch(() => ({}));
 
       if (!res.ok || json?.ok === false) {
+        loadVacationList
         console.error("[출장업무관리] 설정 저장 실패 status =", res.status, json);
         if (!forceSilent) alert(json?.error || "설정 저장 중 오류가 발생했습니다.");
         return;
@@ -1924,6 +1969,7 @@ export function initBusinessMasterPanel(API_BASE: string) {
       setVacMsg("삭제 중 오류");
     }
   });
+
 
   distanceTbody.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;

@@ -547,15 +547,8 @@ export default function businessMasterRouter(pool: Pool) {
   });
 
   // =====================================================
-  // 5) ✅ 캘린더 일정 (calendar_events 테이블로 전환)
+  // 5) ✅ 캘린더 일정 (calendar_events 테이블)
   // =====================================================
-  type CalendarEventItem = {
-    id: number;
-    date: string;
-    title: string;
-    created_at: string;
-    created_by?: number | null;
-  };
 
   // ✅ 목록 조회: /calendar-events?ym=2026-01 (없으면 전체)
   router.get("/calendar-events", async (req, res) => {
@@ -564,26 +557,39 @@ export default function businessMasterRouter(pool: Pool) {
 
       if (ym) {
         const start = `${ym}-01`;
-        const end = `${ym}-31`; // 간단 필터(문자열 비교), date 타입이면 OK
 
         const r = await pool.query(
           `
-          SELECT id, date, title, created_by, created_at
+          SELECT
+            id,
+            date::text AS date,     -- ✅ 무조건 YYYY-MM-DD 문자열
+            title,
+            created_by,
+            created_at
           FROM calendar_events
-          WHERE date >= $1 AND date <= $2
-          ORDER BY id DESC
+          WHERE date >= $1::date
+            AND date <  ($1::date + INTERVAL '1 month')
+          ORDER BY date ASC, id ASC
           `,
-          [start, end]
+          [start]
         );
-        return res.json({ ok: true, ym, items: r.rows });
+
+        // ✅ items/rows/data 모두 내려서 프론트 호환
+        return res.json({ ok: true, ym, items: r.rows, rows: r.rows, data: r.rows });
       }
 
       const r = await pool.query(`
-        SELECT id, date, title, created_by, created_at
+        SELECT
+          id,
+          date::text AS date,     -- ✅ 무조건 YYYY-MM-DD 문자열
+          title,
+          created_by,
+          created_at
         FROM calendar_events
-        ORDER BY id DESC
+        ORDER BY date ASC, id ASC
       `);
-      return res.json({ ok: true, ym: null, items: r.rows });
+
+      return res.json({ ok: true, ym: null, items: r.rows, rows: r.rows, data: r.rows });
     } catch (err) {
       console.error("[calendar-events][GET] err:", err);
       return res.status(500).json({ ok: false, error: "일정 목록 조회 에러" });
@@ -607,7 +613,12 @@ export default function businessMasterRouter(pool: Pool) {
         `
         INSERT INTO calendar_events (date, title, created_by)
         VALUES ($1,$2,$3)
-        RETURNING id, date, title, created_by, created_at
+        RETURNING
+          id,
+          date::text AS date,     -- ✅ RETURNING도 문자열로
+          title,
+          created_by,
+          created_at
         `,
         [String(date), t, created_by != null && created_by !== "" ? Number(created_by) : null]
       );
