@@ -1,5 +1,5 @@
 // src/TypeScript/workspace/02_trip-approval.ts
-
+import { placeLabel } from "./utils/DistanceCalc";
 
 type TripRow = {
     trip_id: string;
@@ -38,9 +38,7 @@ function formatDateLabel(value: string | null | undefined): string {
     if (value.length >= 10) return value.slice(0, 10);
     const d = new Date(value);
     if (isNaN(d.getTime())) return value;
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-        d.getDate()
-    ).padStart(2, "0")}`;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 /** 특정 날짜가 속한 주(월~일) 구하기 */
@@ -84,14 +82,9 @@ function buildWeeklyGroups(rows: TripRow[]): WeeklyGroup[] {
         group.rows.push(row);
     }
 
-    // 보기 좋게 정렬
     return Array.from(map.values()).sort((a, b) => {
-        if (a.weekStart !== b.weekStart) {
-            return a.weekStart.localeCompare(b.weekStart);
-        }
-        if (a.company_part !== b.company_part) {
-            return a.company_part.localeCompare(b.company_part);
-        }
+        if (a.weekStart !== b.weekStart) return a.weekStart.localeCompare(b.weekStart);
+        if (a.company_part !== b.company_part) return a.company_part.localeCompare(b.company_part);
         return a.req_name.localeCompare(b.req_name);
     });
 }
@@ -102,6 +95,27 @@ const API_BASE =
         : "http://127.0.0.1:5050";
 
 let currentGroup: WeeklyGroup | null = null;
+
+/** ✅ 차량값이 뭐로 오든 표준화 */
+function normalizeVehicle(v: any): "corp" | "personal" | "other" | "public" | "" {
+    const s = String(v ?? "").trim();
+    if (!s) return "";
+    if (s === "corp" || s === "corporate") return "corp";
+    if (s === "personal") return "personal";
+    if (s === "other" || s === "other_personal") return "other";
+    if (s === "public") return "public";
+    return "other";
+}
+
+/** ✅ 차량 표시 라벨 */
+function vehicleLabel(v: any): string {
+    const code = normalizeVehicle(v);
+    if (code === "corp") return "법인";
+    if (code === "personal") return "개인";
+    if (code === "public") return "대중교통";
+    if (code === "other") return "기타";
+    return "-";
+}
 
 export function initTripApprovalPanel(_panelId: string) {
     const fromInput = getEl<HTMLInputElement>("appr_from");
@@ -208,8 +222,7 @@ export function initTripApprovalPanel(_panelId: string) {
                 const btn = document.createElement("button");
                 btn.type = "button";
                 btn.textContent = "주간 상세";
-                btn.className =
-                    "px-2 py-1 rounded-lg bg-indigo-500 text-white text-[11px] hover:bg-indigo-600";
+                btn.className = "px-2 py-1 rounded-lg bg-indigo-500 text-white text-[11px] hover:bg-indigo-600";
                 btn.addEventListener("click", () => openWeeklyDetailModal(g));
                 tdDetail.appendChild(btn);
                 tr.appendChild(tdDetail);
@@ -251,16 +264,13 @@ export function initTripApprovalPanel(_panelId: string) {
             let failed = 0;
 
             for (const row of currentGroup.rows) {
-                if (row.approve_status === "approved") continue; // 이미 승인된 건은 패스
-                const res = await fetch(
-                    `${API_BASE}/api/business-trip/${encodeURIComponent(row.trip_id)}/approve`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        credentials: "include",
-                        body: JSON.stringify({ approver, comment }),
-                    }
-                );
+                if (row.approve_status === "approved") continue;
+                const res = await fetch(`${API_BASE}/api/business-trip/${encodeURIComponent(row.trip_id)}/approve`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ approver, comment }),
+                });
                 const json = await res.json();
                 if (!json.ok) {
                     failed++;
@@ -268,11 +278,8 @@ export function initTripApprovalPanel(_panelId: string) {
                 }
             }
 
-            if (failed > 0) {
-                alert(`일부(${failed}건)는 승인에 실패했습니다. 콘솔을 확인해주세요.`);
-            } else {
-                alert("해당 주간 출장 건이 모두 승인되었습니다.");
-            }
+            if (failed > 0) alert(`일부(${failed}건)는 승인에 실패했습니다. 콘솔을 확인해주세요.`);
+            else alert("해당 주간 출장 건이 모두 승인되었습니다.");
 
             modal.classList.add("hidden");
             modal.classList.remove("flex");
@@ -296,16 +303,13 @@ export function initTripApprovalPanel(_panelId: string) {
             let failed = 0;
 
             for (const row of currentGroup.rows) {
-                if (row.approve_status === "rejected") continue; // 이미 반려된 건은 패스
-                const res = await fetch(
-                    `${API_BASE}/api/business-trip/${encodeURIComponent(row.trip_id)}/reject`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        credentials: "include",
-                        body: JSON.stringify({ approver, comment }),
-                    }
-                );
+                if (row.approve_status === "rejected") continue;
+                const res = await fetch(`${API_BASE}/api/business-trip/${encodeURIComponent(row.trip_id)}/reject`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ approver, comment }),
+                });
                 const json = await res.json();
                 if (!json.ok) {
                     failed++;
@@ -313,11 +317,8 @@ export function initTripApprovalPanel(_panelId: string) {
                 }
             }
 
-            if (failed > 0) {
-                alert(`일부(${failed}건)는 반려에 실패했습니다. 콘솔을 확인해주세요.`);
-            } else {
-                alert("해당 주간 출장 건이 모두 반려되었습니다.");
-            }
+            if (failed > 0) alert(`일부(${failed}건)는 반려에 실패했습니다. 콘솔을 확인해주세요.`);
+            else alert("해당 주간 출장 건이 모두 반려되었습니다.");
 
             modal.classList.add("hidden");
             modal.classList.remove("flex");
@@ -337,24 +338,13 @@ function openWeeklyDetailModal(group: WeeklyGroup) {
     modal.classList.remove("hidden");
     modal.classList.add("flex");
 
-    // 첫 번째 행 기준으로 출장지/차량 상단 요약
-    const firstRow = group.rows[0];
-    const firstReg = (firstRow.detail_json?.register || firstRow.start_data || {}) as any;
-    const firstSet = (firstRow.detail_json?.settlement || firstRow.end_data || {}) as any;
-
     getEl<HTMLDivElement>("appr_d_name").textContent = group.req_name;
-    getEl<HTMLDivElement>("appr_d_date").textContent = `${formatDateLabel(
-        group.weekStart
-    )} ~ ${formatDateLabel(group.weekEnd)}`;
+    getEl<HTMLDivElement>("appr_d_date").textContent = `${formatDateLabel(group.weekStart)} ~ ${formatDateLabel(group.weekEnd)}`;
 
-    // 본문 테이블: 주간 전체 행
     const tbody = getEl<HTMLTableSectionElement>("appr_detail_tbody");
     tbody.innerHTML = "";
 
-    // 일자순 정렬
-    const sorted = [...group.rows].sort((a, b) =>
-        a.trip_date.localeCompare(b.trip_date)
-    );
+    const sorted = [...group.rows].sort((a, b) => a.trip_date.localeCompare(b.trip_date));
 
     function td(text: string, cls = "border px-2 py-1 text-center") {
         const el = document.createElement("td");
@@ -373,27 +363,25 @@ function openWeeklyDetailModal(group: WeeklyGroup) {
     for (const row of sorted) {
         const reg = (row.detail_json?.register || row.start_data || {}) as any;
         const set = (row.detail_json?.settlement || row.end_data || {}) as any;
+
         const workTime =
             reg.depart_time && set.work_end_time ? `${reg.depart_time} ~ ${set.work_end_time}` : "";
+
         const meals = set.meals || {};
 
         const tr = document.createElement("tr");
         tr.appendChild(td(formatDateLabel(row.trip_date))); // 일자
-        tr.appendChild(td(reg.depart_place ?? "")); // 출발지
+        tr.appendChild(td(placeLabel(reg.depart_place ?? ""))); // ✅ 출발지 한글표기
         tr.appendChild(td(reg.destination ?? "")); // 출장지
         tr.appendChild(td(reg.depart_time ?? "")); // 출발시간
         tr.appendChild(td(reg.arrive_time ?? "")); // 도착시간
         tr.appendChild(td(workTime)); // 업무시간
-        tr.appendChild(td(set.return_place ?? "")); // 복귀지
-        tr.appendChild(
-            td(set.vehicle === "corp" ? "법인" : set.vehicle === "personal" ? "개인" : "-")
-        ); // 차량
+        tr.appendChild(td(placeLabel(set.return_place ?? ""))); // ✅ 복귀지 한글표기
+        tr.appendChild(td(vehicleLabel(set.vehicle))); // ✅ 차량 표기 통일
         tr.appendChild(td(mealText(meals.breakfast))); // 조식
         tr.appendChild(td(mealText(meals.lunch))); // 중식
         tr.appendChild(td(mealText(meals.dinner))); // 석식
-        tr.appendChild(
-            td(reg.purpose ?? "", "border px-2 py-1 text-left whitespace-pre-wrap")
-        ); // 목적
+        tr.appendChild(td(reg.purpose ?? "", "border px-2 py-1 text-left whitespace-pre-wrap")); // 목적
 
         tbody.appendChild(tr);
     }
@@ -409,14 +397,13 @@ function openWeeklyDetailModal(group: WeeklyGroup) {
         totalFuelAmount += c.fuel_amount ?? 0;
     }
 
-    const amountBox = getEl<HTMLDivElement>("appr_amount_box"); // HTML에 div 하나 만들어두기
+    const amountBox = getEl<HTMLDivElement>("appr_amount_box");
     const sum = totalMealsAmount + totalFuelAmount;
     amountBox.textContent = `식대(개인) ${totalMealsAmount.toLocaleString()}원 / 유류비 ${totalFuelAmount.toLocaleString()}원 / 합계 ${sum.toLocaleString()}원`;
 
     // 승인/반려 상태 요약
     const total = group.rows.length;
-    const pending = group.rows.filter((r) => !r.approve_status || r.approve_status === "pending")
-        .length;
+    const pending = group.rows.filter((r) => !r.approve_status || r.approve_status === "pending").length;
     const approved = group.rows.filter((r) => r.approve_status === "approved").length;
     const rejected = group.rows.filter((r) => r.approve_status === "rejected").length;
 
@@ -424,6 +411,5 @@ function openWeeklyDetailModal(group: WeeklyGroup) {
     footer.textContent = `총 ${total}건 / 대기 ${pending}건 / 승인 ${approved}건 / 반려 ${rejected}건`;
 
     // 의견 초기화
-    getEl<HTMLTextAreaElement>("appr_comment").value =
-        group.rows[0]?.approve_comment ?? "";
+    getEl<HTMLTextAreaElement>("appr_comment").value = group.rows[0]?.approve_comment ?? "";
 }

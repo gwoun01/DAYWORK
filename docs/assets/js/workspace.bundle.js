@@ -886,7 +886,9 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   initTripApprovalPanel: () => (/* binding */ initTripApprovalPanel)
 /* harmony export */ });
+/* harmony import */ var _utils_DistanceCalc__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./utils/DistanceCalc */ "./TypeScript/workspace/utils/DistanceCalc.ts");
 // src/TypeScript/workspace/02_trip-approval.ts
+
 function getEl(id) {
     const el = document.getElementById(id);
     if (!el)
@@ -941,14 +943,11 @@ function buildWeeklyGroups(rows) {
         }
         group.rows.push(row);
     }
-    // 보기 좋게 정렬
     return Array.from(map.values()).sort((a, b) => {
-        if (a.weekStart !== b.weekStart) {
+        if (a.weekStart !== b.weekStart)
             return a.weekStart.localeCompare(b.weekStart);
-        }
-        if (a.company_part !== b.company_part) {
+        if (a.company_part !== b.company_part)
             return a.company_part.localeCompare(b.company_part);
-        }
         return a.req_name.localeCompare(b.req_name);
     });
 }
@@ -956,6 +955,34 @@ const API_BASE = location.hostname === "gwoun01.github.io"
     ? "https://outwork.sel3.cloudtype.app"
     : "http://127.0.0.1:5050";
 let currentGroup = null;
+/** ✅ 차량값이 뭐로 오든 표준화 */
+function normalizeVehicle(v) {
+    const s = String(v ?? "").trim();
+    if (!s)
+        return "";
+    if (s === "corp" || s === "corporate")
+        return "corp";
+    if (s === "personal")
+        return "personal";
+    if (s === "other" || s === "other_personal")
+        return "other";
+    if (s === "public")
+        return "public";
+    return "other";
+}
+/** ✅ 차량 표시 라벨 */
+function vehicleLabel(v) {
+    const code = normalizeVehicle(v);
+    if (code === "corp")
+        return "법인";
+    if (code === "personal")
+        return "개인";
+    if (code === "public")
+        return "대중교통";
+    if (code === "other")
+        return "기타";
+    return "-";
+}
 function initTripApprovalPanel(_panelId) {
     const fromInput = getEl("appr_from");
     const toInput = getEl("appr_to");
@@ -1046,8 +1073,7 @@ function initTripApprovalPanel(_panelId) {
                 const btn = document.createElement("button");
                 btn.type = "button";
                 btn.textContent = "주간 상세";
-                btn.className =
-                    "px-2 py-1 rounded-lg bg-indigo-500 text-white text-[11px] hover:bg-indigo-600";
+                btn.className = "px-2 py-1 rounded-lg bg-indigo-500 text-white text-[11px] hover:bg-indigo-600";
                 btn.addEventListener("click", () => openWeeklyDetailModal(g));
                 tdDetail.appendChild(btn);
                 tr.appendChild(tdDetail);
@@ -1086,7 +1112,7 @@ function initTripApprovalPanel(_panelId) {
             let failed = 0;
             for (const row of currentGroup.rows) {
                 if (row.approve_status === "approved")
-                    continue; // 이미 승인된 건은 패스
+                    continue;
                 const res = await fetch(`${API_BASE}/api/business-trip/${encodeURIComponent(row.trip_id)}/approve`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -1099,12 +1125,10 @@ function initTripApprovalPanel(_panelId) {
                     console.error("승인 실패", row.trip_id, json);
                 }
             }
-            if (failed > 0) {
+            if (failed > 0)
                 alert(`일부(${failed}건)는 승인에 실패했습니다. 콘솔을 확인해주세요.`);
-            }
-            else {
+            else
                 alert("해당 주간 출장 건이 모두 승인되었습니다.");
-            }
             modal.classList.add("hidden");
             modal.classList.remove("flex");
             getEl("appr_search").click();
@@ -1128,7 +1152,7 @@ function initTripApprovalPanel(_panelId) {
             let failed = 0;
             for (const row of currentGroup.rows) {
                 if (row.approve_status === "rejected")
-                    continue; // 이미 반려된 건은 패스
+                    continue;
                 const res = await fetch(`${API_BASE}/api/business-trip/${encodeURIComponent(row.trip_id)}/reject`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -1141,12 +1165,10 @@ function initTripApprovalPanel(_panelId) {
                     console.error("반려 실패", row.trip_id, json);
                 }
             }
-            if (failed > 0) {
+            if (failed > 0)
                 alert(`일부(${failed}건)는 반려에 실패했습니다. 콘솔을 확인해주세요.`);
-            }
-            else {
+            else
                 alert("해당 주간 출장 건이 모두 반려되었습니다.");
-            }
             modal.classList.add("hidden");
             modal.classList.remove("flex");
             getEl("appr_search").click();
@@ -1163,16 +1185,10 @@ function openWeeklyDetailModal(group) {
     const modal = getEl("appr_modal");
     modal.classList.remove("hidden");
     modal.classList.add("flex");
-    // 첫 번째 행 기준으로 출장지/차량 상단 요약
-    const firstRow = group.rows[0];
-    const firstReg = (firstRow.detail_json?.register || firstRow.start_data || {});
-    const firstSet = (firstRow.detail_json?.settlement || firstRow.end_data || {});
     getEl("appr_d_name").textContent = group.req_name;
     getEl("appr_d_date").textContent = `${formatDateLabel(group.weekStart)} ~ ${formatDateLabel(group.weekEnd)}`;
-    // 본문 테이블: 주간 전체 행
     const tbody = getEl("appr_detail_tbody");
     tbody.innerHTML = "";
-    // 일자순 정렬
     const sorted = [...group.rows].sort((a, b) => a.trip_date.localeCompare(b.trip_date));
     function td(text, cls = "border px-2 py-1 text-center") {
         const el = document.createElement("td");
@@ -1196,13 +1212,13 @@ function openWeeklyDetailModal(group) {
         const meals = set.meals || {};
         const tr = document.createElement("tr");
         tr.appendChild(td(formatDateLabel(row.trip_date))); // 일자
-        tr.appendChild(td(reg.depart_place ?? "")); // 출발지
+        tr.appendChild(td((0,_utils_DistanceCalc__WEBPACK_IMPORTED_MODULE_0__.placeLabel)(reg.depart_place ?? ""))); // ✅ 출발지 한글표기
         tr.appendChild(td(reg.destination ?? "")); // 출장지
         tr.appendChild(td(reg.depart_time ?? "")); // 출발시간
         tr.appendChild(td(reg.arrive_time ?? "")); // 도착시간
         tr.appendChild(td(workTime)); // 업무시간
-        tr.appendChild(td(set.return_place ?? "")); // 복귀지
-        tr.appendChild(td(set.vehicle === "corp" ? "법인" : set.vehicle === "personal" ? "개인" : "-")); // 차량
+        tr.appendChild(td((0,_utils_DistanceCalc__WEBPACK_IMPORTED_MODULE_0__.placeLabel)(set.return_place ?? ""))); // ✅ 복귀지 한글표기
+        tr.appendChild(td(vehicleLabel(set.vehicle))); // ✅ 차량 표기 통일
         tr.appendChild(td(mealText(meals.breakfast))); // 조식
         tr.appendChild(td(mealText(meals.lunch))); // 중식
         tr.appendChild(td(mealText(meals.dinner))); // 석식
@@ -1218,20 +1234,18 @@ function openWeeklyDetailModal(group) {
         totalMealsAmount += c.meals_personal_amount ?? 0;
         totalFuelAmount += c.fuel_amount ?? 0;
     }
-    const amountBox = getEl("appr_amount_box"); // HTML에 div 하나 만들어두기
+    const amountBox = getEl("appr_amount_box");
     const sum = totalMealsAmount + totalFuelAmount;
     amountBox.textContent = `식대(개인) ${totalMealsAmount.toLocaleString()}원 / 유류비 ${totalFuelAmount.toLocaleString()}원 / 합계 ${sum.toLocaleString()}원`;
     // 승인/반려 상태 요약
     const total = group.rows.length;
-    const pending = group.rows.filter((r) => !r.approve_status || r.approve_status === "pending")
-        .length;
+    const pending = group.rows.filter((r) => !r.approve_status || r.approve_status === "pending").length;
     const approved = group.rows.filter((r) => r.approve_status === "approved").length;
     const rejected = group.rows.filter((r) => r.approve_status === "rejected").length;
     const footer = getEl("appr_footer_info");
     footer.textContent = `총 ${total}건 / 대기 ${pending}건 / 승인 ${approved}건 / 반려 ${rejected}건`;
     // 의견 초기화
-    getEl("appr_comment").value =
-        group.rows[0]?.approve_comment ?? "";
+    getEl("appr_comment").value = group.rows[0]?.approve_comment ?? "";
 }
 
 
@@ -3677,6 +3691,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./utils/ModalUtil */ "./TypeScript/workspace/utils/ModalUtil.ts");
 // TypeScript/workspace/08_domestic-trip-register.ts
 
+// ✅ 모듈(탭) 메모리 유지용: 새로고침/로그아웃/브라우저 종료 시 자동 초기화
+let ACTIVE = null;
 function getEl(id) {
     const el = document.getElementById(id);
     if (!el)
@@ -3685,33 +3701,6 @@ function getEl(id) {
 }
 function textOrEmpty(v) {
     return String(v ?? "").trim();
-}
-// ✅ 로컬스토리지 키
-const LS_ACTIVE = "domesticTripActive"; // 등록 성공 후 유지용(정산 전까지)
-const LS_SETTLE_DATE = "settleTargetDate";
-const LS_SETTLE_NAME = "settleTargetReqName";
-/** ✅ 등록 성공(진행중) 데이터 읽기 */
-function readActive() {
-    try {
-        const raw = localStorage.getItem(LS_ACTIVE);
-        if (!raw)
-            return null;
-        const obj = JSON.parse(raw);
-        if (!obj?.payload)
-            return null;
-        return obj;
-    }
-    catch {
-        return null;
-    }
-}
-/** ✅ 등록 성공(진행중) 데이터 저장 */
-function writeActive(active) {
-    localStorage.setItem(LS_ACTIVE, JSON.stringify(active));
-}
-/** ✅ 등록 성공(진행중) 데이터 삭제 = 이제 유지 안 함(정산완료/취소 등) */
-function clearActive() {
-    localStorage.removeItem(LS_ACTIVE);
 }
 /** ✅ 서버 응답에서 trip_id 최대한 찾아내기(서버 구조 달라도 대응) */
 function pickTripIdFromResponse(data) {
@@ -3725,6 +3714,70 @@ function pickTripIdFromResponse(data) {
         data?.result?.id;
     const s = textOrEmpty(cand);
     return s ? s : undefined;
+}
+/**
+ * ✅ URL 파라미터 읽기 (search + hash 둘 다 대응)
+ * - 일반 URL:   /workspace?req_name=...&trip_date=...
+ * - 해시 라우팅: /workspace#something?req_name=...&trip_date=...
+ */
+function getQueryParam(name) {
+    try {
+        const url = new URL(window.location.href);
+        const fromSearch = url.searchParams.get(name);
+        if (fromSearch)
+            return fromSearch;
+        const hash = String(url.hash ?? "");
+        const qIdx = hash.indexOf("?");
+        if (qIdx >= 0) {
+            const hashQuery = hash.slice(qIdx + 1);
+            const sp = new URLSearchParams(hashQuery);
+            return sp.get(name) ?? "";
+        }
+        return "";
+    }
+    catch {
+        return "";
+    }
+}
+/** ✅ URL 파라미터 세팅/삭제 (현재 라우팅 방식과 무관하게 최대한 안전하게 처리) */
+function setQueryParams(params) {
+    try {
+        const url = new URL(window.location.href);
+        // 기본: search에 넣기
+        Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+        // hash 라우팅이면 hash의 query도 맞춰주기(있을 때만)
+        const hash = String(url.hash ?? "");
+        const qIdx = hash.indexOf("?");
+        if (qIdx >= 0) {
+            const base = hash.slice(0, qIdx);
+            const sp = new URLSearchParams(hash.slice(qIdx + 1));
+            Object.entries(params).forEach(([k, v]) => sp.set(k, v));
+            url.hash = `${base}?${sp.toString()}`;
+        }
+        window.history.replaceState(null, "", url.toString());
+    }
+    catch {
+        // ignore
+    }
+}
+function clearQueryParams(keys) {
+    try {
+        const url = new URL(window.location.href);
+        keys.forEach((k) => url.searchParams.delete(k));
+        const hash = String(url.hash ?? "");
+        const qIdx = hash.indexOf("?");
+        if (qIdx >= 0) {
+            const base = hash.slice(0, qIdx);
+            const sp = new URLSearchParams(hash.slice(qIdx + 1));
+            keys.forEach((k) => sp.delete(k));
+            const qs = sp.toString();
+            url.hash = qs ? `${base}?${qs}` : base;
+        }
+        window.history.replaceState(null, "", url.toString());
+    }
+    catch {
+        // ignore
+    }
 }
 function initDomesticTripRegisterPanel(API_BASE) {
     const panel = document.getElementById("panel-국내출장-출장등록");
@@ -3749,10 +3802,13 @@ function initDomesticTripRegisterPanel(API_BASE) {
     const departTimeInput = getEl("bt_depart_time");
     const arriveTimeInput = getEl("bt_arrive_time");
     const purposeInput = getEl("bt_purpose");
-    /** ✅ 입력값 싹 비우기(등록 안 한 상태면 화면 이동 시 이걸 실행) */
+    function currentUserName() {
+        return (userNameEl?.textContent ?? "").trim();
+    }
+    /** ✅ 입력값 싹 비우기 */
     function clearFormUI() {
         // 요청자
-        reqNameInput.value = (userNameEl?.textContent ?? "").trim() || "사용자";
+        reqNameInput.value = currentUserName() || "사용자";
         // 출발지
         departPlaceSelect.value = "";
         if (departPlaceOther) {
@@ -3771,12 +3827,11 @@ function initDomesticTripRegisterPanel(API_BASE) {
         if (settlementSection)
             settlementSection.classList.add("hidden");
     }
-    /** ✅ 등록 성공 데이터로 UI 복원(정산 전이면 값 유지) */
+    /** ✅ 메모리 ACTIVE로 UI 복원 */
     function restoreFromActive(active) {
         const p = active.payload;
-        reqNameInput.value = p.req_name || ((userNameEl?.textContent ?? "").trim() || "사용자");
+        reqNameInput.value = p.req_name || (currentUserName() || "사용자");
         // depart_place: company/home/기타텍스트
-        // select가 company/home/other라면:
         if (p.depart_place === "company" || p.depart_place === "home") {
             departPlaceSelect.value = p.depart_place;
             if (departPlaceOther) {
@@ -3785,7 +3840,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
             }
         }
         else {
-            // 기타
             departPlaceSelect.value = "other";
             if (departPlaceOther) {
                 departPlaceOther.classList.remove("hidden");
@@ -3797,27 +3851,36 @@ function initDomesticTripRegisterPanel(API_BASE) {
         departTimeInput.value = p.depart_time || "";
         arriveTimeInput.value = p.arrive_time || "";
         purposeInput.value = p.purpose || "";
-        // UI 상태
         resultBox.textContent = "✅ 등록된 출장건(정산 전)입니다. 계속 정산을 진행할 수 있습니다.";
         if (continueBtn)
             continueBtn.classList.remove("hidden");
         if (settlementSection)
             settlementSection.classList.add("hidden");
-        // 정산 타겟(정산 화면에서 이어서 쓰는 용)
-        if (p.start_date)
-            localStorage.setItem(LS_SETTLE_DATE, p.start_date);
-        if (p.req_name)
-            localStorage.setItem(LS_SETTLE_NAME, p.req_name);
     }
-    /** ✅ 패널이 열릴 때: active 있으면 복원, 없으면 리셋(등록 전 값은 남기지 않음) */
+    /** ✅ 패널 열릴 때 규칙: ACTIVE 있으면 복원 / 없으면 리셋 */
     function applyOpenRule() {
-        const active = readActive();
-        if (active)
-            restoreFromActive(active);
+        if (ACTIVE)
+            restoreFromActive(ACTIVE);
         else
             clearFormUI();
+        // ✅ URL 파라미터로 넘어온 정산 타겟이 있으면(그리고 현재 유저와 같으면) 최소한 날짜/이름은 채워줌
+        const qpName = getQueryParam("req_name");
+        const qpDate = getQueryParam("trip_date");
+        const me = currentUserName();
+        if (qpName && qpDate && me && qpName === me) {
+            reqNameInput.value = qpName;
+            startInput.value = qpDate;
+            // 여기서는 자동으로 정산 섹션을 열지 않음(사용자가 버튼으로 열도록)
+            // 원하면 아래 2줄을 주석 해제하면 "바로 정산"처럼 동작 가능
+            // settlementSection?.classList.remove("hidden");
+            // settlementSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+        else if (qpName || qpDate) {
+            // 다른 계정/잘못된 파라미터면 즉시 제거(정보 잔존/오동작 방지)
+            clearQueryParams(["req_name", "trip_date"]);
+        }
     }
-    // ✅ 최초 1회: 열릴 때 규칙 적용
+    // ✅ 최초 1회 적용
     applyOpenRule();
     // 초기 숨김(복원 로직에서 필요하면 풀림)
     if (continueBtn)
@@ -3833,7 +3896,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
         if (!isOther)
             departPlaceOther.value = "";
     });
-    // ✅ 거래처 목록 로딩 (강력 방어 + 디버그 로그 포함)
+    // ✅ 거래처 목록 로딩
     async function loadClients() {
         try {
             destinationSelect.innerHTML = `<option value="">거래처(출장지) 선택</option>`;
@@ -3864,43 +3927,37 @@ function initDomesticTripRegisterPanel(API_BASE) {
             if (destinationSelect.options.length <= 1) {
                 console.warn("[REGISTER] 거래처 목록이 비었습니다. 서버 응답 구조 확인 필요:", json);
             }
-            // ✅ 거래처 목록 로드 후: active가 있으면 destination value가 적용되도록 재복원(옵션이 아직 없었을 수 있음)
-            const active = readActive();
-            if (active?.payload?.destination) {
-                destinationSelect.value = active.payload.destination;
+            // ✅ 목록 로드 후: ACTIVE가 있으면 destination 값 재적용(옵션이 늦게 붙었을 수 있음)
+            if (ACTIVE?.payload?.destination) {
+                destinationSelect.value = ACTIVE.payload.destination;
             }
         }
         catch (err) {
             console.warn("[REGISTER] 거래처 목록 로딩 실패:", err);
         }
     }
-    // ✅ (중요) 여기서 실제로 실행해야 목록이 뜸!!
     loadClients();
-    // ✅ "패널 이동" 감지: hidden 토글을 감시해서
-    // - 패널이 닫힐 때(active 없으면) 입력값 즉시 리셋
-    // - 패널이 다시 열릴 때 active 있으면 복원 / 없으면 리셋
+    // ✅ 패널 이동 감지(hidden 토글)
+    // - 패널을 떠나는 순간: 등록 전/후와 무관하게 "입력 중 캐시"는 남기지 않음
     const mo = new MutationObserver(() => {
         const isHidden = panel.classList.contains("hidden");
         if (isHidden) {
-            // ✅ 화면을 떠나는 순간: 등록 성공(active) 없으면 다 날려야 함
-            if (!readActive())
+            // ✅ 화면 떠나면: ACTIVE는 메모리로만 유지(원하면 여기서 ACTIVE도 null로 만들어도 됨)
+            // 입력중 값은 남기지 않기 위해 UI는 정리
+            if (!ACTIVE)
                 clearFormUI();
         }
         else {
-            // ✅ 다시 돌아오는 순간: active 있으면 복원, 없으면 리셋
             applyOpenRule();
-            // 거래처 목록이 늦게 올 수도 있으니 다시 로드(원하면 제거 가능)
             loadClients();
         }
     });
     mo.observe(panel, { attributes: true, attributeFilter: ["class"] });
-    // 🔹 리셋 버튼: (등록 전/후) 사용자가 직접 초기화하면
-    // - 화면값 초기화 + active도 삭제(=이제 유지하지 않음)
+    // 🔹 리셋 버튼: UI 초기화 + ACTIVE 제거 + URL 파라미터 제거
     resetBtn.addEventListener("click", async () => {
-        const active = readActive();
-        if (active) {
+        if (ACTIVE) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
-                type: "alert", // ✅ confirm → alert
+                type: "alert",
                 title: "초기화",
                 message: "등록된 출장건(정산 전)이 남아있습니다.\n" +
                     "초기화하면 해당 내용은 더 이상 유지되지 않습니다.",
@@ -3908,8 +3965,8 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 showCancel: false,
             });
         }
-        // ✅ 무조건 초기화 진행
-        clearActive();
+        ACTIVE = null;
+        clearQueryParams(["req_name", "trip_date"]);
         clearFormUI();
         loadClients();
     });
@@ -3983,14 +4040,16 @@ function initDomesticTripRegisterPanel(API_BASE) {
             }
             const data = await res.json().catch(() => null);
             console.log("출장등록 성공 응답:", data);
-            // ✅✅✅ 핵심: "등록 성공"시에만 localStorage에 저장(정산 전까지 유지)
+            // ✅✅✅ 핵심: localStorage 저장 없음. 탭 메모리(ACTIVE)만 세팅
             const trip_id = pickTripIdFromResponse(data);
-            writeActive({
-                savedAt: Date.now(),
-                trip_id,
-                payload,
+            ACTIVE = { savedAt: Date.now(), trip_id, payload };
+            // ✅ URL 파라미터도 세팅(이어서 정산 타겟 전달용)
+            // - 다른 계정 로그인 시 자동 제거하도록 applyOpenRule에서 검사함
+            setQueryParams({
+                req_name: payload.req_name,
+                trip_date: payload.start_date,
             });
-            resultBox.textContent = "✅ 출장 등록 완료 (정산 전까지 유지됩니다.)";
+            resultBox.textContent = "✅ 출장 등록 완료 (정산 전까지 탭에서만 유지됩니다.)";
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
                 title: "저장 완료",
@@ -4002,8 +4061,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 continueBtn.classList.remove("hidden");
             if (settlementSection)
                 settlementSection.classList.add("hidden");
-            localStorage.setItem(LS_SETTLE_DATE, payload.start_date);
-            localStorage.setItem(LS_SETTLE_NAME, payload.req_name);
             // 대시보드 갱신
             window.dispatchEvent(new Event("trip-status-refresh"));
         }
@@ -4017,8 +4074,9 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 showOk: true,
                 showCancel: false,
             });
-            // 실패했으면 active 저장하면 안 됨(유지 금지)
-            clearActive();
+            // 실패했으면 ACTIVE 유지 금지
+            ACTIVE = null;
+            clearQueryParams(["req_name", "trip_date"]);
             window.dispatchEvent(new Event("trip-status-refresh"));
             if (continueBtn)
                 continueBtn.classList.add("hidden");
@@ -4029,29 +4087,44 @@ function initDomesticTripRegisterPanel(API_BASE) {
             saveBtn.disabled = false;
         }
     });
-    // 🔹 이어서 정산
+    // 🔹 이어서 정산 (URL 파라미터 방식)
     continueBtn?.addEventListener("click", () => {
+        const me = currentUserName();
         const date = startInput.value;
         const name = reqNameInput.value.trim();
-        if (date)
-            localStorage.setItem(LS_SETTLE_DATE, date);
-        if (name)
-            localStorage.setItem(LS_SETTLE_NAME, name);
+        if (!date || !name) {
+            resultBox.textContent = "❌ 정산 대상(요청자/날짜)이 없습니다.";
+            return;
+        }
+        // ✅ 현재 로그인 유저와 다르면 막기(다른 계정 잔존 문제 방지)
+        if (me && name !== me) {
+            _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "alert",
+                title: "정산 대상 불일치",
+                message: "현재 로그인 사용자와 정산 대상 요청자명이 다릅니다.\n다시 확인해주세요.",
+                showOk: true,
+                showCancel: false,
+            });
+            clearQueryParams(["req_name", "trip_date"]);
+            return;
+        }
+        setQueryParams({ req_name: name, trip_date: date });
         if (settlementSection) {
             settlementSection.classList.remove("hidden");
             settlementSection.scrollIntoView({ behavior: "smooth", block: "start" });
         }
         resultBox.textContent = "✏️ 이 출장건에 대한 정산 정보를 아래에서 이어서 작성하세요.";
     });
-    // ✅✅✅ 정산 완료 시: 정산 화면에서 아래 이벤트를 쏴주면
-    // window.dispatchEvent(new Event("domestic-trip-settled"));
+    // ✅✅✅ 정산 완료 시: 정산 화면에서 이벤트를 쏴주면(아래 09에서 쏨)
     window.addEventListener("domestic-trip-settled", () => {
-        clearActive();
+        ACTIVE = null;
+        clearQueryParams(["req_name", "trip_date"]);
         clearFormUI();
     });
     // (옵션) 혹시 다른 곳에서 이름 다르게 보내면 같이 받기
     window.addEventListener("trip-settled", () => {
-        clearActive();
+        ACTIVE = null;
+        clearQueryParams(["req_name", "trip_date"]);
         clearFormUI();
     });
 }
@@ -4082,6 +4155,63 @@ function getCheckedRadioValue(name) {
     const checked = document.querySelector(`input[name="${name}"]:checked`);
     return checked?.value ?? "";
 }
+/** ✅ 차량 라디오 value가 뭐로 오든, 서버/계산용 표준 코드로 변환 */
+function toVehicleCode(v) {
+    const s = String(v ?? "").trim();
+    if (s === "corp" || s === "corporate")
+        return "corp";
+    if (s === "personal")
+        return "personal";
+    if (s === "other" || s === "other_personal")
+        return "other";
+    if (s === "public")
+        return "public";
+    return "other";
+}
+function textOrEmpty(v) {
+    return String(v ?? "").trim();
+}
+/**
+ * ✅ URL 파라미터 읽기 (search + hash 둘 다 대응)
+ */
+function getQueryParam(name) {
+    try {
+        const url = new URL(window.location.href);
+        const fromSearch = url.searchParams.get(name);
+        if (fromSearch)
+            return fromSearch;
+        const hash = String(url.hash ?? "");
+        const qIdx = hash.indexOf("?");
+        if (qIdx >= 0) {
+            const hashQuery = hash.slice(qIdx + 1);
+            const sp = new URLSearchParams(hashQuery);
+            return sp.get(name) ?? "";
+        }
+        return "";
+    }
+    catch {
+        return "";
+    }
+}
+function clearQueryParams(keys) {
+    try {
+        const url = new URL(window.location.href);
+        keys.forEach((k) => url.searchParams.delete(k));
+        const hash = String(url.hash ?? "");
+        const qIdx = hash.indexOf("?");
+        if (qIdx >= 0) {
+            const base = hash.slice(0, qIdx);
+            const sp = new URLSearchParams(hash.slice(qIdx + 1));
+            keys.forEach((k) => sp.delete(k));
+            const qs = sp.toString();
+            url.hash = qs ? `${base}?${qs}` : base;
+        }
+        window.history.replaceState(null, "", url.toString());
+    }
+    catch {
+        // ignore
+    }
+}
 function initDomesticTripSettlementPanel(API_BASE) {
     console.log("[정산] initDomesticTripSettlementPanel 호출");
     const section = document.getElementById("bt_settlement_section");
@@ -4106,6 +4236,11 @@ function initDomesticTripSettlementPanel(API_BASE) {
     const mealBreakfastOwner = getEl("bt_meal_breakfast_owner");
     const mealLunchOwner = getEl("bt_meal_lunch_owner");
     const mealDinnerOwner = getEl("bt_meal_dinner_owner");
+    // (있으면) 현재 로그인 사용자명 검사에 사용
+    const userNameEl = document.getElementById("userName");
+    function currentUserName() {
+        return (userNameEl?.textContent ?? "").trim();
+    }
     // ✅ 복귀지 기타 토글
     returnPlaceSelect.addEventListener("change", () => {
         if (!returnPlaceOther)
@@ -4121,6 +4256,24 @@ function initDomesticTripSettlementPanel(API_BASE) {
             return { checked: false, owner: "none" };
         return { checked: true, owner: owner || "personal" };
     };
+    // ✅ 정산 대상(요청자/날짜) 읽기: URL 파라미터에서만
+    function readSettleTarget() {
+        const req_name = textOrEmpty(getQueryParam("req_name"));
+        const trip_date = textOrEmpty(getQueryParam("trip_date"));
+        return { req_name, trip_date };
+    }
+    // ✅ 다른 계정 로그인 상태에서 URL 파라미터가 남아있으면 즉시 제거(정보 잔존 방지)
+    function validateTargetOrClear() {
+        const { req_name, trip_date } = readSettleTarget();
+        const me = currentUserName();
+        if (!req_name || !trip_date)
+            return { ok: false, req_name, trip_date };
+        if (me && req_name !== me) {
+            clearQueryParams(["req_name", "trip_date"]);
+            return { ok: false, req_name: "", trip_date: "" };
+        }
+        return { ok: true, req_name, trip_date };
+    }
     resetBtn.addEventListener("click", () => {
         workEndInput.value = "";
         returnTimeInput.value = "";
@@ -4139,9 +4292,11 @@ function initDomesticTripSettlementPanel(API_BASE) {
         resultBox.textContent = "정산 입력값이 초기화되었습니다.";
     });
     saveBtn.addEventListener("click", async () => {
-        const vehicleValue = getCheckedRadioValue("bt_vehicle");
-        const trip_date = localStorage.getItem("settleTargetDate") ?? "";
-        const req_name = localStorage.getItem("settleTargetReqName") ?? "";
+        const vehicleValueRaw = getCheckedRadioValue("bt_vehicle");
+        const vehicleValue = toVehicleCode(vehicleValueRaw);
+        const t = validateTargetOrClear();
+        const trip_date = t.trip_date;
+        const req_name = t.req_name;
         if (!trip_date || !req_name) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
@@ -4172,7 +4327,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
             });
             return;
         }
-        // ✅ 핵심: 회사/자택은 company/home 그대로 보내고, 기타만 텍스트로 보냄
+        // ✅ 회사/자택은 company/home 그대로 보내고, 기타만 텍스트로 보냄
         const return_place = returnPlaceSelect.value === "other"
             ? (returnPlaceOther?.value ?? "").trim()
             : returnPlaceSelect.value; // company | home
@@ -4196,7 +4351,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
             });
             return;
         }
-        if (!vehicleValue) {
+        if (!vehicleValueRaw) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
                 title: "입력 확인",
@@ -4220,6 +4375,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
         try {
             saveBtn.disabled = true;
             resultBox.textContent = "정산 내용 저장 중...";
+            // ✅ 정산 저장(서버 계산/검증은 여기서 1회 더 수행됨)
             const res = await fetch(`${API_BASE}/api/business-trip/settlement`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -4258,6 +4414,10 @@ function initDomesticTripSettlementPanel(API_BASE) {
                 showOk: true,
                 showCancel: false,
             });
+            // ✅✅✅ 정산 완료 후: URL 파라미터 제거 + 등록 화면에 '정산완료' 신호
+            clearQueryParams(["req_name", "trip_date"]);
+            window.dispatchEvent(new Event("domestic-trip-settled"));
+            // 대시보드 갱신
             window.dispatchEvent(new Event("trip-status-refresh"));
         }
         catch (err) {
@@ -4275,6 +4435,9 @@ function initDomesticTripSettlementPanel(API_BASE) {
             saveBtn.disabled = false;
         }
     });
+    // ✅ 섹션이 열려있는 상태에서 다른 계정으로 로그인하거나 URL 파라미터가 꼬이면 즉시 제거
+    // (패널/섹션 표시 방식이 프로젝트마다 다르니, 최소 안전장치만 둠)
+    validateTargetOrClear();
 }
 
 
@@ -4453,6 +4616,200 @@ function initDomesticTripHistoryPanel(API_BASE) {
     searchBtn.addEventListener("click", () => {
         fetchHistory();
     });
+}
+
+
+/***/ }),
+
+/***/ "./TypeScript/workspace/utils/DistanceCalc.ts":
+/*!****************************************************!*\
+  !*** ./TypeScript/workspace/utils/DistanceCalc.ts ***!
+  \****************************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   DEFAULT_FUEL_PRICE_PER_KM: () => (/* binding */ DEFAULT_FUEL_PRICE_PER_KM),
+/* harmony export */   calcFuelAmount: () => (/* binding */ calcFuelAmount),
+/* harmony export */   calcFuelAmountByCaseWithLiter: () => (/* binding */ calcFuelAmountByCaseWithLiter),
+/* harmony export */   calcFuelAmountByLiter: () => (/* binding */ calcFuelAmountByLiter),
+/* harmony export */   calcFuelKmByCase: () => (/* binding */ calcFuelKmByCase),
+/* harmony export */   findKmCompany: () => (/* binding */ findKmCompany),
+/* harmony export */   findKmHome: () => (/* binding */ findKmHome),
+/* harmony export */   normalizePlace: () => (/* binding */ normalizePlace),
+/* harmony export */   pickFuelPricePerLiterByType: () => (/* binding */ pickFuelPricePerLiterByType),
+/* harmony export */   placeLabel: () => (/* binding */ placeLabel)
+/* harmony export */ });
+// TypeScript/workspace/utils/DistanceCalc.ts
+// ✅ 교체본: 유류비 = (총km / 연비(km/L)) * 유종단가(원/L)
+// - 디버그 로그 포함(원인 추적용)
+// - 기존 거리 계산(calcFuelKmByCase)은 유지
+// - 기존 calcFuelAmount(totalKm, pricePerKm) 호출도 안깨지게 호환 유지(구식 방식은 그대로 동작)
+// ✅ (구식) km당 단가 방식 호환용 (예전 코드 깨지지 않게 유지)
+const DEFAULT_FUEL_PRICE_PER_KM = 200;
+function norm(v) {
+    return String(v ?? "").trim().toLowerCase();
+}
+function toNum(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+}
+/** ✅ "회사/자택/company/home" 혼용값을 계산용 표준값으로 정리 */
+function normalizePlace(v) {
+    const s = norm(v);
+    if (!s)
+        return null;
+    if (s === "company" || s === "회사")
+        return "company";
+    if (s === "home" || s === "자택")
+        return "home";
+    return null;
+}
+/** ✅ 화면 표시용 */
+function placeLabel(v) {
+    const p = normalizePlace(v);
+    if (p === "company")
+        return "회사";
+    if (p === "home")
+        return "자택";
+    return String(v ?? "").trim();
+}
+/** ✅ 거래처명으로 row 찾기 (대소문자/공백 무시) */
+function findRow(list, clientName) {
+    const key = norm(clientName);
+    return list.find((x) => norm(x.client_name) === key);
+}
+/** ✅ 사용자(자택) 거리 읽기: home_distance_km 우선 */
+function findKmHome(list, clientName) {
+    const row = findRow(list, clientName);
+    return toNum(row?.home_distance_km ?? row?.distance_km ?? row?.km);
+}
+/** ✅ 회사 거리 읽기: distance_km 우선 */
+function findKmCompany(list, clientName) {
+    const row = findRow(list, clientName);
+    return toNum(row?.distance_km ?? row?.home_distance_km ?? row?.km);
+}
+/**
+ * ✅ 개인차량일 때만 유류비 거리(km) 계산
+ * - 출발/복귀가 회사/자택이면 케이스별 합산
+ * - 기타 텍스트 출발지/복귀지는 계산 불가 -> 0
+ */
+function calcFuelKmByCase(opts) {
+    const { depart_place, return_place, destination, vehicle, companyDistances, userDistances } = opts;
+    if (vehicle !== "personal")
+        return 0;
+    const depart = normalizePlace(depart_place);
+    const ret = normalizePlace(return_place);
+    if (!depart || !ret)
+        return 0;
+    const companyKm = findKmCompany(companyDistances, destination);
+    const homeKm = findKmHome(userDistances, destination);
+    if (depart === "home" && ret === "home")
+        return homeKm * 2;
+    if (depart === "company" && ret === "company")
+        return companyKm * 2;
+    if (depart === "company" && ret === "home")
+        return companyKm + homeKm;
+    if (depart === "home" && ret === "company")
+        return homeKm + companyKm;
+    return 0;
+}
+/** ✅ 숫자 방어 (0/NaN 방지) */
+function safePositive(v, fallback) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0)
+        return fallback;
+    return n;
+}
+/**
+ * ✅ 너 공식대로 계산
+ * @param totalKm 총 주행거리(km)
+ * @param kmPerLiter 연비(km/L) - 예: 7
+ * @param pricePerLiter 유종단가(원/L) - 예: 1000
+ */
+function calcFuelAmountByLiter(totalKm, kmPerLiter, pricePerLiter) {
+    const km = safePositive(totalKm, 0);
+    const eff = safePositive(kmPerLiter, 7); // 기본 7
+    const ppl = safePositive(pricePerLiter, 0);
+    if (km <= 0 || ppl <= 0)
+        return 0;
+    const liters = km / eff;
+    const amount = Math.round(liters * ppl);
+    console.log("[FUEL DEBUG][LITER]", {
+        totalKm: km,
+        kmPerLiter: eff,
+        pricePerLiter: ppl,
+        liters,
+        amount,
+    });
+    return amount;
+}
+/**
+ * ✅ 설정(유종별 단가)에서 유저 유종(fuel_type)으로 가격 선택
+ * - cfgFuel: { gasoline, diesel, lpg } 형태면 그대로 넣으면 됨
+ */
+function pickFuelPricePerLiterByType(fuelTypeRaw, cfgFuel) {
+    const t = String(fuelTypeRaw ?? "").trim().toLowerCase();
+    // 한글/영문 혼용 방어
+    const isGasoline = t === "휘발유" || t === "gasoline" || t === "gas" || t === "petrol";
+    const isDiesel = t === "경유" || t === "diesel";
+    const isLpg = t === "lpg" || t === "가스" || t === "엘피지" || t === "lpg(가스)";
+    const g = cfgFuel.gasoline ?? null;
+    const d = cfgFuel.diesel ?? null;
+    const l = cfgFuel.lpg ?? null;
+    let picked = null;
+    if (isGasoline)
+        picked = g;
+    else if (isDiesel)
+        picked = d;
+    else if (isLpg)
+        picked = l;
+    else
+        picked = g ?? d ?? l ?? null; // 모르겠으면 있는 값 중 하나
+    const price = Number(picked);
+    const out = Number.isFinite(price) && price > 0 ? price : 0;
+    console.log("[FUEL DEBUG][PICK]", { fuelTypeRaw, picked: out, cfgFuel });
+    return out;
+}
+/**
+ * ✅ NEW: (거리계산 + 너 공식)까지 한번에
+ * - totalKm은 calcFuelKmByCase로 먼저 구하고,
+ * - fuel_type + 설정단가 + 연비로 유류비를 계산한다.
+ */
+function calcFuelAmountByCaseWithLiter(opts) {
+    const totalKm = calcFuelKmByCase({
+        depart_place: opts.depart_place,
+        return_place: opts.return_place,
+        destination: opts.destination,
+        vehicle: opts.vehicle,
+        companyDistances: opts.companyDistances,
+        userDistances: opts.userDistances,
+    });
+    const pricePerLiter = pickFuelPricePerLiterByType(opts.fuel_type, {
+        gasoline: opts.fuel_price_gasoline,
+        diesel: opts.fuel_price_diesel,
+        lpg: opts.fuel_price_lpg,
+    });
+    const amount = calcFuelAmountByLiter(totalKm, opts.km_per_liter, pricePerLiter);
+    console.log("[FUEL DEBUG][CASE+LITER]", {
+        destination: opts.destination,
+        depart_place: opts.depart_place,
+        return_place: opts.return_place,
+        vehicle: opts.vehicle,
+        fuel_type: opts.fuel_type,
+        totalKm,
+        km_per_liter: opts.km_per_liter,
+        pricePerLiter,
+        amount,
+    });
+    return { totalKm, amount, pricePerLiter };
+}
+// =====================================================
+// ✅ 호환 유지: 예전 코드가 calcFuelAmount(km, pricePerKm) 쓰면 그대로 동작
+// =====================================================
+function calcFuelAmount(totalKm, pricePerKm = DEFAULT_FUEL_PRICE_PER_KM) {
+    console.log("[FUEL DEBUG][PER_KM]", { totalKm, pricePerKm });
+    return Math.round(safePositive(totalKm, 0) * safePositive(pricePerKm, DEFAULT_FUEL_PRICE_PER_KM));
 }
 
 

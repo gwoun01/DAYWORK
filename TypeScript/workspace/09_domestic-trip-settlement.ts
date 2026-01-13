@@ -4,8 +4,8 @@ import { ModalUtil } from "./utils/ModalUtil";
 type SettlementFormPayload = {
   work_end_time: string;
   return_time: string;
-  return_place: string; // ✅ company/home/기타텍스트
-  vehicle: string;      // corporate/personal/other_personal/public
+  return_place: string; // company/home/기타텍스트
+  vehicle: "corp" | "personal" | "other" | "public"; // ✅ 표준 코드로 통일
   meals: {
     breakfast: { checked: boolean; owner: string };
     lunch: { checked: boolean; owner: string };
@@ -22,6 +22,65 @@ function getEl<T extends HTMLElement>(id: string): T {
 function getCheckedRadioValue(name: string): string {
   const checked = document.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`);
   return checked?.value ?? "";
+}
+
+/** ✅ 차량 라디오 value가 뭐로 오든, 서버/계산용 표준 코드로 변환 */
+function toVehicleCode(v: string): "corp" | "personal" | "other" | "public" {
+  const s = String(v ?? "").trim();
+  if (s === "corp" || s === "corporate") return "corp";
+  if (s === "personal") return "personal";
+  if (s === "other" || s === "other_personal") return "other";
+  if (s === "public") return "public";
+  return "other";
+}
+
+function textOrEmpty(v: any) {
+  return String(v ?? "").trim();
+}
+
+/**
+ * ✅ URL 파라미터 읽기 (search + hash 둘 다 대응)
+ */
+function getQueryParam(name: string): string {
+  try {
+    const url = new URL(window.location.href);
+
+    const fromSearch = url.searchParams.get(name);
+    if (fromSearch) return fromSearch;
+
+    const hash = String(url.hash ?? "");
+    const qIdx = hash.indexOf("?");
+    if (qIdx >= 0) {
+      const hashQuery = hash.slice(qIdx + 1);
+      const sp = new URLSearchParams(hashQuery);
+      return sp.get(name) ?? "";
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+function clearQueryParams(keys: string[]) {
+  try {
+    const url = new URL(window.location.href);
+
+    keys.forEach((k) => url.searchParams.delete(k));
+
+    const hash = String(url.hash ?? "");
+    const qIdx = hash.indexOf("?");
+    if (qIdx >= 0) {
+      const base = hash.slice(0, qIdx);
+      const sp = new URLSearchParams(hash.slice(qIdx + 1));
+      keys.forEach((k) => sp.delete(k));
+      const qs = sp.toString();
+      url.hash = qs ? `${base}?${qs}` : base;
+    }
+
+    window.history.replaceState(null, "", url.toString());
+  } catch {
+    // ignore
+  }
 }
 
 export function initDomesticTripSettlementPanel(API_BASE: string) {
@@ -55,6 +114,13 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
   const mealLunchOwner = getEl<HTMLSelectElement>("bt_meal_lunch_owner");
   const mealDinnerOwner = getEl<HTMLSelectElement>("bt_meal_dinner_owner");
 
+  // (있으면) 현재 로그인 사용자명 검사에 사용
+  const userNameEl = document.getElementById("userName");
+
+  function currentUserName(): string {
+    return (userNameEl?.textContent ?? "").trim();
+  }
+
   // ✅ 복귀지 기타 토글
   returnPlaceSelect.addEventListener("change", () => {
     if (!returnPlaceOther) return;
@@ -68,6 +134,28 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     if (!checked) return { checked: false, owner: "none" };
     return { checked: true, owner: owner || "personal" };
   };
+
+  // ✅ 정산 대상(요청자/날짜) 읽기: URL 파라미터에서만
+  function readSettleTarget(): { req_name: string; trip_date: string } {
+    const req_name = textOrEmpty(getQueryParam("req_name"));
+    const trip_date = textOrEmpty(getQueryParam("trip_date"));
+    return { req_name, trip_date };
+  }
+
+  // ✅ 다른 계정 로그인 상태에서 URL 파라미터가 남아있으면 즉시 제거(정보 잔존 방지)
+  function validateTargetOrClear() {
+    const { req_name, trip_date } = readSettleTarget();
+    const me = currentUserName();
+
+    if (!req_name || !trip_date) return { ok: false, req_name, trip_date };
+
+    if (me && req_name !== me) {
+      clearQueryParams(["req_name", "trip_date"]);
+      return { ok: false, req_name: "", trip_date: "" };
+    }
+
+    return { ok: true, req_name, trip_date };
+  }
 
   resetBtn.addEventListener("click", () => {
     workEndInput.value = "";
@@ -93,10 +181,12 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
   });
 
   saveBtn.addEventListener("click", async () => {
-    const vehicleValue = getCheckedRadioValue("bt_vehicle");
+    const vehicleValueRaw = getCheckedRadioValue("bt_vehicle");
+    const vehicleValue = toVehicleCode(vehicleValueRaw);
 
-    const trip_date = localStorage.getItem("settleTargetDate") ?? "";
-    const req_name = localStorage.getItem("settleTargetReqName") ?? "";
+    const t = validateTargetOrClear();
+    const trip_date = t.trip_date;
+    const req_name = t.req_name;
 
     if (!trip_date || !req_name) {
       await ModalUtil.show({
@@ -131,7 +221,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
       return;
     }
 
-    // ✅ 핵심: 회사/자택은 company/home 그대로 보내고, 기타만 텍스트로 보냄
+    // ✅ 회사/자택은 company/home 그대로 보내고, 기타만 텍스트로 보냄
     const return_place =
       returnPlaceSelect.value === "other"
         ? (returnPlaceOther?.value ?? "").trim()
@@ -159,7 +249,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
       return;
     }
 
-    if (!vehicleValue) {
+    if (!vehicleValueRaw) {
       await ModalUtil.show({
         type: "alert",
         title: "입력 확인",
@@ -188,6 +278,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
       saveBtn.disabled = true;
       resultBox.textContent = "정산 내용 저장 중...";
 
+      // ✅ 정산 저장(서버 계산/검증은 여기서 1회 더 수행됨)
       const res = await fetch(`${API_BASE}/api/business-trip/settlement`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -233,6 +324,11 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
         showCancel: false,
       });
 
+      // ✅✅✅ 정산 완료 후: URL 파라미터 제거 + 등록 화면에 '정산완료' 신호
+      clearQueryParams(["req_name", "trip_date"]);
+      window.dispatchEvent(new Event("domestic-trip-settled"));
+
+      // 대시보드 갱신
       window.dispatchEvent(new Event("trip-status-refresh"));
     } catch (err: any) {
       console.error("[정산] 저장 중 오류:", err);
@@ -248,4 +344,8 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
       saveBtn.disabled = false;
     }
   });
+
+  // ✅ 섹션이 열려있는 상태에서 다른 계정으로 로그인하거나 URL 파라미터가 꼬이면 즉시 제거
+  // (패널/섹션 표시 방식이 프로젝트마다 다르니, 최소 안전장치만 둠)
+  validateTargetOrClear();
 }
