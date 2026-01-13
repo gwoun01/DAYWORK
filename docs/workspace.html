@@ -713,55 +713,69 @@
                 <!-- =====================================================
         ✅ 국내출장 - 출장등록 패널
         ====================================================== -->
-                <section id="panel-국내출장-출장등록" class="hidden px-4 py-3">
-                    <!-- (너가 올린 국내출장 등록 내용 그대로) -->
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 space-y-5 max-w-3xl mx-auto">
+                  <section id="panel-국내출장-출장등록" class="hidden p-3">
+                    <div class="max-w-md mx-auto bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-4">
+
+                        <!-- 🔹 숨겨진 필드: 자바스크립트에서 사용하는 값 (반드시 있어야 함!) -->
                         <input id="bt_req_name" type="hidden" />
 
+                        <!-- 🔹 상단 타이틀 영역 -->
                         <div class="flex items-center justify-between">
-                            <h3 class="text-base font-extrabold text-gray-900">국내출장 등록</h3>
+                            <h3 class="text-base font-extrabold text-gray-900">
+                                국내출장 등록
+                            </h3>
                             <span
-                                class="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-500">
+                                class="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-500">
                                 출발지 · 출장지 · 일정만 입력하면 돼요
                             </span>
                         </div>
 
-                        <div class="space-y-4">
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label for="bt_place" class="block text-xs font-semibold text-gray-700 mb-1">
-                                        출발지 (회사/자택) <span class="text-rose-500">*</span>
-                                    </label>
-                                    <input id="bt_place"
-                                        class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                        placeholder="예: 자택, 본사, 공장 등" />
-                                </div>
+                        <!-- 🔹 1. 출장등록 입력 영역 -->
+                        <div class="space-y-3">
+                            <div>
+                                <label for="bt_place" class="block text-xs font-semibold text-gray-700 mb-1">
+                                    출발지 (회사/자택) <span class="text-rose-500">*</span>
+                                </label>
+                                <select id="bt_place"
+                                    class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                    <option value="">선택</option>
+                                    <option value="company">회사</option>
+                                    <option value="home">자택</option>
+                                    <option value="other">기타</option>
+                                </select>
 
-                                <div>
-                                    <label for="bt_destination" class="block text-xs font-semibold text-gray-700 mb-1">
-                                        출장지 (고객사/지역) <span class="text-rose-500">*</span>
-                                    </label>
-                                    <input id="bt_destination"
-                                        class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                        placeholder="예: AMKOR-5 송도, 삼성 평택, 대구 ○○고객사" />
-                                </div>
+                                <input id="bt_place_other"
+                                    class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 mt-2 hidden"
+                                    placeholder="기타 출발지를 입력하세요" />
                             </div>
 
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div>
-                                    <label for="bt_start" class="block text-xs font-semibold text-gray-700 mb-1">
-                                        출발일 <span class="text-rose-500">*</span>
-                                    </label>
-                                    <input id="bt_start" type="date"
-                                        class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
-                                </div>
+                            <div>
+                                <label for="bt_destination" class="block text-xs font-semibold text-gray-700 mb-1">
+                                    출장지 (고객사/지역) <span class="text-rose-500">*</span>
+                                </label>
+                                <select id="bt_destination"
+                                    class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                    <option value="">거래처(출장지) 선택</option>
+                                </select>
+                            </div>
 
-                                <div>
-                                    <label for="bt_depart_time" class="block text-xs font-semibold text-gray-700 mb-1">
-                                        출발시간 <span class="text-rose-500">*</span>
-                                    </label>
-                                    <input id="bt_depart_time" type="time"
-                                        class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                            <div class="grid grid-cols-1 gap-2">
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label for="bt_start" class="block text-xs font-semibold text-gray-700 mb-1">
+                                            출발일 <span class="text-rose-500">*</span>
+                                        </label>
+                                        <input id="bt_start" type="date"
+                                            class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                                    </div>
+                                    <div>
+                                        <label for="bt_depart_time"
+                                            class="block text-xs font-semibold text-gray-700 mb-1">
+                                            출발시간 <span class="text-rose-500">*</span>
+                                        </label>
+                                        <input id="bt_depart_time" type="time"
+                                            class="w-full border border-gray-300 rounded-2xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                                    </div>
                                 </div>
 
                                 <div>
@@ -778,12 +792,13 @@
                                     출장 목적 / 내용 <span class="text-rose-500">*</span>
                                 </label>
                                 <textarea id="bt_purpose"
-                                    class="w-full border border-gray-300 rounded-2xl px-3 py-2 text-sm h-28 resize-none bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    class="w-full border border-gray-300 rounded-2xl px-3 py-2 text-sm h-24 resize-none bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                     placeholder="예: 설비 설치 지원, 점검, 셋업, 교육 등"></textarea>
                             </div>
                         </div>
 
-                        <div class="pt-2 flex items-center gap-2 justify-end">
+                        <!-- 🔹 버튼 영역 -->
+                        <div class="pt-2 flex items-center gap-2">
                             <div id="reg_result" class="text-[11px] text-gray-500 flex-1 min-h-[16px]"></div>
 
                             <button id="reg_reset"
@@ -803,6 +818,7 @@
                         </div>
                     </div>
 
+                    <!-- ⬇⬇⬇⬇⬇⬇ 여기부터 새로 추가되는 정산 섹션 (hidden 기본값) ⬇⬇⬇⬇⬇⬇ -->
                     <div id="bt_settlement_section"
                         class="max-w-md mx-auto mt-4 bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-3 hidden">
                         <div class="flex items-center justify-between">
@@ -829,21 +845,33 @@
 
                         <div>
                             <label class="block text-xs font-semibold text-gray-700 mb-1">복귀지 (회사/자택)</label>
-                            <input id="bt_return_place"
-                                class="w-full border border-gray-300 rounded-2xl px-3 py-2 text-sm bg-white"
-                                placeholder="예: 회사, 자택" />
+                            <select id="bt_return_place"
+                                class="w-full border border-gray-300 rounded-2xl px-3 py-2 text-sm bg-white">
+                                <option value="">선택</option>
+                                <option value="company">회사</option>
+                                <option value="home">자택</option>
+                                <option value="other">기타</option>
+                            </select>
+
+                            <input id="bt_return_place_other"
+                                class="w-full border border-gray-300 rounded-2xl px-3 py-2 text-sm bg-white mt-2 hidden"
+                                placeholder="기타 복귀지를 입력하세요" />
                         </div>
 
                         <div>
                             <span class="block text-xs font-semibold text-gray-700 mb-1">차량 구분</span>
-                            <div class="flex items-center gap-4 text-[11px]">
+                            <div class="flex items-center gap-4 text-[11px] flex-wrap">
                                 <label class="inline-flex items-center gap-1">
-                                    <input type="radio" name="bt_vehicle" value="corp" />
-                                    법인차량
+                                    <input type="radio" name="bt_vehicle" value="corporate" /> 법인차량
                                 </label>
                                 <label class="inline-flex items-center gap-1">
-                                    <input type="radio" name="bt_vehicle" value="personal" />
-                                    개인차량
+                                    <input type="radio" name="bt_vehicle" value="personal" /> 개인차량
+                                </label>
+                                <label class="inline-flex items-center gap-1">
+                                    <input type="radio" name="bt_vehicle" value="other_personal" /> 타인차량
+                                </label>
+                                <label class="inline-flex items-center gap-1">
+                                    <input type="radio" name="bt_vehicle" value="public" /> 대중교통
                                 </label>
                             </div>
                         </div>
@@ -853,8 +881,7 @@
 
                             <div class="flex items-center justify-between text-[11px]">
                                 <label class="inline-flex items-center gap-1">
-                                    <input id="bt_meal_breakfast" type="checkbox" class="accent-indigo-600" />
-                                    조식
+                                    <input id="bt_meal_breakfast" type="checkbox" class="accent-indigo-600" /> 조식
                                 </label>
                                 <select id="bt_meal_breakfast_owner"
                                     class="border border-gray-300 rounded-lg px-2 py-1 text-[11px] bg-white">
@@ -866,8 +893,7 @@
 
                             <div class="flex items-center justify-between text-[11px]">
                                 <label class="inline-flex items-center gap-1">
-                                    <input id="bt_meal_lunch" type="checkbox" class="accent-indigo-600" />
-                                    중식
+                                    <input id="bt_meal_lunch" type="checkbox" class="accent-indigo-600" /> 중식
                                 </label>
                                 <select id="bt_meal_lunch_owner"
                                     class="border border-gray-300 rounded-lg px-2 py-1 text-[11px] bg-white">
@@ -879,8 +905,7 @@
 
                             <div class="flex items-center justify-between text-[11px]">
                                 <label class="inline-flex items-center gap-1">
-                                    <input id="bt_meal_dinner" type="checkbox" class="accent-indigo-600" />
-                                    석식
+                                    <input id="bt_meal_dinner" type="checkbox" class="accent-indigo-600" /> 석식
                                 </label>
                                 <select id="bt_meal_dinner_owner"
                                     class="border border-gray-300 rounded-lg px-2 py-1 text-[11px] bg-white">
@@ -891,6 +916,7 @@
                             </div>
                         </div>
 
+                        <!-- 결과 + 버튼 -->
                         <div class="pt-2 flex items-center gap-2">
                             <div id="bt_result" class="flex-1 text-[11px] text-gray-500 min-h-[16px]"></div>
 
@@ -906,6 +932,88 @@
                         </div>
                     </div>
                 </section>
+                <!-- ✅ 국내출장 - 출장내역(정산 내역 보기) 패널 -->
+                <section id="panel-국내출장-정산서등록" class="hidden p-3">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-3">
+
+                        <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex flex-col gap-3">
+                            <div class="flex items-center justify-between">
+                                <!-- 🔹 제목만 살짝 변경 -->
+                                <h3 class="text-sm font-extrabold text-gray-900">출장 내역 보기</h3>
+                                <span class="text-[11px] text-gray-500">기간·사용자 기준으로 조회</span>
+                            </div>
+
+                            <!-- 1. 기간 + 사용자 선택 -->
+                            <div class="grid grid-cols-1 md:grid-cols-[auto_auto_auto] gap-2 items-end mt-2">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                        시작일 <span class="text-rose-500">*</span>
+                                    </label>
+                                    <input id="settle_from" type="date"
+                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs bg-white" />
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                        종료일 <span class="text-rose-500">*</span>
+                                    </label>
+                                    <input id="settle_to" type="date"
+                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs bg-white" />
+                                </div>
+
+                                <div class="flex flex-col gap-1">
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                        대상
+                                    </label>
+                                    <div class="flex items-center gap-2">
+                                        <label class="inline-flex items-center gap-1 text-[11px] text-gray-700">
+                                            <input id="settle_only_me" type="checkbox" class="accent-indigo-600"
+                                                checked />
+                                            나의 정산만
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 2. 버튼 + 결과 메시지 -->
+                            <div class="mt-2 flex items-center gap-2">
+                                <div id="settle_result_msg" class="flex-1 text-[11px] text-gray-600">
+                                    조회할 기간을 선택한 뒤 <span class="font-semibold">[조회하기]</span>를 눌러주세요.
+                                </div>
+                                <button id="settle_search"
+                                    class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 active:bg-indigo-800 shadow-sm">
+                                    조회하기
+                                </button>
+                            </div>
+
+                            <!-- 3. 결과 테이블 -->
+                            <div class="mt-3 border rounded-xl overflow-hidden">
+                                <table class="w-full text-[11px] text-gray-700 border-collapse">
+                                    <thead class="bg-gray-100">
+                                        <tr>
+                                            <th class="border px-2 py-1 w-20 text-center">날짜</th>
+                                            <th class="border px-2 py-1 w-20 text-center">이름</th>
+                                            <th class="border px-2 py-1 text-center">출장지(고객사)</th>
+                                            <th class="border px-2 py-1 w-24 text-center">출발~도착</th>
+                                            <th class="border px-2 py-1 w-24 text-center">업무시간</th>
+                                            <th class="border px-2 py-1 w-24 text-center">차량</th>
+                                            <th class="border px-2 py-1 w-32 text-center">식사</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="settle_result_tbody">
+                                        <tr>
+                                            <td colspan="7" class="border px-2 py-3 text-center text-gray-400">
+                                                조회된 정산 내역이 없습니다.
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                        </div>
+                    </div>
+                </section>
+
 
                 <!-- (이 아래 나머지 패널들은 원문 그대로 — 너가 붙여준 것과 동일) -->
                 <!-- =====================================================
