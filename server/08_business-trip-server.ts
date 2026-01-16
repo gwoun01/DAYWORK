@@ -744,59 +744,69 @@ export default function businessTripRouter(pool: Pool) {
   /* ============================
      6) (관리자용) 정산 내역 기간 조회 - 전체 직원 + 상태 필터
   ============================ */
-  router.get("/settlements-range-admin", async (req, res) => {
-    const from = String(req.query.from ?? "").trim();
-    const to = String(req.query.to ?? "").trim();
-    const rawStatus = String(req.query.status ?? "").trim();
+/* ============================
+   6) (관리자용) 정산 내역 기간 조회 - 제출된 건만 + 상태 필터
+   ✅ 핵심: submitted_at 포함 + 제출된 건만 보이게
+============================ */
+router.get("/settlements-range-admin", async (req, res) => {
+  const from = String(req.query.from ?? "").trim();
+  const to = String(req.query.to ?? "").trim();
+  const rawStatus = String(req.query.status ?? "").trim();
 
-    if (!from || !to) return res.status(400).json({ ok: false, message: "from, to 날짜는 필수입니다." });
+  if (!from || !to) return res.status(400).json({ ok: false, message: "from, to 날짜는 필수입니다." });
 
-    let status: "all" | "pending" | "approved" | "rejected" = "all";
-    if (rawStatus === "pending") status = "pending";
-    else if (rawStatus === "approved") status = "approved";
-    else if (rawStatus === "rejected") status = "rejected";
+  let status: "all" | "pending" | "approved" | "rejected" = "all";
+  if (rawStatus === "pending") status = "pending";
+  else if (rawStatus === "approved") status = "approved";
+  else if (rawStatus === "rejected") status = "rejected";
 
-    try {
-      const params: any[] = [from, to];
-      let where = "bt.trip_date BETWEEN $1::date AND $2::date";
+  try {
+    const params: any[] = [from, to];
+    let where = "bt.trip_date BETWEEN $1::date AND $2::date";
 
-      if (status === "approved" || status === "rejected") {
-        where += " AND bt.approve_status = $3";
-        params.push(status);
-      } else if (status === "pending") {
-        where += " AND bt.approve_status IS NULL";
-      }
+    // ✅ 1) 관리자 승인탭은 "제출된 건만" 보이게 (핵심)
+    where += " AND bt.submitted_at IS NOT NULL";
 
-      const result = await pool.query(
-        `
-        SELECT
-          bt.trip_id,
-          bt.req_name,
-          bt.trip_date,
-          bt.start_data,
-          bt.end_data,
-          bt.detail_json,
-          bt.created_at,
-          COALESCE(bt.approve_status, 'pending') AS approve_status,
-          bt.approve_by,
-          bt.approve_at,
-          bt.approve_comment,
-          u.company_part
-        FROM business_trips bt
-        LEFT JOIN innomax_users u
-          ON bt.req_name = u.name
-        WHERE ${where}
-        ORDER BY bt.trip_date ASC, bt.req_name ASC, bt.created_at ASC
-        `,
-        params
-      );
-
-      return res.json({ ok: true, data: result.rows });
-    } catch (err: any) {
-      console.error("관리자용 정산 내역 기간조회 실패 FULL:", err);
-      return res.status(500).json({ ok: false, message: "DB 오류" });
+    // ✅ 2) 상태 필터
+    if (status === "approved" || status === "rejected") {
+      where += " AND bt.approve_status = $3";
+      params.push(status);
+    } else if (status === "pending") {
+      where += " AND (bt.approve_status IS NULL OR bt.approve_status = 'pending')";
     }
-  });
+
+    const result = await pool.query(
+      `
+      SELECT
+        bt.trip_id,
+        bt.req_name,
+        bt.trip_date,
+        bt.start_data,
+        bt.end_data,
+        bt.detail_json,
+        bt.created_at,
+        COALESCE(bt.approve_status, 'pending') AS approve_status,
+        bt.approve_by,
+        bt.approve_at,
+        bt.approve_comment,
+        bt.submitted_at,         -- ✅ 추가(중요)
+        u.company_part
+      FROM business_trips bt
+      LEFT JOIN innomax_users u
+        ON bt.req_name = u.name
+      WHERE ${where}
+      ORDER BY bt.trip_date ASC, bt.req_name ASC, bt.created_at ASC
+      `,
+      params
+    );
+
+    return res.json({ ok: true, data: result.rows });
+  } catch (err: any) {
+    console.error("관리자용 정산 내역 기간조회 실패 FULL:", err);
+    return res.status(500).json({ ok: false, message: "DB 오류" });
+  }
+});
+
 
   /* ============================
      7) 승인/반려 업데이트

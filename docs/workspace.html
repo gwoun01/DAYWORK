@@ -10,7 +10,7 @@
 
 </head>
 
-<body class="min-h-screen bg-[#d7e5f3] flex flex-col text-sm font-medium">
+<body class="h-screen bg-[#d7e5f3] flex flex-col text-sm font-medium overflow-hidden">
     <!-- ===== 상단 바 ===== -->
     <header
         class="flex items-center justify-between gap-3 bg-[#d7e5f3] text-white shadow px-5 py-3 border-b border-[#c7d8ee]">
@@ -43,11 +43,11 @@
     </header>
 
     <!-- ===== 메인 래퍼 : 좌측 사이드바 + 우측 작업 영역 ===== -->
-    <div class="flex-1 flex gap-3 p-3 overflow-hidden">
+    <div class="flex-1 flex gap-3 p-3 min-h-0 overflow-hidden">
         <!-- ===== 사이드 네비 (PC) ===== -->
         <aside id="sidebar"
-            class="w-64 rounded-xl border border-[#c7d8ee] bg-[#d7e5f3] shadow-lg overflow-hidden flex-shrink-0">
-            <nav class="p-2 space-y-2">
+            class="w-64 rounded-xl border border-[#c7d8ee] bg-[#d7e5f3] shadow-lg overflow-hidden flex-shrink-0 self-start sticky top-3">
+            <nav class="p-2 space-y-2 h-full overflow-y-auto">
                 <!-- 대시보드 -->
                 <button
                     class="nav-btn w-full text-left px-4 py-3 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-100"
@@ -150,32 +150,33 @@
                     </div>
                 </div>
             </nav>
-
-            <!-- 그룹 토글 스크립트 -->
-            <script>
-                function setupToggle(buttonId, contentId, iconId) {
-                    const btn = document.getElementById(buttonId);
-                    const content = document.getElementById(contentId);
-                    const icon = document.getElementById(iconId);
-
-                    btn?.addEventListener("click", () => {
-                        const isHidden = content.classList.contains("hidden");
-
-                        if (isHidden) {
-                            content.classList.remove("hidden");
-                            icon?.classList.add("rotate-180");
-                        } else {
-                            content.classList.add("hidden");
-                            icon?.classList.remove("rotate-180");
-                        }
-                    });
-                }
-
-                setupToggle("btnAdminGroup", "adminGroupContent", "iconAdminArrow");
-                setupToggle("btnStaffGroup", "staffGroupContent", "iconStaffArrow");
-                setupToggle("btnDomestic", "domesticSub", "iconDomestic");
-            </script>
         </aside>
+
+
+        <!-- 그룹 토글 스크립트 -->
+        <script>
+            function setupToggle(buttonId, contentId, iconId) {
+                const btn = document.getElementById(buttonId);
+                const content = document.getElementById(contentId);
+                const icon = document.getElementById(iconId);
+
+                btn?.addEventListener("click", () => {
+                    const isHidden = content.classList.contains("hidden");
+
+                    if (isHidden) {
+                        content.classList.remove("hidden");
+                        icon?.classList.add("rotate-180");
+                    } else {
+                        content.classList.add("hidden");
+                        icon?.classList.remove("rotate-180");
+                    }
+                });
+            }
+
+            setupToggle("btnAdminGroup", "adminGroupContent", "iconAdminArrow");
+            setupToggle("btnStaffGroup", "staffGroupContent", "iconStaffArrow");
+            setupToggle("btnDomestic", "domesticSub", "iconDomestic");
+        </script>
 
         <!-- ===== 메인 작업영역 ===== -->
         <main id="workspace"
@@ -661,20 +662,21 @@
 
                                     <div class="bg-white">
                                         <table class="w-full text-[11px] text-gray-800 border-collapse">
-                                            <thead class="bg-gray-100">
+                                            <thead class="bg-gray-50 text-gray-700">
                                                 <tr>
-                                                    <th class="border px-2 py-1 w-28 text-center">일자</th>
-                                                    <th class="border px-2 py-1 w-20 text-center">출발지</th>
-                                                    <th class="border px-2 py-1 w-32 text-center">출장지(고객사)</th>
-                                                    <th class="border px-2 py-1 w-28 text-center">출발시간</th>
-                                                    <th class="border px-2 py-1 w-28 text-center">도착시간</th>
-                                                    <th class="border px-2 py-1 w-28 text-center">업무시간</th>
-                                                    <th class="border px-2 py-1 w-24 text-center">복귀지</th>
-                                                    <th class="border px-2 py-1 w-20 text-center">차량</th>
-                                                    <th class="border px-2 py-1 w-24 text-center">조식</th>
-                                                    <th class="border px-2 py-1 w-24 text-center">중식</th>
-                                                    <th class="border px-2 py-1 w-24 text-center">석식</th>
-                                                    <th class="border px-2 py-1 w-64 text-center">출장 목적 / 내용</th>
+                                                    <th class="border px-2 py-2 text-center">일자</th>
+                                                    <th class="border px-2 py-2 text-center">출발지</th>
+                                                    <th class="border px-2 py-2 text-center">출장지(고객사)</th>
+
+                                                    <!-- ✅ 여기만 남김(통합 칸) -->
+                                                    <th class="border px-2 py-2 text-center">근무시간</th>
+
+                                                    <th class="border px-2 py-2 text-center">복귀지</th>
+                                                    <th class="border px-2 py-2 text-center">차량</th>
+                                                    <th class="border px-2 py-2 text-center">조식</th>
+                                                    <th class="border px-2 py-2 text-center">중식</th>
+                                                    <th class="border px-2 py-2 text-center">석식</th>
+                                                    <th class="border px-2 py-2 text-center">출장 목적 / 내용</th>
                                                 </tr>
                                             </thead>
                                             <tbody id="appr_detail_tbody">
@@ -1017,17 +1019,17 @@
 
                             <!-- 3) 결과 테이블 (너가 원하는 컬럼만) -->
                             <div class="mt-3 border rounded-xl overflow-hidden">
-                                <table class="w-full text-[11px] text-gray-700 border-collapse">
+                                <table class="w-full table-fixed text-[11px] text-gray-700 border-collapse">
                                     <thead class="bg-gray-100">
                                         <tr>
-                                            <th class="border px-2 py-1 w-20 text-center">날짜</th>
-                                            <th class="border px-2 py-1 w-20 text-center">근무시간</th>
-                                            <th class="border px-2 py-1 w-20 text-center">이동수단</th>
-                                            <th class="border px-2 py-1 w-32 text-center">식사(개인/법인)</th>
-                                            <th class="border px-2 py-1 text-center">이동경로</th>
+                                            <th class="border px-2 py-1 w-24 text-center">날짜</th>
+                                            <th class="border px-2 py-1 w-[280px] text-center">근무시간</th>
+                                            <th class="border px-2 py-1 w-24 text-center">이동수단</th>
+                                            <th class="border px-2 py-1 w-40 text-center">식사(개인/법인)</th>
+                                            <th class="border px-2 py-1 w-48 text-center">이동경로</th>
                                             <th class="border px-2 py-1 text-center">주요업무</th>
-                                            <th class="border px-2 py-1 w-20 text-center">상태</th>
-                                            <th class="border px-2 py-1 text-center">반려사유</th>
+                                            <th class="border px-2 py-1 w-24 text-center">상태</th>
+                                            <th class="border px-2 py-1 w-56 text-center">반려사유</th>
                                         </tr>
                                     </thead>
                                     <tbody id="settle_result_tbody">

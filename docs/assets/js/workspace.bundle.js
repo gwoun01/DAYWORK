@@ -906,11 +906,25 @@ function formatDateLabel(value) {
         return value;
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+/** 요일(월화수목금토일) */
+function dowKorFromYMD(ymd) {
+    const d = new Date(ymd);
+    if (Number.isNaN(d.getTime()))
+        return "";
+    const map = ["일", "월", "화", "수", "목", "금", "토"];
+    return map[d.getDay()] ?? "";
+}
+function formatDateWithDow(ymd) {
+    const a = formatDateLabel(ymd);
+    const w = dowKorFromYMD(a);
+    return w ? `${a}(${w})` : a;
+}
 /** 특정 날짜가 속한 주(월~일) 구하기 */
 function getWeekRange(dateStr) {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) {
-        return { start: formatDateLabel(dateStr), end: formatDateLabel(dateStr) };
+        const x = formatDateLabel(dateStr);
+        return { start: x, end: x };
     }
     const day = (d.getDay() + 6) % 7; // 월=0
     const monday = new Date(d);
@@ -983,6 +997,73 @@ function vehicleLabel(v) {
         return "기타";
     return "-";
 }
+/* =========================
+   ✅ 시간/근무/잔업/일비 유틸
+   ========================= */
+function parseHHMMToMinutes(hhmm) {
+    const s = String(hhmm ?? "").trim();
+    const m = /^(\d{1,2}):(\d{2})$/.exec(s);
+    if (!m)
+        return null;
+    const hh = Number(m[1]);
+    const mm = Number(m[2]);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm))
+        return null;
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59)
+        return null;
+    return hh * 60 + mm;
+}
+function formatDuration(mins) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (m === 0)
+        return `${h}시간`;
+    return `${h}시간 ${m}분`;
+}
+/** 업무시간(분) 계산: start~end (자정 넘어가면 +24h 처리) */
+function calcWorkMinutes(startHHMM, endHHMM) {
+    const s = parseHHMMToMinutes(startHHMM);
+    const e = parseHHMMToMinutes(endHHMM);
+    if (s == null || e == null)
+        return null;
+    let diff = e - s;
+    if (diff < 0)
+        diff += 24 * 60;
+    return diff;
+}
+/** ✅ 직원 화면(10_domestic-trip-history.ts)과 동일 규칙 3줄 생성 */
+function buildWork3LinesForAdmin(reg, set) {
+    const departStart = reg?.depart_time || "-"; // 출발시간
+    const arriveTime = reg?.arrive_time || "-"; // 도착시간(출장지 도착)
+    const returnStart = set?.work_end_time || "-"; // 복귀 출발 (=업무 종료)
+    const returnArrive = set?.return_time || "-"; // 복귀 도착
+    const workStart = reg?.work_start_time || arriveTime || "-";
+    const workEnd = set?.work_end_time || "-";
+    const departLine = (departStart !== "-" && arriveTime !== "-")
+        ? `출발 (출발시간 ${departStart} ~ 도착시간 ${arriveTime})`
+        : "출발 (-)";
+    const returnLine = (returnStart !== "-" && returnArrive !== "-")
+        ? `복귀 (출발시간 ${returnStart} ~ 도착시간 ${returnArrive})`
+        : "복귀 (-)";
+    const workMins = (workStart !== "-" && workEnd !== "-") ? calcWorkMinutes(workStart, workEnd) : null;
+    const workLine = (workMins != null)
+        ? `업무시간 ${workStart} ~ ${workEnd} (총 ${formatDuration(workMins)})`
+        : "업무시간 -";
+    return { departLine, returnLine, workLine, workEnd, workMins };
+}
+/** ✅ 그룹 상태(주간 리스트에 표시) */
+function groupStatusLabel(g) {
+    // 하나라도 rejected면 반려 우선
+    const anyRejected = g.rows.some((r) => r.approve_status === "rejected");
+    if (anyRejected)
+        return { text: "반려", cls: "text-rose-600 font-bold" };
+    // 전부 approved면 승인
+    const allApproved = g.rows.length > 0 && g.rows.every((r) => r.approve_status === "approved");
+    if (allApproved)
+        return { text: "승인", cls: "text-emerald-700 font-bold" };
+    // 그 외는 대기(제출됨)
+    return { text: "대기", cls: "text-indigo-600 font-bold" };
+}
 function initTripApprovalPanel(_panelId) {
     const fromInput = getEl("appr_from");
     const toInput = getEl("appr_to");
@@ -990,7 +1071,7 @@ function initTripApprovalPanel(_panelId) {
     const searchBtn = getEl("appr_search");
     const resultMsg = getEl("appr_result_msg");
     const tbody = getEl("approve_result_tbody");
-    // 기본 조회 기간: 이번 주
+    // ✅ 기본 조회 기간: "이번 주(월~일)" 자동 세팅
     const today = new Date();
     const monday = new Date(today);
     monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
@@ -998,6 +1079,26 @@ function initTripApprovalPanel(_panelId) {
     sunday.setDate(monday.getDate() + 6);
     fromInput.value = monday.toISOString().slice(0, 10);
     toInput.value = sunday.toISOString().slice(0, 10);
+    // ✅ 관리자 자동갱신 함수
+    function triggerAdminRefresh() {
+        const btn = document.getElementById("appr_search");
+        if (btn)
+            btn.click();
+    }
+    // ✅ 제출 이벤트가 오면 관리자 화면 자동 갱신(새로고침 X)
+    window.addEventListener("trip:submitted", () => triggerAdminRefresh());
+    try {
+        const bc = new BroadcastChannel("trip-events");
+        bc.onmessage = (ev) => {
+            if (ev?.data?.type === "trip:submitted")
+                triggerAdminRefresh();
+        };
+    }
+    catch { }
+    window.addEventListener("storage", (e) => {
+        if (e.key === "trip:submitted")
+            triggerAdminRefresh();
+    });
     // 🔍 조회 버튼
     searchBtn.addEventListener("click", async () => {
         const from = fromInput.value;
@@ -1010,7 +1111,7 @@ function initTripApprovalPanel(_panelId) {
         resultMsg.textContent = "조회 중입니다...";
         tbody.innerHTML = `
       <tr>
-        <td colspan="5" class="border px-2 py-3 text-center text-gray-400">
+        <td colspan="6" class="border px-2 py-3 text-center text-gray-400">
           조회 중...
         </td>
       </tr>`;
@@ -1025,49 +1126,54 @@ function initTripApprovalPanel(_panelId) {
                 resultMsg.textContent = json.message ?? "조회 실패";
                 tbody.innerHTML = `
           <tr>
-            <td colspan="5" class="border px-2 py-3 text-center text-gray-400">
+            <td colspan="6" class="border px-2 py-3 text-center text-gray-400">
               조회 실패: ${json.message ?? "알 수 없는 오류"}
             </td>
           </tr>`;
                 return;
             }
-            const rows = json.data ?? [];
+            let rows = json.data ?? [];
+            // ✅ 혹시 백엔드 필터를 아직 안 넣었다면, 프론트에서도 방어 (제출된 것만)
+            rows = rows.filter((r) => !!r.submitted_at);
             if (rows.length === 0) {
-                resultMsg.textContent = "해당 기간에 조회된 출장 내역이 없습니다.";
+                resultMsg.textContent = "해당 기간에 제출된 정산 내역이 없습니다.";
                 tbody.innerHTML = `
           <tr>
-            <td colspan="5" class="border px-2 py-3 text-center text-gray-400">
-              조회된 출장 내역이 없습니다.
+            <td colspan="6" class="border px-2 py-3 text-center text-gray-400">
+              제출된 정산 내역이 없습니다.
             </td>
           </tr>`;
                 return;
             }
             const groups = buildWeeklyGroups(rows);
-            resultMsg.textContent = `총 ${groups.length}개 주간 묶음 / ${rows.length}건 조회되었습니다.`;
+            // ✅ 카운트(제출된 주간 / 총 건수)
+            resultMsg.textContent = `제출된 주간 ${groups.length}개 / 총 ${rows.length}건`;
             tbody.innerHTML = "";
             groups.forEach((g) => {
                 const tr = document.createElement("tr");
-                // 기간
+                // 기간(주간) + 요일 표시
                 const tdPeriod = document.createElement("td");
-                tdPeriod.className = "border px-2 py-1 text-center";
-                tdPeriod.textContent = `${formatDateLabel(g.weekStart)} ~ ${formatDateLabel(g.weekEnd)}`;
+                tdPeriod.className = "border px-2 py-1 text-center whitespace-nowrap";
+                tdPeriod.textContent = `${formatDateWithDow(g.weekStart)} ~ ${formatDateWithDow(g.weekEnd)}`;
                 tr.appendChild(tdPeriod);
-                // 소속팀
                 const tdTeam = document.createElement("td");
                 tdTeam.className = "border px-2 py-1 text-center";
                 tdTeam.textContent = g.company_part;
                 tr.appendChild(tdTeam);
-                // 이름
                 const tdName = document.createElement("td");
                 tdName.className = "border px-2 py-1 text-center";
                 tdName.textContent = g.req_name;
                 tr.appendChild(tdName);
-                // 건수
                 const tdCount = document.createElement("td");
                 tdCount.className = "border px-2 py-1 text-center";
                 tdCount.textContent = String(g.rows.length);
                 tr.appendChild(tdCount);
-                // 상세 버튼
+                // ✅ 상태 표시 컬럼(대기/승인/반려)
+                const st = groupStatusLabel(g);
+                const tdStatus = document.createElement("td");
+                tdStatus.className = `border px-2 py-1 text-center ${st.cls}`;
+                tdStatus.textContent = st.text;
+                tr.appendChild(tdStatus);
                 const tdDetail = document.createElement("td");
                 tdDetail.className = "border px-2 py-1 text-center";
                 const btn = document.createElement("button");
@@ -1085,7 +1191,7 @@ function initTripApprovalPanel(_panelId) {
             resultMsg.textContent = "서버 오류가 발생했습니다.";
             tbody.innerHTML = `
         <tr>
-          <td colspan="5" class="border px-2 py-3 text-center text-gray-400">
+          <td colspan="6" class="border px-2 py-3 text-center text-gray-400">
             서버 오류가 발생했습니다.
           </td>
         </tr>`;
@@ -1131,7 +1237,7 @@ function initTripApprovalPanel(_panelId) {
                 alert("해당 주간 출장 건이 모두 승인되었습니다.");
             modal.classList.add("hidden");
             modal.classList.remove("flex");
-            getEl("appr_search").click();
+            document.getElementById("appr_search")?.click();
         }
         catch (e) {
             console.error(e);
@@ -1171,7 +1277,7 @@ function initTripApprovalPanel(_panelId) {
                 alert("해당 주간 출장 건이 모두 반려되었습니다.");
             modal.classList.add("hidden");
             modal.classList.remove("flex");
-            getEl("appr_search").click();
+            document.getElementById("appr_search")?.click();
         }
         catch (e) {
             console.error(e);
@@ -1186,7 +1292,8 @@ function openWeeklyDetailModal(group) {
     modal.classList.remove("hidden");
     modal.classList.add("flex");
     getEl("appr_d_name").textContent = group.req_name;
-    getEl("appr_d_date").textContent = `${formatDateLabel(group.weekStart)} ~ ${formatDateLabel(group.weekEnd)}`;
+    getEl("appr_d_date").textContent =
+        `${formatDateWithDow(group.weekStart)} ~ ${formatDateWithDow(group.weekEnd)}`;
     const tbody = getEl("appr_detail_tbody");
     tbody.innerHTML = "";
     const sorted = [...group.rows].sort((a, b) => a.trip_date.localeCompare(b.trip_date));
@@ -1194,6 +1301,12 @@ function openWeeklyDetailModal(group) {
         const el = document.createElement("td");
         el.className = cls;
         el.textContent = text || "";
+        return el;
+    }
+    function tdHTML(html, cls = "border px-2 py-2 text-left whitespace-normal leading-snug") {
+        const el = document.createElement("td");
+        el.className = cls;
+        el.innerHTML = html || "";
         return el;
     }
     const mealText = (m) => {
@@ -1205,27 +1318,39 @@ function openWeeklyDetailModal(group) {
             return "개인";
         return "사용";
     };
+    const overtimeDates = [];
+    let totalDailyAllowance = 0;
     for (const row of sorted) {
         const reg = (row.detail_json?.register || row.start_data || {});
         const set = (row.detail_json?.settlement || row.end_data || {});
-        const workTime = reg.depart_time && set.work_end_time ? `${reg.depart_time} ~ ${set.work_end_time}` : "";
+        const w = buildWork3LinesForAdmin(reg, set);
+        // ✅ 일비: 업무 8시간(480분) 이상이면 3,000원
+        if (w.workMins != null && w.workMins >= 480)
+            totalDailyAllowance += 3000;
+        // ✅ 잔업 알림: 업무 종료시간이 20:30 초과
+        const endMin = parseHHMMToMinutes(w.workEnd);
+        if (endMin != null && endMin > (20 * 60 + 30))
+            overtimeDates.push(formatDateLabel(row.trip_date));
+        const workTimeHtml = `
+      <div class="text-gray-700">${w.departLine}</div>
+      <div class="text-gray-700">${w.returnLine}</div>
+      <div class="font-bold text-indigo-600 mt-1">${w.workLine}</div>
+    `;
         const meals = set.meals || {};
         const tr = document.createElement("tr");
-        tr.appendChild(td(formatDateLabel(row.trip_date))); // 일자
-        tr.appendChild(td((0,_utils_DistanceCalc__WEBPACK_IMPORTED_MODULE_0__.placeLabel)(reg.depart_place ?? ""))); // ✅ 출발지 한글표기
-        tr.appendChild(td(reg.destination ?? "")); // 출장지
-        tr.appendChild(td(reg.depart_time ?? "")); // 출발시간
-        tr.appendChild(td(reg.arrive_time ?? "")); // 도착시간
-        tr.appendChild(td(workTime)); // 업무시간
-        tr.appendChild(td((0,_utils_DistanceCalc__WEBPACK_IMPORTED_MODULE_0__.placeLabel)(set.return_place ?? ""))); // ✅ 복귀지 한글표기
-        tr.appendChild(td(vehicleLabel(set.vehicle))); // ✅ 차량 표기 통일
-        tr.appendChild(td(mealText(meals.breakfast))); // 조식
-        tr.appendChild(td(mealText(meals.lunch))); // 중식
-        tr.appendChild(td(mealText(meals.dinner))); // 석식
-        tr.appendChild(td(reg.purpose ?? "", "border px-2 py-1 text-left whitespace-pre-wrap")); // 목적
+        tr.appendChild(td(formatDateWithDow(row.trip_date))); // ✅ 일자+요일
+        tr.appendChild(td((0,_utils_DistanceCalc__WEBPACK_IMPORTED_MODULE_0__.placeLabel)(reg.depart_place ?? "")));
+        tr.appendChild(td(reg.destination ?? ""));
+        tr.appendChild(tdHTML(workTimeHtml));
+        tr.appendChild(td((0,_utils_DistanceCalc__WEBPACK_IMPORTED_MODULE_0__.placeLabel)(set.return_place ?? "")));
+        tr.appendChild(td(vehicleLabel(set.vehicle)));
+        tr.appendChild(td(mealText(meals.breakfast)));
+        tr.appendChild(td(mealText(meals.lunch)));
+        tr.appendChild(td(mealText(meals.dinner)));
+        tr.appendChild(td(reg.purpose ?? "", "border px-2 py-1 text-left whitespace-pre-wrap"));
         tbody.appendChild(tr);
     }
-    // 💰 금액 요약 (주간 전체 합계)
+    // 💰 금액 요약
     let totalMealsAmount = 0;
     let totalFuelAmount = 0;
     for (const row of group.rows) {
@@ -1235,8 +1360,12 @@ function openWeeklyDetailModal(group) {
         totalFuelAmount += c.fuel_amount ?? 0;
     }
     const amountBox = getEl("appr_amount_box");
-    const sum = totalMealsAmount + totalFuelAmount;
-    amountBox.textContent = `식대(개인) ${totalMealsAmount.toLocaleString()}원 / 유류비 ${totalFuelAmount.toLocaleString()}원 / 합계 ${sum.toLocaleString()}원`;
+    const sum = totalMealsAmount + totalFuelAmount + totalDailyAllowance;
+    amountBox.textContent =
+        `식대(개인) ${totalMealsAmount.toLocaleString()}원 / ` +
+            `유류비 ${totalFuelAmount.toLocaleString()}원 / ` +
+            `일비 ${totalDailyAllowance.toLocaleString()}원 / ` +
+            `합계 ${sum.toLocaleString()}원`;
     // 승인/반려 상태 요약
     const total = group.rows.length;
     const pending = group.rows.filter((r) => !r.approve_status || r.approve_status === "pending").length;
@@ -1246,6 +1375,11 @@ function openWeeklyDetailModal(group) {
     footer.textContent = `총 ${total}건 / 대기 ${pending}건 / 승인 ${approved}건 / 반려 ${rejected}건`;
     // 의견 초기화
     getEl("appr_comment").value = group.rows[0]?.approve_comment ?? "";
+    // ✅ 잔업비 알림
+    if (overtimeDates.length > 0) {
+        const uniq = Array.from(new Set(overtimeDates));
+        alert(`※잔업비 확인하세요\n(업무 종료시간 20:30 초과)\n- ${uniq.join(", ")}`);
+    }
 }
 
 
@@ -4568,25 +4702,39 @@ function getEl(id) {
         throw new Error(`element not found: #${id}`);
     return el;
 }
-function formatYmd(isoDate) {
-    const d = typeof isoDate === "string" ? new Date(isoDate) : isoDate;
-    if (Number.isNaN(d.getTime()))
+const DOW_KR = ["일", "월", "화", "수", "목", "금", "토"];
+// ✅ ISO/Date/DB-date 어떤 값이 와도 "YYYY-MM-DD" 로 안전하게
+function ymdSafe(v) {
+    const s = String(v ?? "").trim();
+    if (!s)
         return "-";
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+    // "2026-01-16T00:00:00.000Z" 같은 경우 → 앞 10자리만
+    if (s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s))
+        return s.slice(0, 10);
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime()))
+        return s;
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+}
+function formatYmdWithDow(v) {
+    const ymd = ymdSafe(v);
+    if (ymd === "-")
+        return "-";
+    const d = new Date(ymd); // "YYYY-MM-DD"는 로컬 기준으로 잘 계산됨
+    if (Number.isNaN(d.getTime()))
+        return ymd;
+    return `${ymd} (${DOW_KR[d.getDay()]})`;
 }
 function toYMD(d) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function startOfWeekMon(d) {
     const x = new Date(d);
-    const day = x.getDay(); // 0=일..6=토
-    const diff = (day === 0 ? -6 : 1 - day); // 월요일로
+    const day = x.getDay();
+    const diff = day === 0 ? -6 : 1 - day; // 월요일=1
     x.setDate(x.getDate() + diff);
     x.setHours(0, 0, 0, 0);
     return x;
@@ -4599,37 +4747,33 @@ function endOfWeekSun(d) {
     return sun;
 }
 function isMonToSunRange(from, to) {
-    if (!from || !to)
-        return false;
     const s = new Date(from);
     const e = new Date(to);
     if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()))
         return false;
-    const okStart = s.getDay() === 1; // 월
-    const okEnd = e.getDay() === 0; // 일
-    const diffDays = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
-    return okStart && okEnd && diffDays === 6;
+    const diff = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
+    return s.getDay() === 1 && e.getDay() === 0 && diff === 6;
 }
-function diffHHMM(fromHHMM, toHHMM) {
-    // "01:25" ~ "04:10" -> "02:45"
-    const parse = (t) => {
-        const [h, m] = String(t ?? "").split(":").map((x) => Number(x));
+/** ✅ 근무시간 차액 계산 */
+function calcHourDiff(start, end) {
+    const toMin = (t) => {
+        const [h, m] = String(t ?? "").split(":").map(Number);
         if (!Number.isFinite(h) || !Number.isFinite(m))
             return null;
         return h * 60 + m;
     };
-    const a = parse(fromHHMM);
-    const b = parse(toHHMM);
-    if (a == null || b == null)
+    const s = toMin(start);
+    const e = toMin(end);
+    if (s == null || e == null)
         return "-";
-    let diff = b - a;
+    let diff = e - s;
     if (diff < 0)
-        diff += 24 * 60; // 자정 넘어가는 케이스 대응
-    const hh = String(Math.floor(diff / 60)).padStart(2, "0");
-    const mm = String(diff % 60).padStart(2, "0");
-    return `${hh}:${mm}`;
+        diff += 24 * 60;
+    const h = Math.floor(diff / 60);
+    const m = diff % 60;
+    return m === 0 ? `${h}시간` : `${h}시간 ${m}분`;
 }
-// 🌟 정산 내역 보기/제출 패널 초기화
+// 🌟 패널 초기화
 function initDomesticTripHistoryPanel(API_BASE) {
     const panel = document.getElementById("panel-국내출장-정산서등록");
     if (!panel)
@@ -4645,45 +4789,87 @@ function initDomesticTripHistoryPanel(API_BASE) {
     const resultMsg = getEl("settle_result_msg");
     const tbody = getEl("settle_result_tbody");
     let lastRows = [];
-    // 기본 날짜: 오늘
-    if (!fromInput.value || !toInput.value) {
-        const todayStr = toYMD(new Date());
-        fromInput.value = todayStr;
-        toInput.value = todayStr;
-    }
-    // ✅ localStorage.user 에서 로그인한 사람의 name 가져오기
     function getLoginUserName() {
         try {
-            const stored = localStorage.getItem("user");
-            if (!stored)
-                return null;
-            const user = JSON.parse(stored);
-            return user?.name ?? null;
+            return JSON.parse(localStorage.getItem("user") || "{}")?.name ?? null;
         }
         catch {
             return null;
         }
     }
+    // ✅ (1) 기본값: 오늘 기준 이번주 월~일 자동 세팅
+    function setThisWeekRange() {
+        const mon = startOfWeekMon(new Date());
+        const sun = endOfWeekSun(new Date());
+        fromInput.value = toYMD(mon);
+        toInput.value = toYMD(sun);
+    }
+    function setLastWeekRange() {
+        const mon = startOfWeekMon(new Date());
+        mon.setDate(mon.getDate() - 7);
+        const sun = new Date(mon);
+        sun.setDate(mon.getDate() + 6);
+        fromInput.value = toYMD(mon);
+        toInput.value = toYMD(sun);
+    }
+    // 입력값이 비었으면 자동으로 이번주 세팅
+    if (!fromInput.value || !toInput.value)
+        setThisWeekRange();
+    // =========================
+    // ✅ 제출 이벤트: 관리자(02) 자동 갱신용
+    // =========================
+    function notifyTripSubmitted(payload) {
+        window.dispatchEvent(new CustomEvent("trip:submitted", { detail: payload ?? {} }));
+        try {
+            const bc = new BroadcastChannel("trip-events");
+            bc.postMessage({ type: "trip:submitted", payload: payload ?? {}, ts: Date.now() });
+            bc.close();
+        }
+        catch { }
+        try {
+            localStorage.setItem("trip:submitted", JSON.stringify({ payload: payload ?? {}, ts: Date.now() }));
+        }
+        catch { }
+    }
+    // =========================
+    // ✅ 제출 가능/불가 안내 + 버튼 활성화
+    // =========================
     function updateSubmitEnabled() {
-        // 제출은 “월~일(7일)” + 조회결과 존재 + (가능하면) 모두 정산(end_data 존재) 상태여야 함
         const okWeek = isMonToSunRange(fromInput.value, toInput.value);
         const hasRows = lastRows.length > 0;
-        // 정산(end_data) 없는 건 제출 못하게 (네 시스템상 정산 저장이 끝나야 제출 가능)
         const allSettled = lastRows.every((r) => {
             const s = r.detail_json?.settlement ?? r.end_data ?? {};
             return s && Object.keys(s).length > 0;
         });
-        submitBtn.disabled = !(okWeek && hasRows && allSettled);
+        const anySubmitted = lastRows.some((r) => !!r.submitted_at);
+        const canSubmit = okWeek && hasRows && allSettled && !anySubmitted;
+        submitBtn.disabled = !canSubmit;
+        // ✅ 유저가 실수 안 하게 이유를 resultMsg에 같이 보여줌
+        const reasons = [];
+        if (!okWeek)
+            reasons.push("제출은 월~일(1주일) 기간만 가능");
+        if (!hasRows)
+            reasons.push("조회된 내역 없음");
+        if (hasRows && !allSettled)
+            reasons.push("정산 저장이 안 된 날짜가 있음");
+        if (anySubmitted)
+            reasons.push("이미 제출된 내역이 포함됨");
+        if (canSubmit) {
+            resultMsg.textContent = `총 ${lastRows.length}건 조회 / ✅ 제출 가능합니다.`;
+        }
+        else {
+            // 기존에 “총 n건 조회”가 보이던 UX는 유지하면서, 제출 이유도 같이
+            const base = `총 ${lastRows.length}건 조회`;
+            const why = reasons.length ? ` / ⛔ ${reasons.join(" · ")}` : "";
+            resultMsg.textContent = base + why;
+        }
     }
-    function statusText(row) {
-        // 제출 전: 미제출
-        // 제출 후: 제출
-        // 관리자 승인/반려: 승인(O), 반려(X)
-        if (!row.submitted_at)
+    function statusText(r) {
+        if (!r.submitted_at)
             return "미제출";
-        if (row.approve_status === "approved")
+        if (r.approve_status === "approved")
             return "승인(O)";
-        if (row.approve_status === "rejected")
+        if (r.approve_status === "rejected")
             return "반려(X)";
         return "제출";
     }
@@ -4704,16 +4890,33 @@ function initDomesticTripHistoryPanel(API_BASE) {
         rows.forEach((row) => {
             const r = row.detail_json?.register ?? row.start_data ?? {};
             const s = row.detail_json?.settlement ?? row.end_data ?? {};
-            const dateStr = formatYmd(row.trip_date);
-            const workStart = r.work_start_time || "-";
+            // ✅ 근무시간 3줄 표시 (항상 이 형식으로 고정)
+            const departStart = r.depart_time || "-";
+            const arriveTime = r.arrive_time || "-";
+            const returnStart = s.work_end_time || "-";
+            const returnArrive = s.return_time || "-";
+            const workStart = r.work_start_time || arriveTime || "-";
             const workEnd = s.work_end_time || "-";
-            const workDur = (workStart !== "-" && workEnd !== "-") ? diffHHMM(workStart, workEnd) : "-";
-            const workTimeText = workDur !== "-" ? workDur : `${workStart}~${workEnd}`;
+            const departLine = (departStart !== "-" && arriveTime !== "-")
+                ? `출발 (출발시간 ${departStart} ~ 도착시간 ${arriveTime})`
+                : "출발 (-)";
+            const returnLine = (returnStart !== "-" && returnArrive !== "-")
+                ? `복귀 (출발시간 ${returnStart} ~ 도착시간 ${returnArrive})`
+                : "복귀 (-)";
+            const workDiff = (workStart !== "-" && workEnd !== "-")
+                ? calcHourDiff(workStart, workEnd)
+                : "-";
+            const workLine = (workDiff !== "-")
+                ? `업무시간 ${workStart} ~ ${workEnd} (총 ${workDiff})`
+                : "업무시간 -";
+            // 차량 표기
             const vehicleRaw = String(s.vehicle ?? "").trim();
             const vehicleText = vehicleRaw === "personal" ? "개인차" :
                 vehicleRaw === "corp" ? "법인차" :
                     vehicleRaw === "public" ? "대중교통" :
-                        vehicleRaw ? vehicleRaw : "-";
+                        vehicleRaw === "other" ? "기타" :
+                            (vehicleRaw || "-");
+            // 식사 표기
             const meals = s.meals || {};
             const mealStrs = [];
             if (meals.breakfast?.checked)
@@ -4723,52 +4926,59 @@ function initDomesticTripHistoryPanel(API_BASE) {
             if (meals.dinner?.checked)
                 mealStrs.push(`석식(${meals.dinner.owner === "corp" ? "법인" : "개인"})`);
             const mealsText = mealStrs.length ? mealStrs.join(", ") : "-";
+            // 이동경로 표기
             const departPlace = r.depart_place || "";
             const dest = r.destination || "";
             const returnPlace = s.return_place || "";
             const routeText = [departPlace, dest, returnPlace].filter(Boolean).join(" → ") || "-";
             const mainTask = r.purpose || "-";
             const st = statusText(row);
-            const rejectReason = (row.approve_status === "rejected" ? (row.approve_comment ?? "") : "");
+            const rejectReason = row.approve_status === "rejected" ? (row.approve_comment ?? "") : "";
             const tr = document.createElement("tr");
             tr.innerHTML = `
-        <td class="border px-2 py-1 text-center whitespace-nowrap">${dateStr}</td>
-        <td class="border px-2 py-1 text-center whitespace-nowrap">${workTimeText}</td>
-        <td class="border px-2 py-1 text-center whitespace-nowrap">${vehicleText}</td>
-        <td class="border px-2 py-1 text-center">${mealsText}</td>
-        <td class="border px-2 py-1">${routeText}</td>
-        <td class="border px-2 py-1">${mainTask}</td>
-        <td class="border px-2 py-1 text-center font-semibold whitespace-nowrap">${st}</td>
-        <td class="border px-2 py-1 text-rose-600">${rejectReason}</td>
+        <td class="border px-2 py-1 text-center whitespace-nowrap">
+          ${formatYmdWithDow(row.trip_date)}
+        </td>
+
+        <td class="border px-2 py-2 text-left whitespace-normal leading-snug">
+          <div class="text-gray-700">${departLine}</div>
+          <div class="text-gray-700">${returnLine}</div>
+          <div class="font-bold text-indigo-600 mt-1">${workLine}</div>
+        </td>
+
+        <td class="border px-2 py-1 text-center whitespace-nowrap">
+          ${vehicleText}
+        </td>
+
+        <td class="border px-2 py-1 text-center whitespace-nowrap">
+          ${mealsText}
+        </td>
+
+        <td class="border px-2 py-1 truncate">
+          ${routeText}
+        </td>
+
+        <td class="border px-2 py-1 whitespace-normal">
+          ${mainTask}
+        </td>
+
+        <td class="border px-2 py-1 text-center font-semibold whitespace-nowrap">
+          ${st}
+        </td>
+
+        <td class="border px-2 py-1 text-rose-600 whitespace-normal">
+          ${rejectReason}
+        </td>
       `;
             tbody.appendChild(tr);
         });
     }
     async function fetchHistory() {
-        const from = fromInput.value;
-        const to = toInput.value;
-        if (!from || !to) {
-            resultMsg.textContent = "시작일과 종료일을 모두 선택하세요.";
+        const name = getLoginUserName();
+        if (!name)
             return;
-        }
-        if (from > to) {
-            resultMsg.textContent = "시작일이 종료일보다 늦을 수 없습니다.";
-            return;
-        }
-        // ✅ 항상 로그인한 사람 이름으로만 조회
-        const reqNameParam = getLoginUserName();
-        if (!reqNameParam) {
-            resultMsg.textContent = "로그인 정보에서 사용자 이름을 찾을 수 없습니다.";
-            tbody.innerHTML = `
-        <tr>
-          <td colspan="8" class="border px-2 py-3 text-center text-rose-500">
-            로그인 정보가 없어 정산 내역을 조회할 수 없습니다.
-          </td>
-        </tr>
-      `;
-            return;
-        }
-        resultMsg.textContent = "정산 내역을 조회 중입니다...";
+        // 조회중 표시
+        resultMsg.textContent = "조회 중...";
         tbody.innerHTML = `
       <tr>
         <td colspan="8" class="border px-2 py-3 text-center text-gray-400">
@@ -4776,141 +4986,86 @@ function initDomesticTripHistoryPanel(API_BASE) {
         </td>
       </tr>
     `;
-        const qs = new URLSearchParams();
-        qs.set("from", from);
-        qs.set("to", to);
-        qs.set("req_name", reqNameParam);
+        const qs = new URLSearchParams({
+            from: fromInput.value,
+            to: toInput.value,
+            req_name: name,
+        });
+        const res = await fetch(`${API_BASE}/api/business-trip/settlements-range?${qs}`);
+        const json = await res.json();
+        const rows = (json.data ?? []);
+        renderRows(rows);
+    }
+    // ✅ 조회
+    searchBtn.onclick = fetchHistory;
+    // ✅ (3) 입력 바뀌면 제출 가능 여부 즉시 반영 (유저 실수 방지)
+    fromInput.addEventListener("change", updateSubmitEnabled);
+    toInput.addEventListener("change", updateSubmitEnabled);
+    // ✅ (3-추가) "이번주/지난주" 버튼이 HTML에 있으면 자동 연결(있어도 되고 없어도 됨)
+    // - 버튼 id를 아래처럼 쓰면 자동으로 먹음:
+    //   thisweek: settle_btn_thisweek
+    //   lastweek: settle_btn_lastweek
+    const btnThisWeek = document.getElementById("settle_btn_thisweek");
+    const btnLastWeek = document.getElementById("settle_btn_lastweek");
+    if (btnThisWeek) {
+        btnThisWeek.addEventListener("click", async () => {
+            setThisWeekRange();
+            await fetchHistory();
+        });
+    }
+    if (btnLastWeek) {
+        btnLastWeek.addEventListener("click", async () => {
+            setLastWeekRange();
+            await fetchHistory();
+        });
+    }
+    // =========================
+    // ✅ 제출하기
+    // =========================
+    submitBtn.onclick = async () => {
         try {
-            const res = await fetch(`${API_BASE}/api/business-trip/settlements-range?${qs.toString()}`, { method: "GET" });
-            if (!res.ok)
-                throw new Error(`HTTP ${res.status} / ${await res.text()}`);
-            const json = await res.json();
-            const rows = json?.data ?? [];
-            if (!rows.length) {
-                renderRows([]);
-                resultMsg.textContent = "조회된 정산 내역이 없습니다.";
+            if (submitBtn.disabled) {
+                // disabled인데 누르려는 경우: 왜 안되는지 한번 더 알림(실수 방지)
+                const okWeek = isMonToSunRange(fromInput.value, toInput.value);
+                if (!okWeek) {
+                    alert("제출은 월~일(1주일) 기간만 가능합니다.\n'이번주(월~일)' 버튼을 눌러주세요.");
+                }
                 return;
             }
-            renderRows(rows);
-            resultMsg.textContent = `총 ${rows.length}건의 정산 내역이 조회되었습니다.`;
-        }
-        catch (err) {
-            console.error(err);
-            resultMsg.textContent = `조회 실패: ${err?.message ?? "알 수 없는 오류"}`;
-            tbody.innerHTML = `
-        <tr>
-          <td colspan="8" class="border px-2 py-3 text-center text-rose-500">
-            조회 실패: ${err?.message ?? "알 수 없는 오류"}
-          </td>
-        </tr>
-      `;
-            lastRows = [];
-            updateSubmitEnabled();
-        }
-    }
-    async function submitWeek() {
-        const from = fromInput.value;
-        const to = toInput.value;
-        if (!isMonToSunRange(from, to)) {
-            alert("제출은 월~일(1주일) 기간만 가능합니다.");
-            return;
-        }
-        const reqNameParam = getLoginUserName();
-        if (!reqNameParam) {
-            alert("로그인 정보가 없습니다.");
-            return;
-        }
-        if (!lastRows.length) {
-            alert("제출할 내역이 없습니다.");
-            return;
-        }
-        const ok = confirm(`정산서를 제출할까요?\n기간: ${from} ~ ${to}`);
-        if (!ok)
-            return;
-        try {
-            submitBtn.disabled = true;
-            resultMsg.textContent = "제출 중입니다...";
+            const name = getLoginUserName();
+            if (!name) {
+                alert("로그인 정보를 찾을 수 없습니다.");
+                return;
+            }
+            if (!confirm("이 기간(주간)의 정산서를 제출하시겠습니까?"))
+                return;
             const res = await fetch(`${API_BASE}/api/business-trip/settlements-submit-week`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ from, to, req_name: reqNameParam }),
+                credentials: "include",
+                body: JSON.stringify({
+                    from: fromInput.value,
+                    to: toInput.value,
+                    req_name: name,
+                }),
             });
-            if (!res.ok)
-                throw new Error(`HTTP ${res.status} / ${await res.text()}`);
             const json = await res.json();
-            if (!json?.ok)
-                throw new Error(json?.message ?? "제출 실패");
-            resultMsg.textContent = "제출 완료! (관리자 승인 대기)";
+            if (!json.ok) {
+                alert(json.message ?? "제출 실패");
+                return;
+            }
+            alert("제출 완료");
+            // ✅ 관리자(02) 자동갱신 트리거
+            notifyTripSubmitted({ from: fromInput.value, to: toInput.value, req_name: name });
+            // ✅ 직원 화면도 최신화
             await fetchHistory();
         }
         catch (e) {
             console.error(e);
-            alert(`제출 실패: ${e?.message ?? "알 수 없는 오류"}`);
-            resultMsg.textContent = `제출 실패: ${e?.message ?? "알 수 없는 오류"}`;
-            updateSubmitEnabled();
+            alert("서버 오류로 제출에 실패했습니다.");
         }
-    }
-    // ✅ 기간 버튼 이벤트
-    panel.querySelectorAll(".settle_period_btn").forEach((btn) => {
-        btn.addEventListener("click", () => {
-            const mode = btn.dataset.period;
-            const today = new Date();
-            if (mode === "1d") {
-                fromInput.value = toYMD(today);
-                toInput.value = toYMD(today);
-            }
-            else if (mode === "1w") {
-                const end = new Date(today);
-                const start = new Date(today);
-                start.setDate(end.getDate() - 6);
-                fromInput.value = toYMD(start);
-                toInput.value = toYMD(end);
-            }
-            else if (mode === "1m") {
-                const end = new Date(today);
-                const start = new Date(today);
-                start.setMonth(end.getMonth() - 1);
-                fromInput.value = toYMD(start);
-                toInput.value = toYMD(end);
-            }
-            else if (mode === "prevMonth") {
-                const firstThis = new Date(today.getFullYear(), today.getMonth(), 1);
-                const firstPrev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-                const lastPrev = new Date(firstThis);
-                lastPrev.setDate(0);
-                fromInput.value = toYMD(firstPrev);
-                toInput.value = toYMD(lastPrev);
-            }
-            else if (mode === "thisMonth") {
-                const first = new Date(today.getFullYear(), today.getMonth(), 1);
-                const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-                fromInput.value = toYMD(first);
-                toInput.value = toYMD(last);
-            }
-            else if (mode === "thisWeek") {
-                const mon = startOfWeekMon(today);
-                const sun = endOfWeekSun(today);
-                fromInput.value = toYMD(mon);
-                toInput.value = toYMD(sun);
-            }
-            else if (mode === "lastWeek") {
-                const last = new Date(today);
-                last.setDate(last.getDate() - 7);
-                const mon = startOfWeekMon(last);
-                const sun = endOfWeekSun(last);
-                fromInput.value = toYMD(mon);
-                toInput.value = toYMD(sun);
-            }
-            updateSubmitEnabled();
-        });
-    });
-    // 날짜 직접 변경 시 제출버튼 활성화 갱신
-    fromInput.addEventListener("change", updateSubmitEnabled);
-    toInput.addEventListener("change", updateSubmitEnabled);
-    // 버튼 이벤트 연결
-    searchBtn.addEventListener("click", () => fetchHistory());
-    submitBtn.addEventListener("click", () => submitWeek());
-    // 초기 상태 반영
+    };
+    // 초기엔 “이번주 기준”으로 보이게 + 제출버튼 조건 반영
     updateSubmitEnabled();
 }
 
