@@ -33,27 +33,22 @@ function normalizeVehicle(v: any): VehicleType {
 function normalizePlace(v: any): PlaceType | null {
   const s = norm(v);
   if (!s) return null;
-
   if (s === "home" || s === "자택") return "home";
   if (s === "company" || s === "회사") return "company";
-
   return null; // 기타 텍스트면 계산 불가
 }
 
 // 🍱 식대 계산 (개인 부담만)
 function calcMealAmount(meals: any | undefined | null): MealCalcResult {
   if (!meals) return { count: 0, amount: 0 };
-
   const list = [meals.breakfast, meals.lunch, meals.dinner];
   let count = 0;
-
   for (const m of list) {
     if (!m) continue;
     if (!m.checked) continue;
-    if (m.owner !== "personal") continue; // 법인/회사면 0원
+    if (m.owner !== "personal") continue;
     count += 1;
   }
-
   return { count, amount: count * MEAL_UNIT };
 }
 
@@ -65,12 +60,6 @@ function toNumberOrNull(v: any): number | null {
 
 /**
  * ✅ Business Master 설정(config_json)에서 유류 단가 + 연비 읽기
- * - 너의 05_business-master.ts에서 저장하는 config endpoint(/api/business-master/config)와 같은 테이블/값을 사용해야 함
- * - 여기서는 "business_trip_config" 테이블에서 가져온다고 가정 (너 백엔드 구조에 맞춰 둠)
- *
- * ✅ 지원 키(유연하게):
- * - fuel_price_gasoline / fuel_price_diesel / fuel_price_lpg
- * - fuel_km_per_liter (또는 km_per_liter, fuel_efficiency, fuel_kmpl 등 아무거나 들어와도 최대한 읽음)
  */
 async function getFuelSettings(pool: Pool): Promise<{
   priceGasoline: number;
@@ -78,7 +67,7 @@ async function getFuelSettings(pool: Pool): Promise<{
   priceLpg: number;
   kmPerLiter: number;
 }> {
-  // ✅ 1순위: business_trip_settings (네 스샷의 테이블)
+  // ✅ 1순위: business_trip_settings
   try {
     const r = await pool.query(`
       SELECT
@@ -92,7 +81,6 @@ async function getFuelSettings(pool: Pool): Promise<{
     `);
 
     const row = r.rows?.[0] ?? {};
-
     const kmPerLiter = toNumberOrNull(row.km_per_liter) ?? DEFAULT_KM_PER_LITER;
     const safeKmPerLiter = kmPerLiter > 0 && kmPerLiter < 1000 ? kmPerLiter : DEFAULT_KM_PER_LITER;
 
@@ -100,17 +88,10 @@ async function getFuelSettings(pool: Pool): Promise<{
     const priceDiesel = toNumberOrNull(row.fuel_price_diesel) ?? DEFAULT_FUEL_PRICE;
     const priceLpg = toNumberOrNull(row.fuel_price_lpg) ?? DEFAULT_FUEL_PRICE;
 
-    return {
-      priceGasoline,
-      priceDiesel,
-      priceLpg,
-      kmPerLiter: safeKmPerLiter,
-    };
-  } catch (e) {
-    // 아래 fallback으로 진행
-  }
+    return { priceGasoline, priceDiesel, priceLpg, kmPerLiter: safeKmPerLiter };
+  } catch (e) { }
 
-  // ✅ 2순위 fallback: business_trip_config.config_json (혹시 남아있을 때)
+  // ✅ 2순위 fallback: business_trip_config.config_json
   try {
     const r = await pool.query(`
       SELECT config_json
@@ -137,22 +118,15 @@ async function getFuelSettings(pool: Pool): Promise<{
       DEFAULT_FUEL_PRICE;
 
     const kmPerLiter =
-      toNumberOrNull(cfg.km_per_liter) ??              // ✅ 네 JSON에 이 키가 있음
-      toNumberOrNull(cfg.fuel_km_per_liter) ??
       toNumberOrNull(cfg.km_per_liter) ??
+      toNumberOrNull(cfg.fuel_km_per_liter) ??
       toNumberOrNull(cfg.fuel_efficiency) ??
       toNumberOrNull(cfg.fuel_kmpl) ??
       DEFAULT_KM_PER_LITER;
 
-    const safeKmPerLiter =
-      kmPerLiter > 0 && kmPerLiter < 1000 ? kmPerLiter : DEFAULT_KM_PER_LITER;
+    const safeKmPerLiter = kmPerLiter > 0 && kmPerLiter < 1000 ? kmPerLiter : DEFAULT_KM_PER_LITER;
 
-    return {
-      priceGasoline,
-      priceDiesel,
-      priceLpg,
-      kmPerLiter: safeKmPerLiter,
-    };
+    return { priceGasoline, priceDiesel, priceLpg, kmPerLiter: safeKmPerLiter };
   } catch {
     return {
       priceGasoline: DEFAULT_FUEL_PRICE,
@@ -165,9 +139,11 @@ async function getFuelSettings(pool: Pool): Promise<{
 
 /**
  * ✅ 사용자 유종(휘발유/경유/LPG) 읽기
- * - innomax_users.fuel_type 컬럼을 사용한다고 너가 스샷으로 보여줌
  */
-async function getUserFuelType(pool: Pool, userName: string): Promise<"gasoline" | "diesel" | "lpg" | "unknown"> {
+async function getUserFuelType(
+  pool: Pool,
+  userName: string
+): Promise<"gasoline" | "diesel" | "lpg" | "unknown"> {
   const u = String(userName ?? "").trim();
   if (!u) return "unknown";
 
@@ -183,13 +159,10 @@ async function getUserFuelType(pool: Pool, userName: string): Promise<"gasoline"
     );
 
     const raw = String(r.rows?.[0]?.fuel_type ?? "").trim();
-
-    // 한국어/영문 모두 대응
     const s = norm(raw);
     if (s.includes("휘발") || s === "gasoline") return "gasoline";
     if (s.includes("경유") || s === "diesel") return "diesel";
     if (s.includes("lpg") || s.includes("가스")) return "lpg";
-
     return "unknown";
   } catch {
     return "unknown";
@@ -198,8 +171,6 @@ async function getUserFuelType(pool: Pool, userName: string): Promise<"gasoline"
 
 /**
  * ✅ 회사↔출장지(거래처) 거리(편도) 조회
- * - trip_distance_master.home_distance_km 사용
- * - 문자열 완전일치 문제 방지 위해 trim/lower 매칭
  */
 async function getCompanyToClientKm(pool: Pool, clientName: string): Promise<number> {
   const key = String(clientName ?? "").trim();
@@ -221,7 +192,6 @@ async function getCompanyToClientKm(pool: Pool, clientName: string): Promise<num
 
 /**
  * ✅ 자택↔출장지(거래처) 거리(편도) 조회
- * - innomax_users.distance_detail_json 안에서 client_name 매칭해서 home_distance_km 사용
  */
 async function getHomeToClientKm(pool: Pool, userName: string, clientName: string): Promise<number> {
   const u = String(userName ?? "").trim();
@@ -251,11 +221,6 @@ async function getHomeToClientKm(pool: Pool, userName: string, clientName: strin
 
 /**
  * ✅ 유류비 계산
- * - 개인차량(personal)만 유류비 발생
- * - 출발/복귀가 company/home로 판별 불가(기타)면 계산 불가 → 0
- * - 총km 계산 후: (총km / 연비) * 유류단가(유종별)
- *
- * ✅ calc.debug에 전부 남겨서 "왜 이 값인지" 바로 확인 가능
  */
 async function calcFuelAmountByCase(
   pool: Pool,
@@ -269,14 +234,7 @@ async function calcFuelAmountByCase(
 
   // ✅ 개인차량만 계산
   if (vehicle !== "personal") {
-    return {
-      distanceKm: 0,
-      amount: 0,
-      debug: {
-        reason: "vehicle_not_personal",
-        vehicle_norm: vehicle,
-      },
-    };
+    return { distanceKm: 0, amount: 0, debug: { reason: "vehicle_not_personal", vehicle_norm: vehicle } };
   }
 
   const departPlaceType = normalizePlace(departPlaceRaw);
@@ -305,41 +263,30 @@ async function calcFuelAmountByCase(
   let totalKm = 0;
   let caseUsed = "";
 
-  // 회사 -> 출장지 -> 회사
   if (departPlaceType === "company" && returnPlaceType === "company") {
     totalKm = companyOneWay * 2;
     caseUsed = "C->D->C";
-  }
-  // 회사 -> 출장지 -> 자택
-  else if (departPlaceType === "company" && returnPlaceType === "home") {
+  } else if (departPlaceType === "company" && returnPlaceType === "home") {
     totalKm = companyOneWay + homeOneWay;
     caseUsed = "C->D->H";
-  }
-  // 자택 -> 출장지 -> 회사
-  else if (departPlaceType === "home" && returnPlaceType === "company") {
+  } else if (departPlaceType === "home" && returnPlaceType === "company") {
     totalKm = homeOneWay + companyOneWay;
     caseUsed = "H->D->C";
-  }
-  // 자택 -> 출장지 -> 자택
-  else {
+  } else {
     totalKm = homeOneWay * 2;
     caseUsed = "H->D->H";
   }
 
-  // 3) 유종/설정(단가+연비) 가져오기
+  // 3) 유종/설정(단가+연비)
   const fuelType = await getUserFuelType(pool, reqName);
   const settings = await getFuelSettings(pool);
 
   const fuelPricePerLiter =
-    fuelType === "diesel"
-      ? settings.priceDiesel
-      : fuelType === "lpg"
-        ? settings.priceLpg
-        : settings.priceGasoline; // unknown은 휘발유로 fallback
+    fuelType === "diesel" ? settings.priceDiesel : fuelType === "lpg" ? settings.priceLpg : settings.priceGasoline;
 
   const kmPerLiter = settings.kmPerLiter;
 
-  // 4) 최종 금액: (총km / 연비) * 단가
+  // 4) 최종 금액
   const liters = kmPerLiter > 0 ? totalKm / kmPerLiter : 0;
   const amount = Math.round(liters * fuelPricePerLiter);
 
@@ -350,15 +297,12 @@ async function calcFuelAmountByCase(
       case_used: caseUsed,
       destination_raw: destination,
       req_name: reqName,
-
       company_oneway_km: companyOneWay,
       home_oneway_km: homeOneWay,
       total_km: totalKm,
-
       fuel_type_user: fuelType,
       fuel_price_per_liter_used: fuelPricePerLiter,
       km_per_liter_used: kmPerLiter,
-
       liters_calc: liters,
       formula: "(totalKm / kmPerLiter) * fuelPricePerLiter",
     },
@@ -397,9 +341,7 @@ export default function businessTripRouter(pool: Pool) {
    ============================ */
   router.get("/user-distance", async (req, res) => {
     const name = String(req.query.name ?? "").trim();
-    if (!name) {
-      return res.status(400).json({ ok: false, message: "name 필요" });
-    }
+    if (!name) return res.status(400).json({ ok: false, message: "name 필요" });
 
     try {
       const r = await pool.query(
@@ -412,9 +354,7 @@ export default function businessTripRouter(pool: Pool) {
         [name]
       );
 
-      if (r.rows.length === 0) {
-        return res.status(404).json({ ok: false, message: "유저 없음" });
-      }
+      if (r.rows.length === 0) return res.status(404).json({ ok: false, message: "유저 없음" });
 
       return res.json({ ok: true, data: r.rows[0].distance_detail_json ?? [] });
     } catch (err: any) {
@@ -425,18 +365,10 @@ export default function businessTripRouter(pool: Pool) {
 
   /* ============================
     1) 국내출장 등록
+    ✅✅✅ 저장 성공 시점에 settlement_in_progress = TRUE 찍는다 (네 요구사항 2번)
   ============================ */
   router.post("/domestic", async (req, res) => {
-    const {
-      trip_type,
-      req_name,
-      depart_place,
-      destination,
-      start_date,
-      depart_time,
-      arrive_time,
-      purpose,
-    } = req.body ?? {};
+    const { trip_type, req_name, depart_place, destination, start_date, depart_time, arrive_time, purpose } = req.body ?? {};
 
     if (
       trip_type !== "domestic" ||
@@ -454,24 +386,22 @@ export default function businessTripRouter(pool: Pool) {
     const trip_date = start_date;
     const trip_id = `${req_name}|${trip_date}`;
 
-    const startData = {
-      trip_type,
-      req_name,
-      depart_place,
-      destination,
-      start_date,
-      depart_time,
-      arrive_time,
-      purpose,
-    };
+    const startData = { trip_type, req_name, depart_place, destination, start_date, depart_time, arrive_time, purpose };
 
     try {
       const sql = `
         INSERT INTO business_trips (
-          trip_id, req_name, trip_date, start_data, end_data, detail_json, created_at
+          trip_id, req_name, trip_date, start_data, end_data, detail_json, created_at,
+          settlement_in_progress, settlement_started_at
         )
         VALUES (
-          $1, $2, $3, $4::jsonb, NULL, jsonb_build_object('register', $4::jsonb), NOW()
+          $1, $2, $3,
+          $4::jsonb,
+          NULL,
+          jsonb_build_object('register', $4::jsonb),
+          NOW(),
+          TRUE,
+          NOW()
         )
         ON CONFLICT (req_name, trip_date)
         DO UPDATE SET
@@ -482,7 +412,16 @@ export default function businessTripRouter(pool: Pool) {
             '{register}',
             EXCLUDED.start_data,
             true
-          )
+          ),
+          -- ✅ 이미 정산(end_data) 안 된 상태면 진행중 TRUE 유지/갱신
+          settlement_in_progress = CASE
+            WHEN business_trips.end_data IS NULL OR business_trips.end_data = '{}'::jsonb THEN TRUE
+            ELSE business_trips.settlement_in_progress
+          END,
+          settlement_started_at = CASE
+            WHEN business_trips.end_data IS NULL OR business_trips.end_data = '{}'::jsonb THEN NOW()
+            ELSE business_trips.settlement_started_at
+          END
         RETURNING *;
       `;
 
@@ -496,10 +435,97 @@ export default function businessTripRouter(pool: Pool) {
     }
   });
 
+  // =====================================================
+  // (유지) "이어서 정산" 시작 찍기
+  // - 이미 domestic에서 TRUE 찍히지만, 눌러도 문제 없게 유지
+  // =====================================================
+  router.post("/settlement/start", async (req, res) => {
+    const { req_name, trip_date } = req.body ?? {};
+    const name = String(req_name ?? "").trim();
+    const date = String(trip_date ?? "").trim();
+    if (!name || !date) return res.status(400).json({ ok: false, message: "req_name, trip_date 필요" });
+
+    try {
+      const base = await pool.query(
+        `
+        SELECT trip_id, end_data
+        FROM business_trips
+        WHERE req_name = $1 AND trip_date = $2
+        LIMIT 1
+        `,
+        [name, date]
+      );
+
+      if (base.rows.length === 0) return res.status(404).json({ ok: false, message: "출장등록 데이터가 없습니다." });
+
+      const endData = base.rows[0]?.end_data;
+      if (endData && Object.keys(endData).length > 0) {
+        return res.json({ ok: true, data: { req_name: name, trip_date: date, already_settled: true } });
+      }
+
+      const upd = await pool.query(
+        `
+        UPDATE business_trips
+        SET settlement_in_progress = TRUE,
+            settlement_started_at = NOW()
+        WHERE req_name = $1
+          AND trip_date = $2
+        RETURNING trip_id, req_name, trip_date, settlement_started_at;
+        `,
+        [name, date]
+      );
+
+      return res.json({ ok: true, data: upd.rows?.[0] ?? { req_name: name, trip_date: date } });
+    } catch (err: any) {
+      console.error("[settlement/start] error FULL:", err);
+      return res.status(500).json({ ok: false, message: "DB 오류" });
+    }
+  });
+
+  // =====================================================
+  // 진행중 정산 1건 조회 (로그아웃/재로그인 복원용)
+  // =====================================================
+  // =====================================================
+  // 진행중 정산 1건 조회 (컬럼 없이: end_data 비어있는 최신 1건)
+  // =====================================================
+  router.get("/settlement/in-progress", async (req, res) => {
+    const name = String(req.query.req_name ?? "").trim();
+    if (!name) return res.status(400).json({ ok: false, message: "req_name 필요" });
+
+    try {
+      const r = await pool.query(
+        `
+      SELECT trip_id, req_name, trip_date, created_at
+      FROM business_trips
+      WHERE req_name = $1
+        AND (end_data IS NULL OR end_data = '{}'::jsonb)
+      ORDER BY trip_date DESC, created_at DESC
+      LIMIT 1
+      `,
+        [name]
+      );
+
+      if (r.rows.length === 0) return res.json({ ok: true, data: null });
+
+      return res.json({
+        ok: true,
+        data: {
+          trip_id: r.rows[0].trip_id,
+          req_name: r.rows[0].req_name,
+          trip_date: r.rows[0].trip_date,
+          settlement_started_at: null, // ✅ 컬럼 없으니 null 고정
+        },
+      });
+    } catch (err: any) {
+      console.error("[settlement/in-progress] error FULL:", err);
+      return res.status(500).json({ ok: false, message: "DB 오류" });
+    }
+  });
+
+
   /* ============================
     2) 정산 저장 + 식대/유류비 자동 계산
-    ✅ 유류 공식: (총km / 연비) * 유종별단가
-    ✅ calc.fuel_debug 저장해서 근거 추적 가능
+    ✅ 정산 저장 성공 시 settlement_in_progress = FALSE 로 종료
   ============================ */
   router.post("/settlement", async (req, res) => {
     const { req_name, trip_date, detail_json } = req.body ?? {};
@@ -515,26 +541,21 @@ export default function businessTripRouter(pool: Pool) {
       const baseResult = await pool.query(
         `
         SELECT start_data, detail_json
-          FROM business_trips
-         WHERE req_name = $1
-           AND trip_date = $2
-         LIMIT 1
+        FROM business_trips
+        WHERE req_name = $1
+          AND trip_date = $2
+        LIMIT 1
         `,
         [req_name, trip_date]
       );
 
       if (baseResult.rows.length === 0) {
-        return res.status(404).json({
-          ok: false,
-          message: "출장등록 데이터가 없습니다. 먼저 출장등록을 해주세요.",
-        });
+        return res.status(404).json({ ok: false, message: "출장등록 데이터가 없습니다. 먼저 출장등록을 해주세요." });
       }
 
       const row = baseResult.rows[0] ?? {};
       const startData =
-        row.start_data && Object.keys(row.start_data).length > 0
-          ? row.start_data
-          : row.detail_json?.register ?? {};
+        row.start_data && Object.keys(row.start_data).length > 0 ? row.start_data : row.detail_json?.register ?? {};
 
       const destination = String(startData.destination ?? "");
 
@@ -542,47 +563,34 @@ export default function businessTripRouter(pool: Pool) {
       const departPlaceRaw = startData.depart_place;
       const returnPlaceRaw = settlement.return_place;
 
-      // ✅ 1) 식대
       const mealResult = calcMealAmount(settlement.meals);
-
-      // ✅ 2) 유류(설정 기반)
-      const fuelResult = await calcFuelAmountByCase(
-        pool,
-        req_name,
-        destination,
-        vehicleRaw,
-        departPlaceRaw,
-        returnPlaceRaw
-      );
+      const fuelResult = await calcFuelAmountByCase(pool, req_name, destination, vehicleRaw, departPlaceRaw, returnPlaceRaw);
 
       const calc = {
         meals_personal_count: mealResult.count,
         meals_personal_amount: mealResult.amount,
-
         fuel_distance_km: fuelResult.distanceKm,
         fuel_amount: fuelResult.amount,
-
         total_amount: mealResult.amount + fuelResult.amount,
-
-        // ✅ 디버깅용
         fuel_debug: fuelResult.debug,
         vehicle_norm: normalizeVehicle(vehicleRaw),
         depart_place_type: normalizePlace(departPlaceRaw),
         return_place_type: normalizePlace(returnPlaceRaw),
       };
 
-      const endData = {
-        ...settlement,
-        vehicle: normalizeVehicle(vehicleRaw),
-        calc,
-      };
+      const endData = { ...settlement, vehicle: normalizeVehicle(vehicleRaw), calc };
 
       const sql = `
         INSERT INTO business_trips (
-          trip_id, req_name, trip_date, end_data, detail_json, created_at
+          trip_id, req_name, trip_date, end_data, detail_json, created_at,
+          settlement_in_progress
         )
         VALUES (
-          $1, $2, $3, $4::jsonb, jsonb_build_object('settlement', $4::jsonb), NOW()
+          $1, $2, $3,
+          $4::jsonb,
+          jsonb_build_object('settlement', $4::jsonb),
+          NOW(),
+          FALSE
         )
         ON CONFLICT (req_name, trip_date)
         DO UPDATE SET
@@ -593,17 +601,15 @@ export default function businessTripRouter(pool: Pool) {
             '{settlement}',
             EXCLUDED.end_data,
             true
-          )
+          ),
+          settlement_in_progress = FALSE
         RETURNING *;
       `;
 
       const params = [trip_id, req_name, trip_date, JSON.stringify(endData)];
       const result = await pool.query(sql, params);
 
-      return res.json({
-        ok: true,
-        data: { ...result.rows[0], calc },
-      });
+      return res.json({ ok: true, data: { ...result.rows[0], calc } });
     } catch (err: any) {
       console.error("정산 저장 실패 FULL:", err);
       return res.status(500).json({ ok: false, message: "DB 오류" });
@@ -616,10 +622,7 @@ export default function businessTripRouter(pool: Pool) {
   router.get("/by-date", async (req, res) => {
     const date = String(req.query.date ?? "").trim();
     const reqName = String(req.query.req_name ?? "").trim();
-
-    if (!date || !reqName) {
-      return res.status(400).json({ ok: false, message: "date + req_name 필요" });
-    }
+    if (!date || !reqName) return res.status(400).json({ ok: false, message: "date + req_name 필요" });
 
     try {
       const result = await pool.query(
@@ -633,10 +636,7 @@ export default function businessTripRouter(pool: Pool) {
         [reqName, date]
       );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ ok: false, message: "출장 없음" });
-      }
-
+      if (result.rows.length === 0) return res.status(404).json({ ok: false, message: "출장 없음" });
       return res.json({ ok: true, data: result.rows[0] });
     } catch (err: any) {
       console.error("출장조회 실패 FULL:", err);
@@ -671,25 +671,18 @@ export default function businessTripRouter(pool: Pool) {
 
       const items = result.rows.map((row) => {
         const start =
-          row.start_data && Object.keys(row.start_data).length > 0
-            ? row.start_data
-            : row.detail_json?.register ?? {};
-
+          row.start_data && Object.keys(row.start_data).length > 0 ? row.start_data : row.detail_json?.register ?? {};
         const end =
-          row.end_data && Object.keys(row.end_data).length > 0
-            ? row.end_data
-            : row.detail_json?.settlement ?? {};
+          row.end_data && Object.keys(row.end_data).length > 0 ? row.end_data : row.detail_json?.settlement ?? {};
 
         return {
           trip_id: row.trip_id,
           req_name: row.req_name,
           trip_date: row.trip_date,
-
           depart_place: start.depart_place ?? "",
           destination: start.destination ?? "",
           depart_time: start.depart_time ?? "",
           arrive_time: start.arrive_time ?? "",
-
           status: end && Object.keys(end).length > 0 ? "SETTLED" : "REGISTERED",
           approve_status: row.approve_status ?? null,
         };
@@ -710,9 +703,7 @@ export default function businessTripRouter(pool: Pool) {
     const to = String(req.query.to ?? "").trim();
     const reqName = String(req.query.req_name ?? "").trim();
 
-    if (!from || !to) {
-      return res.status(400).json({ ok: false, message: "from, to 날짜는 필수입니다." });
-    }
+    if (!from || !to) return res.status(400).json({ ok: false, message: "from, to 날짜는 필수입니다." });
 
     try {
       const params: any[] = [from, to];
@@ -733,7 +724,9 @@ export default function businessTripRouter(pool: Pool) {
           end_data,
           detail_json,
           created_at,
-          approve_status
+          approve_status,
+          approve_comment,
+          submitted_at
         FROM business_trips
         WHERE ${where}
         ORDER BY trip_date ASC, req_name ASC, created_at ASC
@@ -756,9 +749,7 @@ export default function businessTripRouter(pool: Pool) {
     const to = String(req.query.to ?? "").trim();
     const rawStatus = String(req.query.status ?? "").trim();
 
-    if (!from || !to) {
-      return res.status(400).json({ ok: false, message: "from, to 날짜는 필수입니다." });
-    }
+    if (!from || !to) return res.status(400).json({ ok: false, message: "from, to 날짜는 필수입니다." });
 
     let status: "all" | "pending" | "approved" | "rejected" = "all";
     if (rawStatus === "pending") status = "pending";
@@ -810,12 +801,7 @@ export default function businessTripRouter(pool: Pool) {
   /* ============================
      7) 승인/반려 업데이트
   ============================ */
-  async function updateApproval(
-    tripId: string,
-    decision: "approved" | "rejected",
-    approver: string | null,
-    comment: string | null
-  ) {
+  async function updateApproval(tripId: string, decision: "approved" | "rejected", approver: string | null, comment: string | null) {
     const sql = `
       UPDATE business_trips
       SET
@@ -833,7 +819,6 @@ export default function businessTripRouter(pool: Pool) {
   router.post("/:trip_id/approve", async (req, res) => {
     const tripId = req.params.trip_id;
     const { approver, comment } = req.body ?? {};
-
     if (!tripId) return res.status(400).json({ ok: false, message: "trip_id가 필요합니다." });
 
     try {
@@ -849,7 +834,6 @@ export default function businessTripRouter(pool: Pool) {
   router.post("/:trip_id/reject", async (req, res) => {
     const tripId = req.params.trip_id;
     const { approver, comment } = req.body ?? {};
-
     if (!tripId) return res.status(400).json({ ok: false, message: "trip_id가 필요합니다." });
 
     try {
@@ -862,5 +846,124 @@ export default function businessTripRouter(pool: Pool) {
     }
   });
 
+  // ✅ 정산 안 된(= end_data 비어있음) 최신 1건의 start_data 가져오기
+  router.get("/domestic/incomplete", async (req, res) => {
+    const name = String(req.query.req_name ?? "").trim();
+    if (!name) return res.status(400).json({ ok: false, message: "req_name 필요" });
+
+    try {
+      const r = await pool.query(
+        `
+      SELECT trip_id, req_name, trip_date, start_data, detail_json, created_at
+      FROM business_trips
+      WHERE req_name = $1
+        AND (end_data IS NULL OR end_data = '{}'::jsonb)
+      ORDER BY trip_date DESC, created_at DESC
+      LIMIT 1
+      `,
+        [name]
+      );
+
+      if (r.rows.length === 0) return res.json({ ok: true, data: null });
+
+      const row = r.rows[0];
+
+      // start_data가 비었으면 detail_json.register에서 보정
+      const start =
+        row.start_data && Object.keys(row.start_data).length > 0
+          ? row.start_data
+          : row.detail_json?.register ?? {};
+
+      return res.json({
+        ok: true,
+        data: {
+          trip_id: row.trip_id,
+          req_name: row.req_name,
+          trip_date: row.trip_date,
+          start_data: start, // ✅ 이게 핵심
+        },
+      });
+    } catch (err: any) {
+      console.error("[domestic/incomplete] error:", err?.message ?? err);
+      return res.status(500).json({ ok: false, message: "DB 오류" });
+    }
+  });
+  // =====================================================
+  // 8) (직원용) 정산서 "주간(월~일)" 제출
+  // - submitted_at 찍고, approve_status 는 그대로 NULL(=pending) 유지
+  // - 이미 승인/반려된 건은 제출 못하게 막음
+  // =====================================================
+  function isMonToSun(from: string, to: string) {
+    const s = new Date(from);
+    const e = new Date(to);
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return false;
+    const okStart = s.getDay() === 1; // 월
+    const okEnd = e.getDay() === 0;   // 일
+    const diffDays = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
+    return okStart && okEnd && diffDays === 6;
+  }
+
+  router.post("/settlements-submit-week", async (req, res) => {
+    const { from, to, req_name } = req.body ?? {};
+    const fromStr = String(from ?? "").trim();
+    const toStr = String(to ?? "").trim();
+    const reqName = String(req_name ?? "").trim();
+
+    if (!fromStr || !toStr) return res.status(400).json({ ok: false, message: "from, to는 필수입니다." });
+    if (!reqName) return res.status(400).json({ ok: false, message: "req_name이 필요합니다.(로그인 사용자)" });
+
+    if (!isMonToSun(fromStr, toStr)) {
+      return res.status(400).json({ ok: false, message: "제출은 월~일(1주일) 기간만 가능합니다." });
+    }
+
+    try {
+      // 1) 범위 내 데이터 확인
+      const r = await pool.query(
+        `
+        SELECT trip_id, end_data, approve_status, submitted_at
+        FROM business_trips
+        WHERE req_name = $1
+          AND trip_date BETWEEN $2::date AND $3::date
+        ORDER BY trip_date ASC
+        `,
+        [reqName, fromStr, toStr]
+      );
+
+      if (r.rows.length === 0) {
+        return res.status(400).json({ ok: false, message: "제출할 정산 내역이 없습니다." });
+      }
+
+      // 2) 정산(end_data) 없는 건 제출 불가
+      const notSettled = r.rows.find((x) => !x.end_data || Object.keys(x.end_data).length === 0);
+      if (notSettled) {
+        return res.status(400).json({ ok: false, message: "정산 저장이 완료되지 않은 날짜가 있어 제출할 수 없습니다." });
+      }
+
+      // 3) 이미 승인/반려된 주간은 제출 못하게(원하면 정책 바꿀 수 있음)
+      const decided = r.rows.find((x) => x.approve_status === "approved" || x.approve_status === "rejected");
+      if (decided) {
+        return res.status(400).json({ ok: false, message: "이미 승인/반려된 내역이 포함되어 제출할 수 없습니다." });
+      }
+
+      // 4) 제출 처리: submitted_at 일괄 업데이트
+      const upd = await pool.query(
+        `
+        UPDATE business_trips
+        SET submitted_at = NOW()
+        WHERE req_name = $1
+          AND trip_date BETWEEN $2::date AND $3::date
+        RETURNING trip_id, trip_date, submitted_at
+        `,
+        [reqName, fromStr, toStr]
+      );
+
+      return res.json({ ok: true, data: { count: upd.rows.length, rows: upd.rows } });
+    } catch (err: any) {
+      console.error("[settlements-submit-week] error FULL:", err);
+      return res.status(500).json({ ok: false, message: "DB 오류" });
+    }
+  });
+
   return router;
+
 }

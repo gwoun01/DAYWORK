@@ -1,0 +1,20 @@
+{
+  "name": "이노맥스 업무관리 시스템",
+  "short_name": "INNOMAX",
+  "start_url": "/docs/",
+  "display": "standalone",
+  "background_color": "#d7e5f3",
+  "theme_color": "#2b4c7e",
+  "icons": [
+    {
+      "src": "assets/static/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/static/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

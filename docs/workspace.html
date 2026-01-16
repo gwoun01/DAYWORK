@@ -6,6 +6,8 @@
     <title>이노맥스 - 워크스페이스 (웹)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link href="assets/css/styles.css" rel="stylesheet" />
+
+
 </head>
 
 <body class="min-h-screen bg-[#d7e5f3] flex flex-col text-sm font-medium">
@@ -13,13 +15,13 @@
     <header
         class="flex items-center justify-between gap-3 bg-[#d7e5f3] text-white shadow px-5 py-3 border-b border-[#c7d8ee]">
         <!-- 좌측 로고 + 타이틀 -->
-        <div class="flex items-center gap-3">
-            <img src="assets/static/logo.png" alt="업무관리 시스템" class="h-10 object-contain drop-shadow-lg" />
-            <div class="flex flex-col">
-                <span class="text-base font-bold text-[#1f2a3c] drop-shadow-sm">이노맥스 업무관리 시스템</span>
-                <span class="text-[11px] text-[#3b4a63]">워크스페이스</span>
+        <button id="homeLogoBtn" type="button" class="innomax-logo">
+            <img src="assets/static/logo.png" alt="업무관리 시스템" />
+            <div class="logo-text">
+                <span class="logo-title">이노맥스 업무관리 시스템</span>
+                <span class="logo-sub">워크스페이스</span>
             </div>
-        </div>
+        </button>
 
         <!-- 우측 사용자 영역 -->
         <div class="flex items-center gap-3">
@@ -65,26 +67,26 @@
                         <button
                             class="nav-btn w-full text-left px-4 py-2 rounded-lg text-[12px] font-bold text-gray-700 hover:bg-gray-100"
                             data-panel="panel-출장승인">
-                            출장정산서 승인
+                            ✅ 출장정산서 승인
                         </button>
 
                         <button
                             class="nav-btn w-full text-left px-4 py-2 rounded-lg text-[12px] font-bold text-gray-700 hover:bg-gray-100"
                             data-panel="panel-출장내역-관리">
-                            출장정산 집계표
+                            📊 출장정산 집계표
                         </button>
 
                         <!-- 사용자관리 (공통메뉴) -->
                         <button
                             class="nav-btn w-full text-left px-4 py-2 rounded-lg text-[13px] font-bold text-gray-700 hover:bg-gray-100"
                             data-panel="panel-사용자-관리">
-                            ⛔사용자 관리
+                            ⛔ 사용자 관리
                         </button>
 
                         <button
                             class="nav-btn w-full text-left px-4 py-2 rounded-lg text-[13px] font-bold text-gray-700 hover:bg-gray-100"
                             data-panel="panel-출장업무-관리">
-                            ⚙️설정
+                            ⚙️ 설정
                         </button>
                     </div>
                 </div>
@@ -111,13 +113,13 @@
                                 <button
                                     class="nav-btn w-full text-left px-4 py-2 rounded-lg text-[12px] text-gray-600 hover:bg-gray-100"
                                     data-panel="panel-국내출장-출장등록">
-                                    출장등록
+                                    🛄 출장지 등록
                                 </button>
 
                                 <button
                                     class="nav-btn w-full text-left px-4 py-2 rounded-lg text-[12px] text-gray-600 hover:bg-gray-100"
                                     data-panel="panel-국내출장-정산서등록">
-                                    출장정산서 제출
+                                    💳 출장정산서 제출
                                 </button>
                             </div>
                         </div>
@@ -932,101 +934,17 @@
                         </div>
                     </div>
                 </section>
-                <!-- ✅ 국내출장 - 출장내역(정산 내역 보기) 패널 -->
+                <!-- ✅ 국내출장 - 출장정산서 제출/조회 패널 (통째 교체본) -->
                 <section id="panel-국내출장-정산서등록" class="hidden p-3">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-3">
 
                         <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex flex-col gap-3">
                             <div class="flex items-center justify-between">
-                                <!-- 🔹 제목만 살짝 변경 -->
-                                <h3 class="text-sm font-extrabold text-gray-900">출장 내역 보기</h3>
-                                <span class="text-[11px] text-gray-500">기간·사용자 기준으로 조회</span>
+                                <h3 class="text-sm font-extrabold text-gray-900">출장정산서 제출</h3>
+                                <span class="text-[11px] text-gray-500">기간 · 로그인 사용자 기준</span>
                             </div>
 
-                            <!-- 1. 기간 + 사용자 선택 -->
-                            <div class="grid grid-cols-1 md:grid-cols-[auto_auto_auto] gap-2 items-end mt-2">
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                        시작일 <span class="text-rose-500">*</span>
-                                    </label>
-                                    <input id="settle_from" type="date"
-                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs bg-white" />
-                                </div>
-
-                                <div>
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                        종료일 <span class="text-rose-500">*</span>
-                                    </label>
-                                    <input id="settle_to" type="date"
-                                        class="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs bg-white" />
-                                </div>
-
-                                <div class="flex flex-col gap-1">
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                        대상
-                                    </label>
-                                    <div class="flex items-center gap-2">
-                                        <label class="inline-flex items-center gap-1 text-[11px] text-gray-700">
-                                            <input id="settle_only_me" type="checkbox" class="accent-indigo-600"
-                                                checked />
-                                            나의 정산만
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 2. 버튼 + 결과 메시지 -->
-                            <div class="mt-2 flex items-center gap-2">
-                                <div id="settle_result_msg" class="flex-1 text-[11px] text-gray-600">
-                                    조회할 기간을 선택한 뒤 <span class="font-semibold">[조회하기]</span>를 눌러주세요.
-                                </div>
-                                <button id="settle_search"
-                                    class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 active:bg-indigo-800 shadow-sm">
-                                    조회하기
-                                </button>
-                            </div>
-
-                            <!-- 3. 결과 테이블 -->
-                            <div class="mt-3 border rounded-xl overflow-hidden">
-                                <table class="w-full text-[11px] text-gray-700 border-collapse">
-                                    <thead class="bg-gray-100">
-                                        <tr>
-                                            <th class="border px-2 py-1 w-20 text-center">날짜</th>
-                                            <th class="border px-2 py-1 w-20 text-center">이름</th>
-                                            <th class="border px-2 py-1 text-center">출장지(고객사)</th>
-                                            <th class="border px-2 py-1 w-24 text-center">출발~도착</th>
-                                            <th class="border px-2 py-1 w-24 text-center">업무시간</th>
-                                            <th class="border px-2 py-1 w-24 text-center">차량</th>
-                                            <th class="border px-2 py-1 w-32 text-center">식사</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="settle_result_tbody">
-                                        <tr>
-                                            <td colspan="7" class="border px-2 py-3 text-center text-gray-400">
-                                                조회된 정산 내역이 없습니다.
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-
-                        </div>
-                    </div>
-                </section>
-
-
-                <!-- (이 아래 나머지 패널들은 원문 그대로 — 너가 붙여준 것과 동일) -->
-                <!-- =====================================================
-        ✅ 국내출장 - 출장내역(정산 내역 보기) 패널
-        ====================================================== -->
-                <section id="panel-국내출장-정산서등록" class="hidden p-3">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 space-y-3">
-                        <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex flex-col gap-3">
-                            <div class="flex items-center justify-between">
-                                <h3 class="text-sm font-extrabold text-gray-900">출장 내역 보기</h3>
-                                <span class="text-[11px] text-gray-500">기간 · 로그인 사용자 기준으로 조회</span>
-                            </div>
-
+                            <!-- 1) 기간 선택 + 기간 버튼 -->
                             <div class="grid grid-cols-1 md:grid-cols-[auto_auto_minmax(0,1fr)] gap-2 items-end mt-2">
                                 <div>
                                     <label class="block text-xs font-semibold text-gray-700 mb-1">
@@ -1045,38 +963,78 @@
                                 </div>
 
                                 <div class="flex flex-col gap-1">
-                                    <label class="block text-xs font-semibold text-gray-700 mb-1">대상</label>
-                                    <div class="text-[11px] text-gray-500">로그인한 사용자 기준으로만 조회됩니다.</div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">조회 기간</label>
+
+                                    <div class="flex flex-wrap gap-2">
+                                        <button
+                                            class="settle_period_btn px-3 py-2 rounded-xl border bg-white text-[11px] hover:bg-gray-100"
+                                            data-period="1d">1일</button>
+                                        <button
+                                            class="settle_period_btn px-3 py-2 rounded-xl border bg-white text-[11px] hover:bg-gray-100"
+                                            data-period="1w">1주일</button>
+                                        <button
+                                            class="settle_period_btn px-3 py-2 rounded-xl border bg-white text-[11px] hover:bg-gray-100"
+                                            data-period="1m">한달</button>
+                                        <button
+                                            class="settle_period_btn px-3 py-2 rounded-xl border bg-white text-[11px] hover:bg-gray-100"
+                                            data-period="prevMonth">전월</button>
+                                        <button
+                                            class="settle_period_btn px-3 py-2 rounded-xl border bg-white text-[11px] hover:bg-gray-100"
+                                            data-period="thisMonth">당월</button>
+
+                                        <!-- ✅ 주간(월~일) 정산용 -->
+                                        <button
+                                            class="settle_period_btn px-3 py-2 rounded-xl border bg-white text-[11px] hover:bg-gray-100"
+                                            data-period="thisWeek">이번주(월~일)</button>
+                                        <button
+                                            class="settle_period_btn px-3 py-2 rounded-xl border bg-white text-[11px] hover:bg-gray-100"
+                                            data-period="lastWeek">지난주(월~일)</button>
+                                    </div>
+
+                                    <div class="text-[11px] text-gray-500 mt-1">
+                                        * 제출은 <b>월~일(1주일)</b> 기간일 때만 가능합니다.
+                                    </div>
                                 </div>
                             </div>
 
+                            <!-- 2) 버튼 + 결과 메시지 -->
                             <div class="mt-2 flex items-center gap-2">
                                 <div id="settle_result_msg" class="flex-1 text-[11px] text-gray-600">
                                     조회할 기간을 선택한 뒤 <span class="font-semibold">[조회하기]</span>를 눌러주세요.
                                 </div>
+
                                 <button id="settle_search"
                                     class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 active:bg-indigo-800 shadow-sm">
                                     조회하기
                                 </button>
+
+                                <button id="settle_submit"
+                                    class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 active:bg-emerald-800 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                    disabled>
+                                    제출하기
+                                </button>
                             </div>
 
+                            <!-- 3) 결과 테이블 (너가 원하는 컬럼만) -->
                             <div class="mt-3 border rounded-xl overflow-hidden">
                                 <table class="w-full text-[11px] text-gray-700 border-collapse">
                                     <thead class="bg-gray-100">
                                         <tr>
                                             <th class="border px-2 py-1 w-20 text-center">날짜</th>
-                                            <th class="border px-2 py-1 w-20 text-center">이름</th>
-                                            <th class="border px-2 py-1 text-center">출장지(고객사)</th>
-                                            <th class="border px-2 py-1 w-24 text-center">출발~도착</th>
-                                            <th class="border px-2 py-1 w-24 text-center">업무시간</th>
-                                            <th class="border px-2 py-1 w-24 text-center">차량</th>
-                                            <th class="border px-2 py-1 w-32 text-center">식사</th>
+                                            <th class="border px-2 py-1 w-20 text-center">근무시간</th>
+                                            <th class="border px-2 py-1 w-20 text-center">이동수단</th>
+                                            <th class="border px-2 py-1 w-32 text-center">식사(개인/법인)</th>
+                                            <th class="border px-2 py-1 text-center">이동경로</th>
+                                            <th class="border px-2 py-1 text-center">주요업무</th>
+                                            <th class="border px-2 py-1 w-20 text-center">상태</th>
+                                            <th class="border px-2 py-1 text-center">반려사유</th>
                                         </tr>
                                     </thead>
                                     <tbody id="settle_result_tbody">
                                         <tr>
-                                            <td colspan="7" class="border px-2 py-3 text-center text-gray-400">조회된 정산
-                                                내역이 없습니다.</td>
+                                            <td colspan="8" class="border px-2 py-3 text-center text-gray-400">
+                                                조회된 정산 내역이 없습니다.
+                                            </td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -1830,7 +1788,41 @@ BOTTOM ROW (12칸): 3개 카드
             </section>
         </main>
     </div>
+    <script>
+        /* ===============================
+           INNOMAX UI UX PATCH
+        ================================ */
 
+        document.addEventListener("DOMContentLoaded", () => {
+
+            /* ✅ 로고 클릭 = 대시보드 + 새로고침 */
+            const homeBtn = document.getElementById("homeLogoBtn");
+            if (homeBtn) {
+                homeBtn.addEventListener("click", () => {
+                    document.querySelectorAll("[id^='panel-']").forEach(p => p.classList.add("hidden"));
+                    document.getElementById("panel-dashboard")?.classList.remove("hidden");
+                    document.getElementById("wsTitle").textContent = "대시보드";
+                    location.reload();
+                });
+            }
+
+            /* ✅ 좌측 메뉴 active 처리 */
+            const navBtns = document.querySelectorAll(".nav-btn");
+
+            navBtns.forEach(btn => {
+                btn.addEventListener("click", () => {
+                    navBtns.forEach(b => b.classList.remove("active"));
+                    btn.classList.add("active");
+
+                    const title = btn.textContent.replace(/[^\w가-힣 ]/g, "").trim();
+                    document.getElementById("wsTitle").textContent = title;
+                });
+            });
+
+            /* 최초 로딩 = 대시보드 active */
+            document.querySelector('[data-panel="panel-dashboard"]')?.classList.add("active");
+        });
+    </script>
     <script src="assets/js/workspace.bundle.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 

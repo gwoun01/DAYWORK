@@ -928,8 +928,8 @@ export function initDashboardTripStatus(API_BASE: string) {
 
       const statusLabel =
         it.status === "SETTLED"
-          ? `<span class="px-2 py-[2px] rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold">정산완료</span>`
-          : `<span class="px-2 py-[2px] rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-bold">출장중</span>`;
+          ? `<span class="px-2 py-[2px] rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold whitespace-nowrap">출장종료</span>`
+          : `<span class="px-2 py-[2px] rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-bold whitespace-nowrap">출장중</span>`;
 
       tr.innerHTML = `
         <td class="border px-2 py-2 text-center">${idx + 1}</td>

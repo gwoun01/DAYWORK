@@ -61,6 +61,28 @@ function getQueryParam(name: string): string {
   }
 }
 
+/** ✅ (추가) URL 파라미터 세팅 (08과 동일하게 방어적으로) */
+function setQueryParams(params: Record<string, string>) {
+  try {
+    const url = new URL(window.location.href);
+
+    Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+
+    const hash = String(url.hash ?? "");
+    const qIdx = hash.indexOf("?");
+    if (qIdx >= 0) {
+      const base = hash.slice(0, qIdx);
+      const sp = new URLSearchParams(hash.slice(qIdx + 1));
+      Object.entries(params).forEach(([k, v]) => sp.set(k, v));
+      url.hash = `${base}?${sp.toString()}`;
+    }
+
+    window.history.replaceState(null, "", url.toString());
+  } catch {
+    // ignore
+  }
+}
+
 function clearQueryParams(keys: string[]) {
   try {
     const url = new URL(window.location.href);
@@ -116,7 +138,6 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
 
   // (있으면) 현재 로그인 사용자명 검사에 사용
   const userNameEl = document.getElementById("userName");
-
   function currentUserName(): string {
     return (userNameEl?.textContent ?? "").trim();
   }
@@ -157,6 +178,43 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     return { ok: true, req_name, trip_date };
   }
 
+  /**
+   * ✅✅✅ (추가) URL 파라미터가 없을 때 "진행중 정산" 1건을 서버에서 다시 찾아 자동 세팅
+   * - 08에서 이미 해주지만, 09에서 한번 더 안전장치로 보강
+   * - 조건: settlement_in_progress=true 인 건만 복원됨
+   */
+  async function restoreTargetIfMissing() {
+    const me = currentUserName();
+    if (!me) return;
+
+    const now = readSettleTarget();
+    if (now.req_name && now.trip_date) return; // 이미 있으면 끝
+
+    try {
+      const r = await fetch(
+        `${API_BASE}/api/business-trip/settlement/in-progress?req_name=${encodeURIComponent(me)}`
+      );
+      if (!r.ok) return;
+
+      const j = await r.json().catch(() => null);
+      const data = j?.data;
+
+      if (!data?.trip_date) return;
+      if (String(data.req_name ?? "") !== me) return;
+
+      setQueryParams({ req_name: me, trip_date: data.trip_date });
+      resultBox.textContent = "✅ 진행중 정산 건을 자동으로 불러왔습니다. 이어서 작성하세요.";
+    } catch {
+      // ignore
+    }
+  }
+
+  // ✅ 초기 1회: 혹시 URL이 비어있으면 진행중 복원 시도
+  restoreTargetIfMissing().then(() => {
+    // 복원 이후에도 계정 불일치면 바로 제거
+    validateTargetOrClear();
+  });
+
   resetBtn.addEventListener("click", () => {
     workEndInput.value = "";
     returnTimeInput.value = "";
@@ -184,6 +242,8 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     const vehicleValueRaw = getCheckedRadioValue("bt_vehicle");
     const vehicleValue = toVehicleCode(vehicleValueRaw);
 
+    // ✅ 혹시 저장 순간에도 URL이 비어있으면 한번 더 복원 시도 후 검증
+    await restoreTargetIfMissing();
     const t = validateTargetOrClear();
     const trip_date = t.trip_date;
     const req_name = t.req_name;
@@ -346,6 +406,5 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
   });
 
   // ✅ 섹션이 열려있는 상태에서 다른 계정으로 로그인하거나 URL 파라미터가 꼬이면 즉시 제거
-  // (패널/섹션 표시 방식이 프로젝트마다 다르니, 최소 안전장치만 둠)
   validateTargetOrClear();
 }

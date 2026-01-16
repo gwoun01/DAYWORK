@@ -103,8 +103,7 @@ app.get("/api/health", async (req: Request, res: Response) => {
 import loginRouter from "./01_login-server";
 import userRegisterRouter from "./02_user-register-server";
 import  businessMasterRouter from "./03_business-master-server";
-import innomaxWorksRouter from "./04_innomax-works-server";
-import innomaxProgressRouter from "./05_innomax-progress-server";
+
 import businessTripRouter from "./08_business-trip-server";
 
 
@@ -124,8 +123,7 @@ import businessTripRouter from "./08_business-trip-server";
 app.use("/api/login", loginRouter(pool));
 app.use("/api/users", userRegisterRouter(pool));
 app.use("/api/business-master", businessMasterRouter(pool));
-app.use("/api/innomax-works", innomaxWorksRouter(pool));
-app.use("/api/innomax-progress", innomaxProgressRouter(pool));
+
 app.use("/api/business-trip", businessTripRouter(pool));
 
 

@@ -771,8 +771,8 @@ function initDashboardTripStatus(API_BASE) {
             const depart = it.depart_time || "-";
             const arrive = it.arrive_time || "-";
             const statusLabel = it.status === "SETTLED"
-                ? `<span class="px-2 py-[2px] rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold">정산완료</span>`
-                : `<span class="px-2 py-[2px] rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-bold">출장중</span>`;
+                ? `<span class="px-2 py-[2px] rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold whitespace-nowrap">출장종료</span>`
+                : `<span class="px-2 py-[2px] rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-bold whitespace-nowrap">출장중</span>`;
             tr.innerHTML = `
         <td class="border px-2 py-2 text-center">${idx + 1}</td>
         <td class="border px-2 py-2 text-center font-semibold">${it.req_name || "-"}</td>
@@ -3717,7 +3717,7 @@ function pickTripIdFromResponse(data) {
 }
 /**
  * ✅ URL 파라미터 읽기 (search + hash 둘 다 대응)
- * - 일반 URL:   /workspace?req_name=...&trip_date=...
+ * - 일반 URL:    /workspace?req_name=...&trip_date=...
  * - 해시 라우팅: /workspace#something?req_name=...&trip_date=...
  */
 function getQueryParam(name) {
@@ -3807,15 +3807,12 @@ function initDomesticTripRegisterPanel(API_BASE) {
     }
     /** ✅ 입력값 싹 비우기 */
     function clearFormUI() {
-        // 요청자
         reqNameInput.value = currentUserName() || "사용자";
-        // 출발지
         departPlaceSelect.value = "";
         if (departPlaceOther) {
             departPlaceOther.value = "";
             departPlaceOther.classList.add("hidden");
         }
-        // 나머지
         destinationSelect.value = "";
         startInput.value = "";
         departTimeInput.value = "";
@@ -3827,11 +3824,10 @@ function initDomesticTripRegisterPanel(API_BASE) {
         if (settlementSection)
             settlementSection.classList.add("hidden");
     }
-    /** ✅ 메모리 ACTIVE로 UI 복원 */
+    /** ✅ 메모리 ACTIVE로 UI 복원(탭 유지용) */
     function restoreFromActive(active) {
         const p = active.payload;
         reqNameInput.value = p.req_name || (currentUserName() || "사용자");
-        // depart_place: company/home/기타텍스트
         if (p.depart_place === "company" || p.depart_place === "home") {
             departPlaceSelect.value = p.depart_place;
             if (departPlaceOther) {
@@ -3857,46 +3853,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
         if (settlementSection)
             settlementSection.classList.add("hidden");
     }
-    /** ✅ 패널 열릴 때 규칙: ACTIVE 있으면 복원 / 없으면 리셋 */
-    function applyOpenRule() {
-        if (ACTIVE)
-            restoreFromActive(ACTIVE);
-        else
-            clearFormUI();
-        // ✅ URL 파라미터로 넘어온 정산 타겟이 있으면(그리고 현재 유저와 같으면) 최소한 날짜/이름은 채워줌
-        const qpName = getQueryParam("req_name");
-        const qpDate = getQueryParam("trip_date");
-        const me = currentUserName();
-        if (qpName && qpDate && me && qpName === me) {
-            reqNameInput.value = qpName;
-            startInput.value = qpDate;
-            // 여기서는 자동으로 정산 섹션을 열지 않음(사용자가 버튼으로 열도록)
-            // 원하면 아래 2줄을 주석 해제하면 "바로 정산"처럼 동작 가능
-            // settlementSection?.classList.remove("hidden");
-            // settlementSection?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-        else if (qpName || qpDate) {
-            // 다른 계정/잘못된 파라미터면 즉시 제거(정보 잔존/오동작 방지)
-            clearQueryParams(["req_name", "trip_date"]);
-        }
-    }
-    // ✅ 최초 1회 적용
-    applyOpenRule();
-    // 초기 숨김(복원 로직에서 필요하면 풀림)
-    if (continueBtn)
-        continueBtn.classList.add("hidden");
-    if (settlementSection)
-        settlementSection.classList.add("hidden");
-    // ✅ 출발지 기타 토글
-    departPlaceSelect.addEventListener("change", () => {
-        if (!departPlaceOther)
-            return;
-        const isOther = departPlaceSelect.value === "other";
-        departPlaceOther.classList.toggle("hidden", !isOther);
-        if (!isOther)
-            departPlaceOther.value = "";
-    });
-    // ✅ 거래처 목록 로딩
+    /** ✅ 거래처 목록 로딩 */
     async function loadClients() {
         try {
             destinationSelect.innerHTML = `<option value="">거래처(출장지) 선택</option>`;
@@ -3906,7 +3863,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 return;
             }
             const json = await res.json().catch(() => null);
-            console.log("[REGISTER] clients API response =", json);
             const raw = Array.isArray(json?.data) ? json.data :
                 Array.isArray(json?.rows) ? json.rows :
                     Array.isArray(json?.clients) ? json.clients :
@@ -3924,10 +3880,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 opt.textContent = clean;
                 destinationSelect.appendChild(opt);
             }
-            if (destinationSelect.options.length <= 1) {
-                console.warn("[REGISTER] 거래처 목록이 비었습니다. 서버 응답 구조 확인 필요:", json);
-            }
-            // ✅ 목록 로드 후: ACTIVE가 있으면 destination 값 재적용(옵션이 늦게 붙었을 수 있음)
+            // ✅ 목록 로드 후: ACTIVE가 있으면 destination 값 재적용
             if (ACTIVE?.payload?.destination) {
                 destinationSelect.value = ACTIVE.payload.destination;
             }
@@ -3936,20 +3889,111 @@ function initDomesticTripRegisterPanel(API_BASE) {
             console.warn("[REGISTER] 거래처 목록 로딩 실패:", err);
         }
     }
-    loadClients();
+    /**
+     * ✅✅✅ 핵심: 로그아웃/재로그인 복원
+     * - end_data가 비어있는(정산 미완료) 최신 1건의 start_data를 불러와 폼에 채움
+     * - API: GET /api/business-trip/domestic/incomplete?req_name=...
+     */
+    async function restoreIncompleteFromServer() {
+        const me = currentUserName();
+        if (!me)
+            return;
+        try {
+            const url = `${API_BASE}/api/business-trip/domestic/incomplete?req_name=${encodeURIComponent(me)}`;
+            const res = await fetch(url);
+            if (!res.ok)
+                return;
+            const j = await res.json().catch(() => null);
+            const data = j?.data;
+            if (!data?.start_data)
+                return;
+            const p = data.start_data;
+            // 요청자
+            reqNameInput.value = p.req_name ?? me;
+            // 출발지(company/home/기타텍스트)
+            const dp = String(p.depart_place ?? "");
+            if (dp === "company" || dp === "home") {
+                departPlaceSelect.value = dp;
+                if (departPlaceOther) {
+                    departPlaceOther.value = "";
+                    departPlaceOther.classList.add("hidden");
+                }
+            }
+            else if (dp) {
+                departPlaceSelect.value = "other";
+                if (departPlaceOther) {
+                    departPlaceOther.classList.remove("hidden");
+                    departPlaceOther.value = dp;
+                }
+            }
+            // 출장지/일자/시간/목적
+            destinationSelect.value = String(p.destination ?? "");
+            startInput.value = String(p.start_date ?? p.trip_date ?? "");
+            departTimeInput.value = String(p.depart_time ?? "");
+            arriveTimeInput.value = String(p.arrive_time ?? "");
+            purposeInput.value = String(p.purpose ?? "");
+            // URL 파라미터도 맞춰줌(09가 이걸 쓰는 구조라서)
+            const tripDate = String(p.start_date ?? p.trip_date ?? "");
+            if (tripDate) {
+                setQueryParams({ req_name: me, trip_date: tripDate });
+            }
+            // UI: 이어서 정산 버튼은 보여주되, 정산 섹션은 버튼 누를 때만 열림
+            if (continueBtn)
+                continueBtn.classList.remove("hidden");
+            if (settlementSection)
+                settlementSection.classList.add("hidden");
+            resultBox.textContent = "✅ 정산 미완료 출장건을 불러왔습니다. [이어서 정산]을 눌러 진행하세요.";
+        }
+        catch (e) {
+            console.warn("[REGISTER] restoreIncompleteFromServer error:", e);
+        }
+    }
+    /** ✅ 패널 열릴 때 규칙: ACTIVE 있으면 복원 / 없으면 리셋 */
+    async function applyOpenRule() {
+        if (ACTIVE)
+            restoreFromActive(ACTIVE);
+        else
+            clearFormUI();
+        await loadClients();
+        // ✅ URL 파라미터가 현재 유저와 동일하면 날짜/이름 정도는 채움
+        const qpName = getQueryParam("req_name");
+        const qpDate = getQueryParam("trip_date");
+        const me = currentUserName();
+        if (qpName && qpDate && me && qpName === me) {
+            reqNameInput.value = qpName;
+            startInput.value = qpDate;
+        }
+        else if (qpName || qpDate) {
+            clearQueryParams(["req_name", "trip_date"]);
+        }
+        // ✅✅✅ 마지막: 서버에서 "정산 미완료 start_data" 자동 복원
+        await restoreIncompleteFromServer();
+    }
+    // ✅ 최초 1회 적용
+    applyOpenRule();
+    // 초기 숨김(복원 로직에서 필요하면 풀림)
+    if (continueBtn)
+        continueBtn.classList.add("hidden");
+    if (settlementSection)
+        settlementSection.classList.add("hidden");
+    // ✅ 출발지 기타 토글
+    departPlaceSelect.addEventListener("change", () => {
+        if (!departPlaceOther)
+            return;
+        const isOther = departPlaceSelect.value === "other";
+        departPlaceOther.classList.toggle("hidden", !isOther);
+        if (!isOther)
+            departPlaceOther.value = "";
+    });
     // ✅ 패널 이동 감지(hidden 토글)
-    // - 패널을 떠나는 순간: 등록 전/후와 무관하게 "입력 중 캐시"는 남기지 않음
     const mo = new MutationObserver(() => {
         const isHidden = panel.classList.contains("hidden");
         if (isHidden) {
-            // ✅ 화면 떠나면: ACTIVE는 메모리로만 유지(원하면 여기서 ACTIVE도 null로 만들어도 됨)
-            // 입력중 값은 남기지 않기 위해 UI는 정리
             if (!ACTIVE)
                 clearFormUI();
         }
         else {
             applyOpenRule();
-            loadClients();
         }
     });
     mo.observe(panel, { attributes: true, attributeFilter: ["class"] });
@@ -3985,7 +4029,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
             arrive_time: arriveTimeInput.value,
             purpose: purposeInput.value.trim(),
         };
-        console.log("[REGISTER] payload =", payload);
         // 필수 체크
         if (!payload.req_name ||
             !payload.depart_place ||
@@ -4039,12 +4082,10 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 return;
             }
             const data = await res.json().catch(() => null);
-            console.log("출장등록 성공 응답:", data);
-            // ✅✅✅ 핵심: localStorage 저장 없음. 탭 메모리(ACTIVE)만 세팅
+            // ✅ 탭 메모리(ACTIVE)만 세팅
             const trip_id = pickTripIdFromResponse(data);
             ACTIVE = { savedAt: Date.now(), trip_id, payload };
-            // ✅ URL 파라미터도 세팅(이어서 정산 타겟 전달용)
-            // - 다른 계정 로그인 시 자동 제거하도록 applyOpenRule에서 검사함
+            // ✅ 09 정산이 req_name/trip_date를 쓰는 구조라 URL도 맞춰줌
             setQueryParams({
                 req_name: payload.req_name,
                 trip_date: payload.start_date,
@@ -4061,7 +4102,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 continueBtn.classList.remove("hidden");
             if (settlementSection)
                 settlementSection.classList.add("hidden");
-            // 대시보드 갱신
             window.dispatchEvent(new Event("trip-status-refresh"));
         }
         catch (err) {
@@ -4074,7 +4114,6 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 showOk: true,
                 showCancel: false,
             });
-            // 실패했으면 ACTIVE 유지 금지
             ACTIVE = null;
             clearQueryParams(["req_name", "trip_date"]);
             window.dispatchEvent(new Event("trip-status-refresh"));
@@ -4087,41 +4126,56 @@ function initDomesticTripRegisterPanel(API_BASE) {
             saveBtn.disabled = false;
         }
     });
-    // 🔹 이어서 정산 (URL 파라미터 방식)
-    continueBtn?.addEventListener("click", () => {
-        const me = currentUserName();
-        const date = startInput.value;
-        const name = reqNameInput.value.trim();
-        if (!date || !name) {
-            resultBox.textContent = "❌ 정산 대상(요청자/날짜)이 없습니다.";
-            return;
+    /**
+     * 🔹 이어서 정산
+     * ✅ in-progress 플래그/백엔드 호출 없음
+     * - 그냥 정산 섹션을 열고 URL 파라미터만 맞춰준다.
+     */
+    continueBtn?.addEventListener("click", async () => {
+        try {
+            const me = currentUserName();
+            const date = startInput.value;
+            const name = reqNameInput.value.trim();
+            if (!date || !name) {
+                resultBox.textContent = "❌ 정산 대상(요청자/날짜)이 없습니다.";
+                return;
+            }
+            // ✅ 현재 로그인 유저와 다르면 막기(다른 계정 잔존 문제 방지)
+            if (me && name !== me) {
+                await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                    type: "alert",
+                    title: "정산 대상 불일치",
+                    message: "현재 로그인 사용자와 정산 대상 요청자명이 다릅니다.\n다시 확인해주세요.",
+                    showOk: true,
+                    showCancel: false,
+                });
+                clearQueryParams(["req_name", "trip_date"]);
+                return;
+            }
+            setQueryParams({ req_name: name, trip_date: date });
+            if (settlementSection) {
+                settlementSection.classList.remove("hidden");
+                settlementSection.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+            resultBox.textContent = "✏️ 이 출장건에 대한 정산 정보를 아래에서 이어서 작성하세요.";
         }
-        // ✅ 현재 로그인 유저와 다르면 막기(다른 계정 잔존 문제 방지)
-        if (me && name !== me) {
-            _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+        catch (err) {
+            console.error("continue settlement error:", err);
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
-                title: "정산 대상 불일치",
-                message: "현재 로그인 사용자와 정산 대상 요청자명이 다릅니다.\n다시 확인해주세요.",
+                title: "오류",
+                message: `정산 열기 중 오류가 발생했습니다.\n${err?.message ?? ""}`,
                 showOk: true,
                 showCancel: false,
             });
-            clearQueryParams(["req_name", "trip_date"]);
-            return;
         }
-        setQueryParams({ req_name: name, trip_date: date });
-        if (settlementSection) {
-            settlementSection.classList.remove("hidden");
-            settlementSection.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-        resultBox.textContent = "✏️ 이 출장건에 대한 정산 정보를 아래에서 이어서 작성하세요.";
     });
-    // ✅✅✅ 정산 완료 시: 정산 화면에서 이벤트를 쏴주면(아래 09에서 쏨)
+    // ✅ 정산 완료 이벤트(09에서 발사)
     window.addEventListener("domestic-trip-settled", () => {
         ACTIVE = null;
         clearQueryParams(["req_name", "trip_date"]);
         clearFormUI();
     });
-    // (옵션) 혹시 다른 곳에서 이름 다르게 보내면 같이 받기
     window.addEventListener("trip-settled", () => {
         ACTIVE = null;
         clearQueryParams(["req_name", "trip_date"]);
@@ -4191,6 +4245,25 @@ function getQueryParam(name) {
     }
     catch {
         return "";
+    }
+}
+/** ✅ (추가) URL 파라미터 세팅 (08과 동일하게 방어적으로) */
+function setQueryParams(params) {
+    try {
+        const url = new URL(window.location.href);
+        Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+        const hash = String(url.hash ?? "");
+        const qIdx = hash.indexOf("?");
+        if (qIdx >= 0) {
+            const base = hash.slice(0, qIdx);
+            const sp = new URLSearchParams(hash.slice(qIdx + 1));
+            Object.entries(params).forEach(([k, v]) => sp.set(k, v));
+            url.hash = `${base}?${sp.toString()}`;
+        }
+        window.history.replaceState(null, "", url.toString());
+    }
+    catch {
+        // ignore
     }
 }
 function clearQueryParams(keys) {
@@ -4274,6 +4347,40 @@ function initDomesticTripSettlementPanel(API_BASE) {
         }
         return { ok: true, req_name, trip_date };
     }
+    /**
+     * ✅✅✅ (추가) URL 파라미터가 없을 때 "진행중 정산" 1건을 서버에서 다시 찾아 자동 세팅
+     * - 08에서 이미 해주지만, 09에서 한번 더 안전장치로 보강
+     * - 조건: settlement_in_progress=true 인 건만 복원됨
+     */
+    async function restoreTargetIfMissing() {
+        const me = currentUserName();
+        if (!me)
+            return;
+        const now = readSettleTarget();
+        if (now.req_name && now.trip_date)
+            return; // 이미 있으면 끝
+        try {
+            const r = await fetch(`${API_BASE}/api/business-trip/settlement/in-progress?req_name=${encodeURIComponent(me)}`);
+            if (!r.ok)
+                return;
+            const j = await r.json().catch(() => null);
+            const data = j?.data;
+            if (!data?.trip_date)
+                return;
+            if (String(data.req_name ?? "") !== me)
+                return;
+            setQueryParams({ req_name: me, trip_date: data.trip_date });
+            resultBox.textContent = "✅ 진행중 정산 건을 자동으로 불러왔습니다. 이어서 작성하세요.";
+        }
+        catch {
+            // ignore
+        }
+    }
+    // ✅ 초기 1회: 혹시 URL이 비어있으면 진행중 복원 시도
+    restoreTargetIfMissing().then(() => {
+        // 복원 이후에도 계정 불일치면 바로 제거
+        validateTargetOrClear();
+    });
     resetBtn.addEventListener("click", () => {
         workEndInput.value = "";
         returnTimeInput.value = "";
@@ -4294,6 +4401,8 @@ function initDomesticTripSettlementPanel(API_BASE) {
     saveBtn.addEventListener("click", async () => {
         const vehicleValueRaw = getCheckedRadioValue("bt_vehicle");
         const vehicleValue = toVehicleCode(vehicleValueRaw);
+        // ✅ 혹시 저장 순간에도 URL이 비어있으면 한번 더 복원 시도 후 검증
+        await restoreTargetIfMissing();
         const t = validateTargetOrClear();
         const trip_date = t.trip_date;
         const req_name = t.req_name;
@@ -4436,7 +4545,6 @@ function initDomesticTripSettlementPanel(API_BASE) {
         }
     });
     // ✅ 섹션이 열려있는 상태에서 다른 계정으로 로그인하거나 URL 파라미터가 꼬이면 즉시 제거
-    // (패널/섹션 표시 방식이 프로젝트마다 다르니, 최소 안전장치만 둠)
     validateTargetOrClear();
 }
 
@@ -4469,12 +4577,65 @@ function formatYmd(isoDate) {
     const day = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
 }
-// 🌟 정산 내역 보기 패널 초기화
+function toYMD(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+}
+function startOfWeekMon(d) {
+    const x = new Date(d);
+    const day = x.getDay(); // 0=일..6=토
+    const diff = (day === 0 ? -6 : 1 - day); // 월요일로
+    x.setDate(x.getDate() + diff);
+    x.setHours(0, 0, 0, 0);
+    return x;
+}
+function endOfWeekSun(d) {
+    const mon = startOfWeekMon(d);
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    sun.setHours(0, 0, 0, 0);
+    return sun;
+}
+function isMonToSunRange(from, to) {
+    if (!from || !to)
+        return false;
+    const s = new Date(from);
+    const e = new Date(to);
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()))
+        return false;
+    const okStart = s.getDay() === 1; // 월
+    const okEnd = e.getDay() === 0; // 일
+    const diffDays = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
+    return okStart && okEnd && diffDays === 6;
+}
+function diffHHMM(fromHHMM, toHHMM) {
+    // "01:25" ~ "04:10" -> "02:45"
+    const parse = (t) => {
+        const [h, m] = String(t ?? "").split(":").map((x) => Number(x));
+        if (!Number.isFinite(h) || !Number.isFinite(m))
+            return null;
+        return h * 60 + m;
+    };
+    const a = parse(fromHHMM);
+    const b = parse(toHHMM);
+    if (a == null || b == null)
+        return "-";
+    let diff = b - a;
+    if (diff < 0)
+        diff += 24 * 60; // 자정 넘어가는 케이스 대응
+    const hh = String(Math.floor(diff / 60)).padStart(2, "0");
+    const mm = String(diff % 60).padStart(2, "0");
+    return `${hh}:${mm}`;
+}
+// 🌟 정산 내역 보기/제출 패널 초기화
 function initDomesticTripHistoryPanel(API_BASE) {
     const panel = document.getElementById("panel-국내출장-정산서등록");
     if (!panel)
         return;
     const searchBtn = getEl("settle_search");
+    const submitBtn = getEl("settle_submit");
     // 중복 바인딩 방지
     if (searchBtn._bound)
         return;
@@ -4483,13 +4644,10 @@ function initDomesticTripHistoryPanel(API_BASE) {
     const toInput = getEl("settle_to");
     const resultMsg = getEl("settle_result_msg");
     const tbody = getEl("settle_result_tbody");
+    let lastRows = [];
     // 기본 날짜: 오늘
     if (!fromInput.value || !toInput.value) {
-        const today = new Date();
-        const y = today.getFullYear();
-        const m = String(today.getMonth() + 1).padStart(2, "0");
-        const d = String(today.getDate()).padStart(2, "0");
-        const todayStr = `${y}-${m}-${d}`;
+        const todayStr = toYMD(new Date());
         fromInput.value = todayStr;
         toInput.value = todayStr;
     }
@@ -4505,6 +4663,86 @@ function initDomesticTripHistoryPanel(API_BASE) {
         catch {
             return null;
         }
+    }
+    function updateSubmitEnabled() {
+        // 제출은 “월~일(7일)” + 조회결과 존재 + (가능하면) 모두 정산(end_data 존재) 상태여야 함
+        const okWeek = isMonToSunRange(fromInput.value, toInput.value);
+        const hasRows = lastRows.length > 0;
+        // 정산(end_data) 없는 건 제출 못하게 (네 시스템상 정산 저장이 끝나야 제출 가능)
+        const allSettled = lastRows.every((r) => {
+            const s = r.detail_json?.settlement ?? r.end_data ?? {};
+            return s && Object.keys(s).length > 0;
+        });
+        submitBtn.disabled = !(okWeek && hasRows && allSettled);
+    }
+    function statusText(row) {
+        // 제출 전: 미제출
+        // 제출 후: 제출
+        // 관리자 승인/반려: 승인(O), 반려(X)
+        if (!row.submitted_at)
+            return "미제출";
+        if (row.approve_status === "approved")
+            return "승인(O)";
+        if (row.approve_status === "rejected")
+            return "반려(X)";
+        return "제출";
+    }
+    function renderRows(rows) {
+        lastRows = rows;
+        updateSubmitEnabled();
+        if (!rows.length) {
+            tbody.innerHTML = `
+        <tr>
+          <td colspan="8" class="border px-2 py-3 text-center text-gray-400">
+            조회된 정산 내역이 없습니다.
+          </td>
+        </tr>
+      `;
+            return;
+        }
+        tbody.innerHTML = "";
+        rows.forEach((row) => {
+            const r = row.detail_json?.register ?? row.start_data ?? {};
+            const s = row.detail_json?.settlement ?? row.end_data ?? {};
+            const dateStr = formatYmd(row.trip_date);
+            const workStart = r.work_start_time || "-";
+            const workEnd = s.work_end_time || "-";
+            const workDur = (workStart !== "-" && workEnd !== "-") ? diffHHMM(workStart, workEnd) : "-";
+            const workTimeText = workDur !== "-" ? workDur : `${workStart}~${workEnd}`;
+            const vehicleRaw = String(s.vehicle ?? "").trim();
+            const vehicleText = vehicleRaw === "personal" ? "개인차" :
+                vehicleRaw === "corp" ? "법인차" :
+                    vehicleRaw === "public" ? "대중교통" :
+                        vehicleRaw ? vehicleRaw : "-";
+            const meals = s.meals || {};
+            const mealStrs = [];
+            if (meals.breakfast?.checked)
+                mealStrs.push(`조식(${meals.breakfast.owner === "corp" ? "법인" : "개인"})`);
+            if (meals.lunch?.checked)
+                mealStrs.push(`중식(${meals.lunch.owner === "corp" ? "법인" : "개인"})`);
+            if (meals.dinner?.checked)
+                mealStrs.push(`석식(${meals.dinner.owner === "corp" ? "법인" : "개인"})`);
+            const mealsText = mealStrs.length ? mealStrs.join(", ") : "-";
+            const departPlace = r.depart_place || "";
+            const dest = r.destination || "";
+            const returnPlace = s.return_place || "";
+            const routeText = [departPlace, dest, returnPlace].filter(Boolean).join(" → ") || "-";
+            const mainTask = r.purpose || "-";
+            const st = statusText(row);
+            const rejectReason = (row.approve_status === "rejected" ? (row.approve_comment ?? "") : "");
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+        <td class="border px-2 py-1 text-center whitespace-nowrap">${dateStr}</td>
+        <td class="border px-2 py-1 text-center whitespace-nowrap">${workTimeText}</td>
+        <td class="border px-2 py-1 text-center whitespace-nowrap">${vehicleText}</td>
+        <td class="border px-2 py-1 text-center">${mealsText}</td>
+        <td class="border px-2 py-1">${routeText}</td>
+        <td class="border px-2 py-1">${mainTask}</td>
+        <td class="border px-2 py-1 text-center font-semibold whitespace-nowrap">${st}</td>
+        <td class="border px-2 py-1 text-rose-600">${rejectReason}</td>
+      `;
+            tbody.appendChild(tr);
+        });
     }
     async function fetchHistory() {
         const from = fromInput.value;
@@ -4523,7 +4761,7 @@ function initDomesticTripHistoryPanel(API_BASE) {
             resultMsg.textContent = "로그인 정보에서 사용자 이름을 찾을 수 없습니다.";
             tbody.innerHTML = `
         <tr>
-          <td colspan="7" class="border px-2 py-3 text-center text-rose-500">
+          <td colspan="8" class="border px-2 py-3 text-center text-rose-500">
             로그인 정보가 없어 정산 내역을 조회할 수 없습니다.
           </td>
         </tr>
@@ -4533,7 +4771,7 @@ function initDomesticTripHistoryPanel(API_BASE) {
         resultMsg.textContent = "정산 내역을 조회 중입니다...";
         tbody.innerHTML = `
       <tr>
-        <td colspan="7" class="border px-2 py-3 text-center text-gray-400">
+        <td colspan="8" class="border px-2 py-3 text-center text-gray-400">
           조회 중...
         </td>
       </tr>
@@ -4541,63 +4779,19 @@ function initDomesticTripHistoryPanel(API_BASE) {
         const qs = new URLSearchParams();
         qs.set("from", from);
         qs.set("to", to);
-        qs.set("req_name", reqNameParam); // 👈 항상 로그인 사용자 이름
+        qs.set("req_name", reqNameParam);
         try {
             const res = await fetch(`${API_BASE}/api/business-trip/settlements-range?${qs.toString()}`, { method: "GET" });
-            if (!res.ok) {
-                const text = await res.text();
-                throw new Error(`HTTP ${res.status} / ${text}`);
-            }
+            if (!res.ok)
+                throw new Error(`HTTP ${res.status} / ${await res.text()}`);
             const json = await res.json();
             const rows = json?.data ?? [];
             if (!rows.length) {
-                tbody.innerHTML = `
-          <tr>
-            <td colspan="7" class="border px-2 py-3 text-center text-gray-400">
-              조회된 정산 내역이 없습니다.
-            </td>
-          </tr>
-        `;
+                renderRows([]);
                 resultMsg.textContent = "조회된 정산 내역이 없습니다.";
                 return;
             }
-            // 렌더링
-            tbody.innerHTML = "";
-            rows.forEach((row) => {
-                const r = row.detail_json?.register ?? {};
-                const s = row.detail_json?.settlement ?? {};
-                const dateStr = formatYmd(row.trip_date);
-                const name = row.req_name || "-";
-                const dest = r.destination || "-";
-                const depart = r.depart_time || "-";
-                const arrive = r.arrive_time || "-";
-                const workStart = r.work_start_time || "-";
-                const workEnd = s.work_end_time || "-";
-                const vehicle = s.vehicle || "-";
-                const meals = s.meals || {};
-                const mealStrs = [];
-                if (meals.breakfast?.checked) {
-                    mealStrs.push(`조식(${meals.breakfast.owner === "corp" ? "법인" : "개인"})`);
-                }
-                if (meals.lunch?.checked) {
-                    mealStrs.push(`중식(${meals.lunch.owner === "corp" ? "법인" : "개인"})`);
-                }
-                if (meals.dinner?.checked) {
-                    mealStrs.push(`석식(${meals.dinner.owner === "corp" ? "법인" : "개인"})`);
-                }
-                const mealsText = mealStrs.length ? mealStrs.join(", ") : "-";
-                const tr = document.createElement("tr");
-                tr.innerHTML = `
-          <td class="border px-2 py-1 text-center">${dateStr}</td>
-          <td class="border px-2 py-1 text-center">${name}</td>
-          <td class="border px-2 py-1 text-center">${dest}</td>
-          <td class="border px-2 py-1 text-center">${depart} ~ ${arrive}</td>
-          <td class="border px-2 py-1 text-center">${workStart} ~ ${workEnd}</td>
-          <td class="border px-2 py-1 text-center">${vehicle}</td>
-          <td class="border px-2 py-1 text-center">${mealsText}</td>
-        `;
-                tbody.appendChild(tr);
-            });
+            renderRows(rows);
             resultMsg.textContent = `총 ${rows.length}건의 정산 내역이 조회되었습니다.`;
         }
         catch (err) {
@@ -4605,17 +4799,119 @@ function initDomesticTripHistoryPanel(API_BASE) {
             resultMsg.textContent = `조회 실패: ${err?.message ?? "알 수 없는 오류"}`;
             tbody.innerHTML = `
         <tr>
-          <td colspan="7" class="border px-2 py-3 text-center text-rose-500">
+          <td colspan="8" class="border px-2 py-3 text-center text-rose-500">
             조회 실패: ${err?.message ?? "알 수 없는 오류"}
           </td>
         </tr>
       `;
+            lastRows = [];
+            updateSubmitEnabled();
         }
     }
-    // 버튼 이벤트 연결
-    searchBtn.addEventListener("click", () => {
-        fetchHistory();
+    async function submitWeek() {
+        const from = fromInput.value;
+        const to = toInput.value;
+        if (!isMonToSunRange(from, to)) {
+            alert("제출은 월~일(1주일) 기간만 가능합니다.");
+            return;
+        }
+        const reqNameParam = getLoginUserName();
+        if (!reqNameParam) {
+            alert("로그인 정보가 없습니다.");
+            return;
+        }
+        if (!lastRows.length) {
+            alert("제출할 내역이 없습니다.");
+            return;
+        }
+        const ok = confirm(`정산서를 제출할까요?\n기간: ${from} ~ ${to}`);
+        if (!ok)
+            return;
+        try {
+            submitBtn.disabled = true;
+            resultMsg.textContent = "제출 중입니다...";
+            const res = await fetch(`${API_BASE}/api/business-trip/settlements-submit-week`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ from, to, req_name: reqNameParam }),
+            });
+            if (!res.ok)
+                throw new Error(`HTTP ${res.status} / ${await res.text()}`);
+            const json = await res.json();
+            if (!json?.ok)
+                throw new Error(json?.message ?? "제출 실패");
+            resultMsg.textContent = "제출 완료! (관리자 승인 대기)";
+            await fetchHistory();
+        }
+        catch (e) {
+            console.error(e);
+            alert(`제출 실패: ${e?.message ?? "알 수 없는 오류"}`);
+            resultMsg.textContent = `제출 실패: ${e?.message ?? "알 수 없는 오류"}`;
+            updateSubmitEnabled();
+        }
+    }
+    // ✅ 기간 버튼 이벤트
+    panel.querySelectorAll(".settle_period_btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const mode = btn.dataset.period;
+            const today = new Date();
+            if (mode === "1d") {
+                fromInput.value = toYMD(today);
+                toInput.value = toYMD(today);
+            }
+            else if (mode === "1w") {
+                const end = new Date(today);
+                const start = new Date(today);
+                start.setDate(end.getDate() - 6);
+                fromInput.value = toYMD(start);
+                toInput.value = toYMD(end);
+            }
+            else if (mode === "1m") {
+                const end = new Date(today);
+                const start = new Date(today);
+                start.setMonth(end.getMonth() - 1);
+                fromInput.value = toYMD(start);
+                toInput.value = toYMD(end);
+            }
+            else if (mode === "prevMonth") {
+                const firstThis = new Date(today.getFullYear(), today.getMonth(), 1);
+                const firstPrev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+                const lastPrev = new Date(firstThis);
+                lastPrev.setDate(0);
+                fromInput.value = toYMD(firstPrev);
+                toInput.value = toYMD(lastPrev);
+            }
+            else if (mode === "thisMonth") {
+                const first = new Date(today.getFullYear(), today.getMonth(), 1);
+                const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                fromInput.value = toYMD(first);
+                toInput.value = toYMD(last);
+            }
+            else if (mode === "thisWeek") {
+                const mon = startOfWeekMon(today);
+                const sun = endOfWeekSun(today);
+                fromInput.value = toYMD(mon);
+                toInput.value = toYMD(sun);
+            }
+            else if (mode === "lastWeek") {
+                const last = new Date(today);
+                last.setDate(last.getDate() - 7);
+                const mon = startOfWeekMon(last);
+                const sun = endOfWeekSun(last);
+                fromInput.value = toYMD(mon);
+                toInput.value = toYMD(sun);
+            }
+            updateSubmitEnabled();
+        });
     });
+    // 날짜 직접 변경 시 제출버튼 활성화 갱신
+    fromInput.addEventListener("change", updateSubmitEnabled);
+    toInput.addEventListener("change", updateSubmitEnabled);
+    // 버튼 이벤트 연결
+    searchBtn.addEventListener("click", () => fetchHistory());
+    submitBtn.addEventListener("click", () => submitWeek());
+    // 초기 상태 반영
+    updateSubmitEnabled();
 }
 
 

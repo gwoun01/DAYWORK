@@ -54,3 +54,297 @@
     text-decoration: underline;
     text-align: left;
 }
+
+/* =====================================================
+INNOMAX VISUAL REDESIGN PACK (색상 유지 / 체감 크게) - cards / headers / inputs / tables / sidebar=====================================================*/
+:root {
+    --bg: #d7e5f3;
+    --panel: #f6f7f7;
+    --card: #ffffff;
+    --line: #c7d8ee;
+
+    --ink: #1f2a3c;
+    --ink2: #3b4a63;
+
+    --brand: #2b4c7e;
+    /* 기존 로그아웃 색 */
+    --brand2: #365a90;
+    /* hover */
+}
+
+/* 기본 폰트/라인 */
+body {
+    color: var(--ink);
+    letter-spacing: -0.2px;
+}
+
+/* 공통 카드 룩: 라운드/테두리/그림자 통일 */
+.bg-white.rounded-2xl,
+.bg-white.rounded-xl,
+.bg-white.rounded-lg {
+    border-radius: 18px !important;
+}
+
+.bg-white.border {
+    border-color: rgba(199, 216, 238, .85) !important;
+}
+
+/* 기존 shadow를 더 "정돈된" 느낌으로 (과한 번짐 제거) */
+.shadow,
+.shadow-sm,
+.shadow-lg,
+.shadow-2xl {
+    box-shadow:
+        0 10px 24px rgba(31, 42, 60, .08),
+        0 2px 6px rgba(31, 42, 60, .06) !important;
+}
+
+/* =========================
+   상단 헤더: 살짝 glass + 선명도
+========================= */
+header {
+    background: rgba(215, 229, 243, .92) !important;
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(199, 216, 238, .95) !important;
+}
+
+/* 로고 영역을 좀 더 "브랜드 바"처럼 */
+.innomax-logo {
+    gap: 14px !important;
+}
+
+.innomax-logo img {
+    height: 44px !important;
+}
+
+.logo-title {
+    font-size: 16px !important;
+    font-weight: 900 !important;
+}
+
+.logo-sub {
+    opacity: .9;
+}
+
+/* =========================
+   레이아웃 밀도: 전체 패딩 조금 조정
+========================= */
+.flex-1.flex.gap-3.p-3.overflow-hidden {
+    padding: 14px !important;
+    gap: 14px !important;
+}
+
+/* workspace 상단 타이틀 줄: 더 고급스럽게 */
+#workspace>div:first-child {
+    background: linear-gradient(180deg, rgba(255, 255, 255, .65), rgba(246, 247, 247, 1)) !important;
+    border-bottom: 1px solid rgba(229, 231, 235, .9) !important;
+}
+
+/* 패널 제목 더 굵고 깔끔하게 */
+#wsTitle {
+    font-size: 17px !important;
+    font-weight: 900 !important;
+    letter-spacing: -0.3px;
+}
+
+/* =========================
+   사이드바: 계층감 강화 + 메뉴 더 "앱"처럼
+========================= */
+#sidebar {
+    border: 1px solid rgba(199, 216, 238, .95) !important;
+    background: rgba(215, 229, 243, .75) !important;
+    box-shadow:
+        0 16px 40px rgba(31, 42, 60, .10),
+        0 2px 6px rgba(31, 42, 60, .06) !important;
+}
+
+/* 대시보드 버튼/메뉴: 버튼같이 보이게 */
+#sidebar .nav-btn {
+    border-radius: 14px !important;
+    padding: 12px 14px !important;
+    font-weight: 800 !important;
+    color: rgba(31, 42, 60, .85) !important;
+    background: rgba(255, 255, 255, .28);
+    border: 1px solid rgba(255, 255, 255, .35);
+}
+
+/* hover: 미세 상승 + 밝아짐 */
+#sidebar .nav-btn:hover {
+    background: rgba(255, 255, 255, .52) !important;
+    border-color: rgba(255, 255, 255, .65) !important;
+    transform: translateY(-1px);
+}
+
+/* active: 브랜드 느낌(파란 포인트) */
+#sidebar .nav-btn.active {
+    background: rgba(255, 255, 255, .85) !important;
+    border-color: rgba(199, 216, 238, .95) !important;
+    color: var(--ink) !important;
+}
+
+/* active 왼쪽 포인트 바 */
+#sidebar .nav-btn.active::before {
+    left: 10px !important;
+    width: 7px !important;
+    height: 22px !important;
+    background: rgba(43, 76, 126, .9) !important;
+}
+
+/* 그룹 헤더(관리자 전용/직원 전용/국내출장): 구분선+톤 */
+#btnAdminGroup,
+#btnStaffGroup,
+#btnDomestic {
+    border-radius: 14px !important;
+    background: rgba(255, 255, 255, .18) !important;
+    border: 1px solid rgba(255, 255, 255, .28) !important;
+    padding: 10px 12px !important;
+}
+
+/* 그룹 안쪽(서브 메뉴)은 살짝 들여쓰기+작게 */
+#adminGroupContent .nav-btn,
+#staffGroupContent .nav-btn,
+#domesticSub .nav-btn,
+#overseasSub .nav-btn {
+    padding: 10px 12px !important;
+    font-weight: 700 !important;
+    font-size: 12px !important;
+    background: rgba(255, 255, 255, .18) !important;
+}
+
+/* =========================
+   카드 헤더(출장자 현황/휴가자 현황/캘린더 등): 통일감 확 주기
+========================= */
+/* 카드 헤더: "회색 박스" -> "얇은 그라데이션 바" 느낌 */
+.bg-white>.px-4.py-3.border-b.bg-gray-50,
+.bg-white>.px-3.py-2.border-b.bg-gray-50,
+.bg-white>.px-4.py-2.border-b {
+    background: linear-gradient(180deg, rgba(246, 247, 247, 1), rgba(255, 255, 255, 1)) !important;
+    border-bottom: 1px solid rgba(229, 231, 235, .9) !important;
+}
+
+/* 헤더 타이틀 글씨 더 선명하게 */
+.bg-white>.px-4.py-3.border-b *:first-child,
+.bg-white>.px-3.py-2.border-b *:first-child {
+    color: var(--ink) !important;
+}
+
+/* =========================
+   입력/셀렉트/텍스트영역: "시스템폼"처럼 통일
+========================= */
+input[type="text"],
+input[type="date"],
+input[type="time"],
+input[type="number"],
+select,
+textarea {
+    border-radius: 14px !important;
+    border: 1px solid rgba(209, 213, 219, .95) !important;
+    background: rgba(255, 255, 255, .92) !important;
+    transition: box-shadow .15s ease, border-color .15s ease, transform .12s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none !important;
+    border-color: rgba(43, 76, 126, .35) !important;
+    box-shadow: 0 0 0 4px rgba(43, 76, 126, .12) !important;
+}
+
+/* =========================
+   버튼: 둥글고 단단한 느낌
+========================= */
+button {
+    border-radius: 14px;
+}
+
+.bg-indigo-600,
+.bg-indigo-500,
+.bg-emerald-500,
+.bg-emerald-600 {
+    box-shadow: 0 8px 18px rgba(31, 42, 60, .12) !important;
+}
+
+button:hover {
+    transform: translateY(-1px);
+}
+
+button:active {
+    transform: translateY(0px);
+}
+
+/* 로그아웃 버튼만 브랜드 컬러로 더 또렷하게 */
+#logoutBtn {
+    background: var(--brand) !important;
+}
+
+#logoutBtn:hover {
+    background: var(--brand2) !important;
+}
+
+/* =========================
+   테이블: 딱딱함 줄이고 "보드"처럼
+========================= */
+table {
+    border-collapse: separate !important;
+    border-spacing: 0;
+}
+
+/* 헤더 */
+thead.bg-gray-100,
+thead .bg-gray-100 {
+    background: rgba(246, 247, 247, 1) !important;
+}
+
+thead th {
+    font-weight: 800 !important;
+    color: rgba(31, 42, 60, .75) !important;
+}
+
+/* 행 hover */
+tbody tr:hover {
+    background: rgba(215, 229, 243, .25);
+}
+
+/* cell border 연하게 */
+td.border,
+th.border,
+td.border-b,
+th.border-b {
+    border-color: rgba(229, 231, 235, .85) !important;
+}
+
+/* =========================
+   캘린더(대시보드) 셀 간격/칩 더 보기 좋게
+========================= */
+#dutyCalGrid .day-cell,
+#sumCalGrid .day-cell {
+    border-radius: 14px;
+}
+
+/* (네 TS가 칩을 span/div로 넣는 경우 대비)
+   -> 칩이 너무 네모면 둥글게 */
+#dutyCalGrid span,
+#dutyCalGrid div,
+#sumCalGrid span,
+#sumCalGrid div {
+    border-radius: 12px;
+}
+
+/* =========================
+   스크롤바 (시각적으로 정돈)
+========================= */
+#workspace ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+#workspace ::-webkit-scrollbar-thumb {
+    background: rgba(31, 42, 60, .16);
+    border-radius: 999px;
+    border: 2px solid rgba(246, 247, 247, .92);
+}
+
+#workspace ::-webkit-scrollbar-track {
+    background: transparent;
+}
