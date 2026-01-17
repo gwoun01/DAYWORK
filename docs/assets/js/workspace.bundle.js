@@ -1087,15 +1087,17 @@ function initTripApprovalPanel(_panelId) {
     if (searchBtn._bound)
         return;
     searchBtn._bound = true;
-    // 기본 조회기간: 이번 주(월~일)
+    // 기본 조회 기간: 전주(월~일)  ✅ 제출 기준이 전주라서
     const today = new Date();
     const day = (today.getDay() + 6) % 7; // 월=0
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - day);
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    fromInput.value = monday.toISOString().slice(0, 10);
-    toInput.value = sunday.toISOString().slice(0, 10);
+    const thisMon = new Date(today);
+    thisMon.setDate(today.getDate() - day); // 이번주 월요일
+    const prevMon = new Date(thisMon);
+    prevMon.setDate(thisMon.getDate() - 7); // ✅ 전주 월요일
+    const prevSun = new Date(prevMon);
+    prevSun.setDate(prevMon.getDate() + 6); // ✅ 전주 일요일
+    fromInput.value = prevMon.toISOString().slice(0, 10);
+    toInput.value = prevSun.toISOString().slice(0, 10);
     // ✅ 제출 이벤트가 오면 관리자 화면 자동 갱신(새로고침 X)
     function triggerAdminRefresh() {
         document.getElementById("appr_search")?.click();
@@ -4716,7 +4718,14 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   initDomesticTripHistoryPanel: () => (/* binding */ initDomesticTripHistoryPanel)
 /* harmony export */ });
+/* harmony import */ var _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./utils/ModalUtil */ "./TypeScript/workspace/utils/ModalUtil.ts");
 // TypeScript/workspace/10_domestic-trip-history.ts
+// ✅ 통째 교체본 (요구사항 반영)
+// 1) 다른 화면 갔다가 오면 무조건 "오늘 기준 전주(월~일)"로 초기세팅 + 조회전 UI 리셋
+// 2) 제출 버튼은 "조회된 내역이 있으면" 항상 클릭 가능(주간아님/미정산/이미제출은 클릭 후 안내/모달)
+// 3) 주간(월~일) 아니면 모달로 주간 자동 변경 + 재조회 후 제출
+// 4) 미정산 포함 / 이미 제출 포함은 alert 안내(원하면 모달로도 바꿀 수 있음)
+
 function getEl(id) {
     const el = document.getElementById(id);
     if (!el)
@@ -4724,12 +4733,10 @@ function getEl(id) {
     return el;
 }
 const DOW_KR = ["일", "월", "화", "수", "목", "금", "토"];
-// ✅ ISO/Date/DB-date 어떤 값이 와도 "YYYY-MM-DD" 로 안전하게
 function ymdSafe(v) {
     const s = String(v ?? "").trim();
     if (!s)
         return "-";
-    // "2026-01-16T00:00:00.000Z" 같은 경우 → 앞 10자리만
     if (s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s))
         return s.slice(0, 10);
     const d = new Date(s);
@@ -4744,7 +4751,7 @@ function formatYmdWithDow(v) {
     const ymd = ymdSafe(v);
     if (ymd === "-")
         return "-";
-    const d = new Date(ymd); // "YYYY-MM-DD"는 로컬 기준으로 잘 계산됨
+    const d = new Date(ymd);
     if (Number.isNaN(d.getTime()))
         return ymd;
     return `${ymd} (${DOW_KR[d.getDay()]})`;
@@ -4766,6 +4773,18 @@ function endOfWeekSun(d) {
     sun.setDate(mon.getDate() + 6);
     sun.setHours(0, 0, 0, 0);
     return sun;
+}
+function startOfMonth(d) {
+    const x = new Date(d);
+    x.setDate(1);
+    x.setHours(0, 0, 0, 0);
+    return x;
+}
+function endOfMonth(d) {
+    const x = new Date(d);
+    x.setMonth(x.getMonth() + 1, 0); // 다음달 0일 = 이번달 말일
+    x.setHours(0, 0, 0, 0);
+    return x;
 }
 function isMonToSunRange(from, to) {
     const s = new Date(from);
@@ -4801,7 +4820,7 @@ function initDomesticTripHistoryPanel(API_BASE) {
         return;
     const searchBtn = getEl("settle_search");
     const submitBtn = getEl("settle_submit");
-    // 중복 바인딩 방지
+    // ✅ 중복 바인딩 방지(이벤트만 중복 막고, "패널 show 초기화"는 MutationObserver가 처리)
     if (searchBtn._bound)
         return;
     searchBtn._bound = true;
@@ -4818,13 +4837,7 @@ function initDomesticTripHistoryPanel(API_BASE) {
             return null;
         }
     }
-    // ✅ (1) 기본값: 오늘 기준 이번주 월~일 자동 세팅
-    function setThisWeekRange() {
-        const mon = startOfWeekMon(new Date());
-        const sun = endOfWeekSun(new Date());
-        fromInput.value = toYMD(mon);
-        toInput.value = toYMD(sun);
-    }
+    // ✅ 기본값: 오늘 기준 "전주(월~일)"
     function setLastWeekRange() {
         const mon = startOfWeekMon(new Date());
         mon.setDate(mon.getDate() - 7);
@@ -4833,9 +4846,95 @@ function initDomesticTripHistoryPanel(API_BASE) {
         fromInput.value = toYMD(mon);
         toInput.value = toYMD(sun);
     }
-    // 입력값이 비었으면 자동으로 이번주 세팅
-    if (!fromInput.value || !toInput.value)
-        setThisWeekRange();
+    function setThisWeekRange() {
+        const mon = startOfWeekMon(new Date());
+        const sun = endOfWeekSun(new Date());
+        fromInput.value = toYMD(mon);
+        toInput.value = toYMD(sun);
+    }
+    // ✅ 조회 버튼들(1일/1주/1달/전월/당월/이번주/지난주) 처리
+    function parseBaseDate() {
+        const base = String(fromInput.value ?? "").trim();
+        const d = base ? new Date(base) : new Date();
+        return Number.isNaN(d.getTime()) ? new Date() : d;
+    }
+    function setDayRange(base) {
+        const y = toYMD(base);
+        fromInput.value = y;
+        toInput.value = y;
+    }
+    function setWeekRangeByBase(base) {
+        const mon = startOfWeekMon(base);
+        const sun = endOfWeekSun(base);
+        fromInput.value = toYMD(mon);
+        toInput.value = toYMD(sun);
+    }
+    function setMonthRangeByBase(base) {
+        const s = startOfMonth(base);
+        const e = endOfMonth(base);
+        fromInput.value = toYMD(s);
+        toInput.value = toYMD(e);
+    }
+    function applyPeriod(period) {
+        const base = parseBaseDate();
+        if (period === "1d")
+            return setDayRange(base);
+        if (period === "1w")
+            return setWeekRangeByBase(base);
+        if (period === "1m")
+            return setMonthRangeByBase(base);
+        if (period === "thisWeek")
+            return setThisWeekRange();
+        if (period === "lastWeek")
+            return setLastWeekRange();
+        if (period === "thisMonth")
+            return setMonthRangeByBase(new Date());
+        if (period === "prevMonth") {
+            const d = new Date();
+            d.setMonth(d.getMonth() - 1);
+            return setMonthRangeByBase(d);
+        }
+    }
+    // ✅ HTML의 .settle_period_btn 연결
+    const periodBtns = Array.from(panel.querySelectorAll(".settle_period_btn"));
+    periodBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const p = String(btn.dataset.period ?? "").trim();
+            if (!p)
+                return;
+            applyPeriod(p);
+            updateSubmitEnabled();
+        });
+    });
+    // =========================
+    // ✅ "조회 전" 초기 UI 리셋
+    // =========================
+    function resetResultsUI() {
+        lastRows = [];
+        resultMsg.textContent = "조회할 기간을 선택한 뒤 [조회하기]를 눌러주세요.";
+        tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="border px-2 py-3 text-center text-gray-400">
+          조회된 정산 내역이 없습니다.
+        </td>
+      </tr>
+    `;
+        updateSubmitEnabled();
+    }
+    // ✅ 패널이 "다시 보일 때마다" 무조건 초기세팅(오늘 기준 전주) + 조회 전 UI 리셋
+    function applyDefaultOnPanelShow() {
+        setLastWeekRange();
+        resetResultsUI();
+    }
+    // ✅ 패널 show 감지 (hidden -> visible)
+    const mo = new MutationObserver(() => {
+        const isHidden = panel.classList.contains("hidden");
+        if (!isHidden)
+            applyDefaultOnPanelShow();
+    });
+    mo.observe(panel, { attributes: true, attributeFilter: ["class"] });
+    // ✅ 첫 진입도 강제
+    applyDefaultOnPanelShow();
     // =========================
     // ✅ 제출 이벤트: 관리자(02) 자동 갱신용
     // =========================
@@ -4853,7 +4952,40 @@ function initDomesticTripHistoryPanel(API_BASE) {
         catch { }
     }
     // =========================
+    // ✅ 주간 제출 전용 모달
+    // =========================
+    async function openWeekSubmitModal(opts) {
+        const base = opts.baseFrom || "-";
+        const baseDate = base && base !== "-" ? new Date(base) : new Date();
+        const mon = startOfWeekMon(baseDate);
+        const sun = endOfWeekSun(baseDate);
+        const monStr = toYMD(mon);
+        const sunStr = toYMD(sun);
+        const ok = await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+            type: "warn",
+            title: "제출은 주간(월~일)만 가능합니다",
+            messageHtml: `
+      현재 선택 기간은 주간(월~일)이 아닙니다.<br/>
+      <b class="text-gray-900">${monStr} ~ ${sunStr}</b> (월~일)로 자동 변경 후 제출할까요?
+    `,
+            showOk: true,
+            showCancel: true,
+            okText: "주간으로 맞추고 제출",
+            cancelText: "취소",
+            okClass: "bg-emerald-600 hover:bg-emerald-700",
+            cancelClass: "border border-gray-300 text-gray-700 hover:bg-gray-50",
+        });
+        if (ok !== true)
+            return;
+        fromInput.value = monStr;
+        toInput.value = sunStr;
+        updateSubmitEnabled();
+        opts.onConvertAndSubmit();
+    }
+    // =========================
     // ✅ 제출 가능/불가 안내 + 버튼 활성화
+    // ✅ 제출 버튼은 "조회된 내역이 있으면" 항상 클릭 가능하게 둔다
+    // - 주간아님/미정산/이미제출은 클릭 시 안내(모달/알림)
     // =========================
     function updateSubmitEnabled() {
         const okWeek = isMonToSunRange(fromInput.value, toInput.value);
@@ -4863,25 +4995,21 @@ function initDomesticTripHistoryPanel(API_BASE) {
             return s && Object.keys(s).length > 0;
         });
         const anySubmitted = lastRows.some((r) => !!r.submitted_at);
-        const canSubmit = okWeek && hasRows && allSettled && !anySubmitted;
-        submitBtn.disabled = !canSubmit;
-        // ✅ 유저가 실수 안 하게 이유를 resultMsg에 같이 보여줌
+        // ✅ 버튼은 "조회 결과가 있으면" 항상 활성화(모달 띄우기 위해)
+        submitBtn.disabled = !hasRows;
         const reasons = [];
         if (!okWeek)
-            reasons.push("제출은 월~일(1주일) 기간만 가능");
-        if (!hasRows)
-            reasons.push("조회된 내역 없음");
+            reasons.push("정산은 월~일(1주일) 단위로만 제출 가능");
         if (hasRows && !allSettled)
             reasons.push("정산 저장이 안 된 날짜가 있음");
-        if (anySubmitted)
-            reasons.push("이미 제출된 내역이 포함됨");
-        if (canSubmit) {
-            resultMsg.textContent = `총 ${lastRows.length}건 조회 / ✅ 제출 가능합니다.`;
+        if (hasRows && anySubmitted)
+            reasons.push("이미 제출된 정산이 포함됨");
+        const base = `총 ${lastRows.length}건 조회`;
+        const why = reasons.length ? ` / ⛔ ${reasons.join(" · ")}` : "";
+        if (hasRows && okWeek && allSettled && !anySubmitted) {
+            resultMsg.textContent = `${base} / ✅ 제출 가능합니다.`;
         }
         else {
-            // 기존에 “총 n건 조회”가 보이던 UX는 유지하면서, 제출 이유도 같이
-            const base = `총 ${lastRows.length}건 조회`;
-            const why = reasons.length ? ` / ⛔ ${reasons.join(" · ")}` : "";
             resultMsg.textContent = base + why;
         }
     }
@@ -4911,33 +5039,32 @@ function initDomesticTripHistoryPanel(API_BASE) {
         rows.forEach((row) => {
             const r = row.detail_json?.register ?? row.start_data ?? {};
             const s = row.detail_json?.settlement ?? row.end_data ?? {};
-            // ✅ 근무시간 3줄 표시 (항상 이 형식으로 고정)
             const departStart = r.depart_time || "-";
             const arriveTime = r.arrive_time || "-";
             const returnStart = s.work_end_time || "-";
             const returnArrive = s.return_time || "-";
             const workStart = r.work_start_time || arriveTime || "-";
             const workEnd = s.work_end_time || "-";
-            const departLine = (departStart !== "-" && arriveTime !== "-")
+            const departLine = departStart !== "-" && arriveTime !== "-"
                 ? `출발 (출발시간 ${departStart} ~ 도착시간 ${arriveTime})`
                 : "출발 (-)";
-            const returnLine = (returnStart !== "-" && returnArrive !== "-")
+            const returnLine = returnStart !== "-" && returnArrive !== "-"
                 ? `복귀 (출발시간 ${returnStart} ~ 도착시간 ${returnArrive})`
                 : "복귀 (-)";
-            const workDiff = (workStart !== "-" && workEnd !== "-")
-                ? calcHourDiff(workStart, workEnd)
-                : "-";
-            const workLine = (workDiff !== "-")
+            const workDiff = workStart !== "-" && workEnd !== "-" ? calcHourDiff(workStart, workEnd) : "-";
+            const workLine = workDiff !== "-"
                 ? `업무시간 ${workStart} ~ ${workEnd} (총 ${workDiff})`
                 : "업무시간 -";
-            // 차량 표기
             const vehicleRaw = String(s.vehicle ?? "").trim();
-            const vehicleText = vehicleRaw === "personal" ? "개인차" :
-                vehicleRaw === "corp" ? "법인차" :
-                    vehicleRaw === "public" ? "대중교통" :
-                        vehicleRaw === "other" ? "기타" :
-                            (vehicleRaw || "-");
-            // 식사 표기
+            const vehicleText = vehicleRaw === "personal"
+                ? "개인차"
+                : vehicleRaw === "corp"
+                    ? "법인차"
+                    : vehicleRaw === "public"
+                        ? "대중교통"
+                        : vehicleRaw === "other"
+                            ? "기타"
+                            : vehicleRaw || "-";
             const meals = s.meals || {};
             const mealStrs = [];
             if (meals.breakfast?.checked)
@@ -4947,14 +5074,13 @@ function initDomesticTripHistoryPanel(API_BASE) {
             if (meals.dinner?.checked)
                 mealStrs.push(`석식(${meals.dinner.owner === "corp" ? "법인" : "개인"})`);
             const mealsText = mealStrs.length ? mealStrs.join(", ") : "-";
-            // 이동경로 표기
             const departPlace = r.depart_place || "";
             const dest = r.destination || "";
             const returnPlace = s.return_place || "";
             const routeText = [departPlace, dest, returnPlace].filter(Boolean).join(" → ") || "-";
             const mainTask = r.purpose || "-";
             const st = statusText(row);
-            const rejectReason = row.approve_status === "rejected" ? (row.approve_comment ?? "") : "";
+            const rejectReason = row.approve_status === "rejected" ? row.approve_comment ?? "" : "";
             const tr = document.createElement("tr");
             tr.innerHTML = `
         <td class="border px-2 py-1 text-center whitespace-nowrap">
@@ -4998,7 +5124,6 @@ function initDomesticTripHistoryPanel(API_BASE) {
         const name = getLoginUserName();
         if (!name)
             return;
-        // 조회중 표시
         resultMsg.textContent = "조회 중...";
         tbody.innerHTML = `
       <tr>
@@ -5019,74 +5144,127 @@ function initDomesticTripHistoryPanel(API_BASE) {
     }
     // ✅ 조회
     searchBtn.onclick = fetchHistory;
-    // ✅ (3) 입력 바뀌면 제출 가능 여부 즉시 반영 (유저 실수 방지)
+    // ✅ 입력 바뀌면 안내 문구 갱신
     fromInput.addEventListener("change", updateSubmitEnabled);
     toInput.addEventListener("change", updateSubmitEnabled);
-    // ✅ (3-추가) "이번주/지난주" 버튼이 HTML에 있으면 자동 연결(있어도 되고 없어도 됨)
-    // - 버튼 id를 아래처럼 쓰면 자동으로 먹음:
-    //   thisweek: settle_btn_thisweek
-    //   lastweek: settle_btn_lastweek
-    const btnThisWeek = document.getElementById("settle_btn_thisweek");
-    const btnLastWeek = document.getElementById("settle_btn_lastweek");
-    if (btnThisWeek) {
-        btnThisWeek.addEventListener("click", async () => {
-            setThisWeekRange();
-            await fetchHistory();
+    async function niceAlert(title, messageHtml, type = "alert") {
+        await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+            type,
+            title,
+            messageHtml,
+            showOk: true,
+            showCancel: false,
+            okText: "확인",
+            okClass: type === "warn"
+                ? "bg-amber-500 hover:bg-amber-600"
+                : "bg-indigo-600 hover:bg-indigo-700",
         });
     }
-    if (btnLastWeek) {
-        btnLastWeek.addEventListener("click", async () => {
-            setLastWeekRange();
-            await fetchHistory();
+    async function niceConfirm(title, messageHtml, okText = "확인", cancelText = "취소") {
+        const ok = await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+            type: "warn",
+            title,
+            messageHtml,
+            showOk: true,
+            showCancel: true,
+            okText,
+            cancelText,
+            okClass: "bg-emerald-600 hover:bg-emerald-700",
+            cancelClass: "border border-gray-300 text-gray-700 hover:bg-gray-50",
         });
+        return ok === true;
     }
     // =========================
     // ✅ 제출하기
     // =========================
+    async function doSubmitWeek() {
+        const name = getLoginUserName();
+        if (!name) {
+            await niceAlert("로그인 정보 없음", "로그인 정보를 찾을 수 없습니다.", "warn");
+            return;
+        }
+        const yes = await niceConfirm("정산서 제출", "이 기간(주간)의 정산서를 제출하시겠습니까?", "제출", "취소");
+        if (!yes)
+            return;
+        const res = await fetch(`${API_BASE}/api/business-trip/settlements-submit-week`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+                from: fromInput.value,
+                to: toInput.value,
+                req_name: name,
+            }),
+        });
+        const json = await res.json();
+        if (!json.ok) {
+            await niceAlert("제출 실패", String(json.message ?? "제출 실패"), "warn");
+            return;
+        }
+        await niceAlert("제출 완료", "제출 완료되었습니다.");
+        notifyTripSubmitted({ from: fromInput.value, to: toInput.value, req_name: name });
+        await fetchHistory();
+    }
     submitBtn.onclick = async () => {
         try {
+            // 0) 조회 내역 없음
             if (submitBtn.disabled) {
-                // disabled인데 누르려는 경우: 왜 안되는지 한번 더 알림(실수 방지)
-                const okWeek = isMonToSunRange(fromInput.value, toInput.value);
-                if (!okWeek) {
-                    alert("제출은 월~일(1주일) 기간만 가능합니다.\n'이번주(월~일)' 버튼을 눌러주세요.");
-                }
+                await niceAlert("제출할 수 없습니다", "조회된 내역이 없습니다.<br/>먼저 <b>[조회하기]</b>를 눌러주세요.", "warn");
                 return;
             }
-            const name = getLoginUserName();
-            if (!name) {
-                alert("로그인 정보를 찾을 수 없습니다.");
-                return;
-            }
-            if (!confirm("이 기간(주간)의 정산서를 제출하시겠습니까?"))
-                return;
-            const res = await fetch(`${API_BASE}/api/business-trip/settlements-submit-week`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({
-                    from: fromInput.value,
-                    to: toInput.value,
-                    req_name: name,
-                }),
+            // 1) 미정산 포함
+            const allSettled = lastRows.every((r) => {
+                const s = r.detail_json?.settlement ?? r.end_data ?? {};
+                return s && Object.keys(s).length > 0;
             });
-            const json = await res.json();
-            if (!json.ok) {
-                alert(json.message ?? "제출 실패");
+            if (!allSettled) {
+                await niceAlert("제출할 수 없습니다", "미등록 또는 정산저장이 되지 않은 출장입니다.<br/>정산 저장을 완료한 뒤 제출해주세요.", "warn");
                 return;
             }
-            alert("제출 완료");
-            // ✅ 관리자(02) 자동갱신 트리거
-            notifyTripSubmitted({ from: fromInput.value, to: toInput.value, req_name: name });
-            // ✅ 직원 화면도 최신화
-            await fetchHistory();
+            // 2) 이미 제출 포함  ✅ 여기! 지금 니 스샷 메시지
+            const anySubmitted = lastRows.some((r) => !!r.submitted_at);
+            if (anySubmitted) {
+                await niceAlert("제출할 수 없습니다", "이미 제출된 정산이 포함되어 있습니다.<br/>제출할 주간만 다시 조회해서 제출해주세요.", "warn");
+                return;
+            }
+            // 3) 주간 아니면 모달 → 주간으로 맞추고 제출
+            const okWeek = isMonToSunRange(fromInput.value, toInput.value);
+            if (!okWeek) {
+                await openWeekSubmitModal({
+                    baseFrom: fromInput.value,
+                    onConvertAndSubmit: async () => {
+                        await fetchHistory();
+                        if (!lastRows.length) {
+                            await niceAlert("제출할 수 없습니다", "해당 주간에 제출할 내역이 없습니다.", "warn");
+                            return;
+                        }
+                        const allSettled2 = lastRows.every((r) => {
+                            const s = r.detail_json?.settlement ?? r.end_data ?? {};
+                            return s && Object.keys(s).length > 0;
+                        });
+                        if (!allSettled2) {
+                            await niceAlert("제출할 수 없습니다", "미등록 또는 정산저장이 되지 않은 출장입니다.<br/>정산 저장을 완료한 뒤 제출해주세요.", "warn");
+                            return;
+                        }
+                        const anySubmitted2 = lastRows.some((r) => !!r.submitted_at);
+                        if (anySubmitted2) {
+                            await niceAlert("제출할 수 없습니다", "이미 제출된 정산이 포함되어 있습니다.<br/>제출할 주간만 다시 조회해서 제출해주세요.", "warn");
+                            return;
+                        }
+                        await doSubmitWeek();
+                    },
+                });
+                return;
+            }
+            // 4) 주간이면 제출
+            await doSubmitWeek();
         }
         catch (e) {
             console.error(e);
-            alert("서버 오류로 제출에 실패했습니다.");
+            await niceAlert("오류", "서버 오류로 제출에 실패했습니다.", "warn");
         }
     };
-    // 초기엔 “이번주 기준”으로 보이게 + 제출버튼 조건 반영
+    // 초기 반영
     updateSubmitEnabled();
 }
 
@@ -5305,22 +5483,39 @@ const ModalUtil = {
         const div = document.createElement("div");
         div.id = "globalSimpleModal";
         div.className =
-            "hidden fixed inset-0 z-[9999] flex items-center justify-center bg-black/50";
+            "hidden fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 px-4";
         div.innerHTML = `
-      <div id="modalBox" class="bg-white w-[360px] rounded-2xl p-6 shadow-xl text-center">
+      <div id="modalBox" class="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl text-center border border-gray-200">
         <div id="modalIcon" class="text-5xl mb-4 select-none"></div>
-        <h2 id="modalTitle" class="text-xl font-bold mb-2"></h2>
-        <p id="modalMessage" class="text-sm text-gray-700 mb-6"></p>
-        <div id="modalBtns" class="flex justify-center gap-2">
+        <h2 id="modalTitle" class="text-lg font-extrabold mb-2"></h2>
+        <div id="modalMessage" class="text-sm text-gray-600 mb-6 leading-relaxed"></div>
+        <div id="modalBtns" class="flex justify-center gap-3">
           <button id="modalCancelBtn"
-            class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 hidden">취소</button>
+            class="px-5 py-2.5 rounded-full border border-gray-300 text-gray-700 font-bold hover:bg-gray-50 hidden">
+            취소
+          </button>
           <button id="modalOkBtn"
-            class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 hidden">확인</button>
+            class="px-5 py-2.5 rounded-full bg-blue-600 text-white font-extrabold hover:bg-blue-700 hidden">
+            확인
+          </button>
         </div>
       </div>
     `;
         document.body.appendChild(div);
         this.el = div;
+        // ✅ ESC로 닫기 (alert/warn 모두 적용)
+        window.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") {
+                const root = this.ensureElement();
+                if (!root.classList.contains("hidden"))
+                    this.hide();
+            }
+        });
+        // ✅ 바깥 클릭 닫기(원치 않으면 아래 블록 주석)
+        div.addEventListener("click", (e) => {
+            if (e.target === div)
+                this.hide();
+        });
         return div;
     },
     setStyle(type) {
@@ -5330,20 +5525,25 @@ const ModalUtil = {
         if (type === "alert") {
             iconEl.textContent = "ℹ️";
             iconEl.className = "text-5xl text-blue-600 mb-4";
-            titleEl.className = "text-xl font-bold mb-2 text-blue-700";
+            titleEl.className = "text-lg font-extrabold mb-2 text-blue-700";
         }
         else {
             iconEl.textContent = "⚠️";
             iconEl.className = "text-5xl text-yellow-500 mb-4";
-            titleEl.className = "text-xl font-bold mb-2 text-yellow-700";
+            titleEl.className = "text-lg font-extrabold mb-2 text-yellow-700";
         }
     },
     /**
-     * ✨ 단일 모달 호출
-     * - alert → 아무 값 없음
-     * - warn → boolean 반환
+     * ✨ 단일 모달 호출 (디자인 통일 확장 버전)
+     * - alert → void
+     * - warn  → boolean
+     *
+     * ✅ 추가 기능
+     * - messageHtml: 줄바꿈/강조용 HTML 허용
+     * - okText/cancelText: 버튼 문구 커스텀
+     * - okClass/cancelClass: 버튼 색상 커스텀
      */
-    async show({ type = "alert", title = "알림", message = "", showOk = true, showCancel = false, }) {
+    async show({ type = "alert", title = "알림", message = "", messageHtml, showOk = true, showCancel = false, okText = "확인", cancelText = "취소", okClass = "bg-blue-600 hover:bg-blue-700", cancelClass = "border border-gray-300 text-gray-700 hover:bg-gray-50", }) {
         const el = this.ensureElement();
         const titleEl = el.querySelector("#modalTitle");
         const msgEl = el.querySelector("#modalMessage");
@@ -5353,10 +5553,22 @@ const ModalUtil = {
         this.setStyle(type);
         // 내용
         titleEl.textContent = title;
-        msgEl.textContent = message;
+        // ✅ HTML/텍스트 둘 다 지원
+        if (messageHtml && String(messageHtml).trim()) {
+            msgEl.innerHTML = messageHtml;
+        }
+        else {
+            msgEl.textContent = message;
+        }
         // 버튼 표시 여부
         okBtn.classList.toggle("hidden", !showOk);
         cancelBtn.classList.toggle("hidden", !showCancel);
+        // ✅ 버튼 텍스트
+        okBtn.textContent = okText;
+        cancelBtn.textContent = cancelText;
+        // ✅ 버튼 스타일(통일)
+        okBtn.className = `px-5 py-2.5 rounded-full text-white font-extrabold ${okClass} ${showOk ? "" : "hidden"}`;
+        cancelBtn.className = `px-5 py-2.5 rounded-full font-bold ${cancelClass} ${showCancel ? "" : "hidden"}`;
         // 표시
         el.classList.remove("hidden");
         // -----------------------
@@ -5365,11 +5577,20 @@ const ModalUtil = {
         if (type === "alert") {
             return new Promise((resolve) => {
                 const close = () => {
+                    cleanup();
                     this.hide();
-                    okBtn.removeEventListener("click", close);
                     resolve();
                 };
+                const cleanup = () => {
+                    okBtn.removeEventListener("click", close);
+                    window.removeEventListener("keydown", onKey);
+                };
+                const onKey = (e) => {
+                    if (e.key === "Enter")
+                        close();
+                };
                 okBtn.addEventListener("click", close);
+                window.addEventListener("keydown", onKey);
             });
         }
         // -----------------------
@@ -5386,12 +5607,20 @@ const ModalUtil = {
                 this.hide();
                 resolve(false);
             };
+            const onKey = (e) => {
+                if (e.key === "Enter")
+                    onOk();
+                if (e.key === "Escape")
+                    onCancel();
+            };
             const cleanup = () => {
                 okBtn.removeEventListener("click", onOk);
                 cancelBtn.removeEventListener("click", onCancel);
+                window.removeEventListener("keydown", onKey);
             };
             okBtn.addEventListener("click", onOk);
             cancelBtn.addEventListener("click", onCancel);
+            window.addEventListener("keydown", onKey);
         });
     },
     hide() {

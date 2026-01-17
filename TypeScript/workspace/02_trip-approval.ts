@@ -234,17 +234,20 @@ export function initTripApprovalPanel(_panelId: string) {
   if ((searchBtn as any)._bound) return;
   (searchBtn as any)._bound = true;
 
-  // 기본 조회기간: 이번 주(월~일)
+  // 기본 조회 기간: 전주(월~일)  ✅ 제출 기준이 전주라서
   const today = new Date();
   const day = (today.getDay() + 6) % 7; // 월=0
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - day);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
+  const thisMon = new Date(today);
+  thisMon.setDate(today.getDate() - day); // 이번주 월요일
 
-  fromInput.value = monday.toISOString().slice(0, 10);
-  toInput.value = sunday.toISOString().slice(0, 10);
+  const prevMon = new Date(thisMon);
+  prevMon.setDate(thisMon.getDate() - 7); // ✅ 전주 월요일
 
+  const prevSun = new Date(prevMon);
+  prevSun.setDate(prevMon.getDate() + 6); // ✅ 전주 일요일
+
+  fromInput.value = prevMon.toISOString().slice(0, 10);
+  toInput.value = prevSun.toISOString().slice(0, 10);
   // ✅ 제출 이벤트가 오면 관리자 화면 자동 갱신(새로고침 X)
   function triggerAdminRefresh() {
     (document.getElementById("appr_search") as HTMLButtonElement | null)?.click();
