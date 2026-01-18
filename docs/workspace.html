@@ -922,8 +922,18 @@
                         </div>
 
                         <!-- 결과 + 버튼 -->
-                        <div class="pt-2 flex items-center gap-2">
-                            <div id="bt_result" class="flex-1 text-[11px] text-gray-500 min-h-[16px]"></div>
+                        <div class="pt-2 flex items-center gap-2 flex-wrap md:flex-nowrap
+            md:static sticky bottom-2 bg-white/90 backdrop-blur
+            rounded-xl p-2 border border-gray-100">
+                            <div class="flex-1 min-w-[180px]">
+                                <div id="bt_result" class="text-[11px] text-gray-500 min-h-[16px]"></div>
+                                <div id="bt_dirty_badge" class="text-[11px] mt-1 hidden">
+                                    <span
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                                        ● 저장되지 않음
+                                    </span>
+                                </div>
+                            </div>
 
                             <button id="bt_reset"
                                 class="px-3 py-2 rounded-xl border border-gray-300 bg-white text-[11px] font-semibold hover:bg-gray-50 active:bg-gray-100">

@@ -121,6 +121,9 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
   const resetBtn = getEl<HTMLButtonElement>("bt_reset");
   const resultBox = getEl<HTMLDivElement>("bt_result");
 
+  // ✅ (추가) 변경 감지 배지
+  const dirtyBadge = document.getElementById("bt_dirty_badge") as HTMLDivElement | null;
+
   const workEndInput = getEl<HTMLInputElement>("bt_work_end_time");
   const returnTimeInput = getEl<HTMLInputElement>("bt_return_time");
 
@@ -148,6 +151,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     const isOther = returnPlaceSelect.value === "other";
     returnPlaceOther.classList.toggle("hidden", !isOther);
     if (!isOther) returnPlaceOther.value = "";
+    markDirty();
   });
 
   // ✅ 체크 안 한 식사는 owner="none"
@@ -155,6 +159,86 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     if (!checked) return { checked: false, owner: "none" };
     return { checked: true, owner: owner || "personal" };
   };
+
+  // ===========================
+  // ✅ (추가) 변경 감지(Dirty) + 새로고침 경고
+  // ===========================
+  let snapshot = "";
+  let isDirty = false;
+
+  function setDirtyUI(v: boolean) {
+    isDirty = v;
+    if (dirtyBadge) dirtyBadge.classList.toggle("hidden", !v);
+  }
+
+  function collectFormSnapshot(): string {
+    try {
+      const vehicleValueRaw = getCheckedRadioValue("bt_vehicle");
+      const vehicleValue = toVehicleCode(vehicleValueRaw);
+
+      const return_place =
+        returnPlaceSelect.value === "other"
+          ? (returnPlaceOther?.value ?? "").trim()
+          : returnPlaceSelect.value;
+
+      const b = normalizeMeal(mealBreakfastCheck.checked, mealBreakfastOwner.value);
+      const l = normalizeMeal(mealLunchCheck.checked, mealLunchOwner.value);
+      const d = normalizeMeal(mealDinnerCheck.checked, mealDinnerOwner.value);
+
+      const payload: SettlementFormPayload = {
+        work_end_time: workEndInput.value,
+        return_time: returnTimeInput.value,
+        return_place,
+        vehicle: vehicleValue,
+        meals: { breakfast: b, lunch: l, dinner: d },
+      };
+
+      return JSON.stringify(payload);
+    } catch {
+      return "";
+    }
+  }
+
+  function applySnapshotNow() {
+    snapshot = collectFormSnapshot();
+    setDirtyUI(false);
+  }
+
+  function markDirty() {
+    const now = collectFormSnapshot();
+    setDirtyUI(now !== snapshot);
+  }
+
+  // ✅ 입력 변화 감지(최소 침습)
+  const bindDirty = (el: HTMLElement | null) => {
+    if (!el) return;
+    el.addEventListener("input", markDirty);
+    el.addEventListener("change", markDirty);
+  };
+
+  [
+    workEndInput,
+    returnTimeInput,
+    returnPlaceSelect,
+    returnPlaceOther,
+    mealBreakfastCheck,
+    mealLunchCheck,
+    mealDinnerCheck,
+    mealBreakfastOwner,
+    mealLunchOwner,
+    mealDinnerOwner,
+  ].forEach((x) => bindDirty(x as any));
+
+  document.querySelectorAll<HTMLInputElement>(`input[name="bt_vehicle"]`).forEach((r) => {
+    r.addEventListener("change", markDirty);
+  });
+
+  // ✅ 새로고침/탭닫기 경고
+  window.addEventListener("beforeunload", (e) => {
+    if (!isDirty) return;
+    e.preventDefault();
+    (e as any).returnValue = "";
+  });
 
   // ✅ 정산 대상(요청자/날짜) 읽기: URL 파라미터에서만
   function readSettleTarget(): { req_name: string; trip_date: string } {
@@ -213,9 +297,26 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
   restoreTargetIfMissing().then(() => {
     // 복원 이후에도 계정 불일치면 바로 제거
     validateTargetOrClear();
+    // ✅ 최초 스냅샷 기준점 잡기
+    applySnapshotNow();
   });
 
-  resetBtn.addEventListener("click", () => {
+  resetBtn.addEventListener("click", async () => {
+    if (isDirty) {
+      const ok = await ModalUtil.show({
+        type: "warn",
+        title: "초기화 확인",
+        messageHtml: "저장되지 않은 변경사항이 있습니다.<br/>정산 입력값을 초기화할까요?",
+        showOk: true,
+        showCancel: true,
+        okText: "초기화",
+        cancelText: "취소",
+        okClass: "bg-rose-600 hover:bg-rose-700",
+        cancelClass: "border border-gray-300 text-gray-700 hover:bg-gray-50",
+      });
+      if (ok !== true) return;
+    }
+
     workEndInput.value = "";
     returnTimeInput.value = "";
 
@@ -236,6 +337,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     mealDinnerOwner.value = "";
 
     resultBox.textContent = "정산 입력값이 초기화되었습니다.";
+    applySnapshotNow();
   });
 
   saveBtn.addEventListener("click", async () => {
@@ -390,6 +492,9 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
 
       // 대시보드 갱신
       window.dispatchEvent(new Event("trip-status-refresh"));
+
+      // ✅ 저장 성공 기준으로 dirty 해제
+      applySnapshotNow();
     } catch (err: any) {
       console.error("[정산] 저장 중 오류:", err);
       resultBox.textContent = `❌ 정산 저장 중 오류: ${err?.message ?? "알 수 없는 오류"}`;
