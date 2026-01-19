@@ -104,6 +104,35 @@ function clearQueryParams(keys: string[]) {
     // ignore
   }
 }
+// ✅ 날짜 표시 유틸: 어떤 값이 와도 YYYY-MM-DD로 고정
+function toYmd(v: any): string {
+  if (!v) return "";
+  const s = String(v).trim();
+
+  // 이미 YYYY-MM-DD 형태면 그대로
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+
+  // Date/ISO 등은 ISO로 바꾼 뒤 앞 10자리만
+  try {
+    const iso = new Date(v).toISOString();
+    return iso.slice(0, 10);
+  } catch {
+    return "";
+  }
+}
+
+// ✅ YYYY-MM-DD → (월/화/...) KST 기준 요일
+function ymdToKoreanDow(ymd: string): string {
+  const [y, m, d] = String(ymd).split("-").map((x) => Number(x));
+  if (!y || !m || !d) return "";
+
+  // UTC로 만들고 +9h 해서 KST 요일 계산
+  const dt = new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
+  const kst = new Date(dt.getTime() + 9 * 60 * 60 * 1000);
+  const dow = ["일", "월", "화", "수", "목", "금", "토"][kst.getUTCDay()];
+  return dow ? `(${dow})` : "";
+}
 
 export function initDomesticTripSettlementPanel(API_BASE: string) {
   console.log("[정산] initDomesticTripSettlementPanel 호출");
@@ -209,6 +238,31 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     setDirtyUI(now !== snapshot);
   }
 
+  // ✅✅✅ (추가) 폼 완전 초기화 (이전 데이터 잔존 방지)
+  function clearForm(msg?: string) {
+    workEndInput.value = "";
+    returnTimeInput.value = "";
+
+    returnPlaceSelect.value = "";
+    if (returnPlaceOther) {
+      returnPlaceOther.value = "";
+      returnPlaceOther.classList.add("hidden");
+    }
+
+    document.querySelectorAll<HTMLInputElement>(`input[name="bt_vehicle"]`).forEach((r) => (r.checked = false));
+
+    mealBreakfastCheck.checked = false;
+    mealLunchCheck.checked = false;
+    mealDinnerCheck.checked = false;
+
+    mealBreakfastOwner.value = "";
+    mealLunchOwner.value = "";
+    mealDinnerOwner.value = "";
+
+    resultBox.textContent = msg ?? "";
+    applySnapshotNow(); // dirty 해제
+  }
+
   // ✅ 입력 변화 감지(최소 침습)
   const bindDirty = (el: HTMLElement | null) => {
     if (!el) return;
@@ -262,22 +316,35 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     return { ok: true, req_name, trip_date };
   }
 
+  // ✅✅✅ (추가) 타겟이 바뀌면 폼을 무조건 비움 (이전 값 잔존 방지)
+  let lastTargetKey = "";
+  function syncTargetAndClearIfChanged() {
+    const t = validateTargetOrClear();
+    const key = `${t.req_name}|${t.trip_date}`;
+    if (!t.req_name || !t.trip_date) {
+      lastTargetKey = "";
+      // 타겟이 없으면 화면 잔존값도 지우는 게 안전
+      clearForm("");
+      return;
+    }
+    if (lastTargetKey && key !== lastTargetKey) {
+      clearForm("✅ 이전 정산 입력값을 초기화했습니다.");
+    }
+    lastTargetKey = key;
+  }
+
   /**
-   * ✅✅✅ (추가) URL 파라미터가 없을 때 "진행중 정산" 1건을 서버에서 다시 찾아 자동 세팅
-   * - 08에서 이미 해주지만, 09에서 한번 더 안전장치로 보강
-   * - 조건: settlement_in_progress=true 인 건만 복원됨
+   * ✅ URL 파라미터가 없을 때 "진행중 정산" 1건을 서버에서 다시 찾아 자동 세팅
    */
   async function restoreTargetIfMissing() {
     const me = currentUserName();
     if (!me) return;
 
     const now = readSettleTarget();
-    if (now.req_name && now.trip_date) return; // 이미 있으면 끝
+    if (now.req_name && now.trip_date) return;
 
     try {
-      const r = await fetch(
-        `${API_BASE}/api/business-trip/settlement/in-progress?req_name=${encodeURIComponent(me)}`
-      );
+      const r = await fetch(`${API_BASE}/api/business-trip/settlement/in-progress?req_name=${encodeURIComponent(me)}`);
       if (!r.ok) return;
 
       const j = await r.json().catch(() => null);
@@ -295,11 +362,17 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
 
   // ✅ 초기 1회: 혹시 URL이 비어있으면 진행중 복원 시도
   restoreTargetIfMissing().then(() => {
-    // 복원 이후에도 계정 불일치면 바로 제거
-    validateTargetOrClear();
-    // ✅ 최초 스냅샷 기준점 잡기
+    // ✅ 타겟 확정 + 변경 시 폼 초기화
+    syncTargetAndClearIfChanged();
+    // ✅ 최초 스냅샷 기준점
     applySnapshotNow();
   });
+
+  // ✅ (선택) URL이 바뀌는 SPA 환경 대응: 뒤로가기/해시 변경 시에도 타겟 동기화
+  window.addEventListener("hashchange", () => syncTargetAndClearIfChanged());
+  window.addEventListener("popstate", () => syncTargetAndClearIfChanged());
+
+
 
   resetBtn.addEventListener("click", async () => {
     if (isDirty) {
@@ -317,35 +390,17 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
       if (ok !== true) return;
     }
 
-    workEndInput.value = "";
-    returnTimeInput.value = "";
-
-    returnPlaceSelect.value = "";
-    if (returnPlaceOther) {
-      returnPlaceOther.value = "";
-      returnPlaceOther.classList.add("hidden");
-    }
-
-    document.querySelectorAll<HTMLInputElement>(`input[name="bt_vehicle"]`).forEach((r) => (r.checked = false));
-
-    mealBreakfastCheck.checked = false;
-    mealLunchCheck.checked = false;
-    mealDinnerCheck.checked = false;
-
-    mealBreakfastOwner.value = "";
-    mealLunchOwner.value = "";
-    mealDinnerOwner.value = "";
-
-    resultBox.textContent = "정산 입력값이 초기화되었습니다.";
-    applySnapshotNow();
+    clearForm("정산 입력값이 초기화되었습니다.");
   });
 
   saveBtn.addEventListener("click", async () => {
     const vehicleValueRaw = getCheckedRadioValue("bt_vehicle");
     const vehicleValue = toVehicleCode(vehicleValueRaw);
 
-    // ✅ 혹시 저장 순간에도 URL이 비어있으면 한번 더 복원 시도 후 검증
+    // ✅ 저장 순간에도 URL이 비어있으면 한번 더 복원 시도 후 검증
     await restoreTargetIfMissing();
+    syncTargetAndClearIfChanged(); // ✅ 타겟 동기화(혹시 변경됐으면 초기화)
+
     const t = validateTargetOrClear();
     const trip_date = t.trip_date;
     const req_name = t.req_name;
@@ -383,11 +438,8 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
       return;
     }
 
-    // ✅ 회사/자택은 company/home 그대로 보내고, 기타만 텍스트로 보냄
     const return_place =
-      returnPlaceSelect.value === "other"
-        ? (returnPlaceOther?.value ?? "").trim()
-        : returnPlaceSelect.value; // company | home
+      returnPlaceSelect.value === "other" ? (returnPlaceOther?.value ?? "").trim() : returnPlaceSelect.value;
 
     if (!return_place) {
       await ModalUtil.show({
@@ -440,7 +492,6 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
       saveBtn.disabled = true;
       resultBox.textContent = "정산 내용 저장 중...";
 
-      // ✅ 정산 저장(서버 계산/검증은 여기서 1회 더 수행됨)
       const res = await fetch(`${API_BASE}/api/business-trip/settlement`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -463,7 +514,6 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
       const data = await res.json().catch(() => null);
       console.log("[정산] 응답 data =", data);
 
-      // (선택) 개인차량인데 km=0이면 안내
       const fuelKm = data?.data?.calc?.fuel_distance_km ?? 0;
       if (vehicleValue === "personal" && Number(fuelKm) === 0) {
         await ModalUtil.show({
@@ -486,15 +536,12 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
         showCancel: false,
       });
 
-      // ✅✅✅ 정산 완료 후: URL 파라미터 제거 + 등록 화면에 '정산완료' 신호
       clearQueryParams(["req_name", "trip_date"]);
       window.dispatchEvent(new Event("domestic-trip-settled"));
-
-      // 대시보드 갱신
       window.dispatchEvent(new Event("trip-status-refresh"));
 
-      // ✅ 저장 성공 기준으로 dirty 해제
       applySnapshotNow();
+      lastTargetKey = ""; // ✅ 타겟 제거했으니 키도 초기화
     } catch (err: any) {
       console.error("[정산] 저장 중 오류:", err);
       resultBox.textContent = `❌ 정산 저장 중 오류: ${err?.message ?? "알 수 없는 오류"}`;
@@ -510,6 +557,25 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     }
   });
 
+  // ✅✅✅ (추가) SPA 패널 전환 대응: 정산 섹션이 "보이는 순간" 타겟 점검 + 타겟 없으면 clearForm()
+  // - 너의 화면은 hidden 토글 방식이라 hashchange가 안 나서 값이 남았던 것
+  const mo = new MutationObserver(() => {
+    const isHidden = section.classList.contains("hidden");
+    if (!isHidden) {
+      // 섹션이 보이는 순간마다: 타겟 동기화 + 없으면 폼 초기화
+      syncTargetAndClearIfChanged();
+      // 타겟이 있더라도, 여기서 snapshot 기준점 다시 잡아줘야 "dirty"가 이상하게 안 뜸
+      applySnapshotNow();
+    }
+  });
+  mo.observe(section, { attributes: true, attributeFilter: ["class"] });
+
+  // ✅ 섹션이 이미 보이는 상태로 init 되었을 수도 있으니 1회 보정
+  if (!section.classList.contains("hidden")) {
+    syncTargetAndClearIfChanged();
+    applySnapshotNow();
+  }
+
   // ✅ 섹션이 열려있는 상태에서 다른 계정으로 로그인하거나 URL 파라미터가 꼬이면 즉시 제거
-  validateTargetOrClear();
+  syncTargetAndClearIfChanged();
 }

@@ -39,37 +39,73 @@ function getEl<T extends HTMLElement>(id: string): T {
   return el as T;
 }
 
-/** ISO 날짜/문자열 → YYYY-MM-DD */
+/* =========================
+   ✅ KST 날짜 유틸 (UTC 밀림 방지)
+========================= */
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/** 어떤 ms(UTC epoch)든 KST 기준 YYYY-MM-DD */
+function ymdFromMsKST(ms: number): string {
+  return new Date(ms + KST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** YYYY-MM-DD → "KST 자정"의 epoch(ms) */
+function parseYMDToMsKST(ymd: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd ?? "").trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  // Date.UTC(y, mo-1, d) 는 "UTC 자정". KST 자정은 UTC로 -9시간.
+  return Date.UTC(y, mo - 1, d) - KST_OFFSET_MS;
+}
+
+/** 지금(브라우저 위치가 어디든) KST 기준 오늘 YYYY-MM-DD */
+function todayYMDKST(): string {
+  return ymdFromMsKST(Date.now());
+}
+
+/** ISO 날짜/문자열 → YYYY-MM-DD (KST UX 우선) */
 function formatDateLabel(value: string | null | undefined): string {
   if (!value) return "";
-  if (value.length >= 10) return value.slice(0, 10);
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return value;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const s = String(value).trim();
+  if (s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+
+  // "2026-01-19T..." 같은 경우도 KST 기준 날짜로
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  return ymdFromMsKST(d.getTime());
 }
 
 const DOW_KR = ["일", "월", "화", "수", "목", "금", "토"] as const;
 function formatDateWithDow(value: string): string {
   const ymd = formatDateLabel(value);
-  const d = new Date(ymd);
-  if (Number.isNaN(d.getTime())) return ymd;
-  return `${ymd}(${DOW_KR[d.getDay()]})`;
+  const ms = parseYMDToMsKST(ymd);
+  if (ms == null) return ymd;
+
+  // KST 기준 요일: (ms+9h) 를 UTC로 보고 getUTCDay
+  const dow = new Date(ms + KST_OFFSET_MS).getUTCDay();
+  return `${ymd}(${DOW_KR[dow]})`;
 }
 
-/** 특정 날짜가 속한 주(월~일) */
+/** 특정 날짜가 속한 주(월~일) - KST 기준 */
 function getWeekRange(dateStr: string): { start: string; end: string } {
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) {
-    return { start: formatDateLabel(dateStr), end: formatDateLabel(dateStr) };
-  }
-  const day = (d.getDay() + 6) % 7; // 월=0
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - day);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
+  const ymd = formatDateLabel(dateStr);
+  const ms = parseYMDToMsKST(ymd);
+
+  if (ms == null) return { start: ymd, end: ymd };
+
+  const dow = new Date(ms + KST_OFFSET_MS).getUTCDay(); // 0=일..6=토 (KST 기준)
+  const day = (dow + 6) % 7; // 월=0
+  const mondayMs = ms - day * DAY_MS;
+  const sundayMs = mondayMs + 6 * DAY_MS;
+
   return {
-    start: monday.toISOString().slice(0, 10),
-    end: sunday.toISOString().slice(0, 10),
+    start: ymdFromMsKST(mondayMs),
+    end: ymdFromMsKST(sundayMs),
   };
 }
 
@@ -191,21 +227,19 @@ function buildWork3LinesForAdmin(reg: any, set: any) {
   const workEnd = set?.work_end_time || "-";
 
   const departLine =
-    (departStart !== "-" && arriveTime !== "-")
+    departStart !== "-" && arriveTime !== "-"
       ? `출발 (출발시간 ${departStart} ~ 도착시간 ${arriveTime})`
       : "출발 (-)";
 
   const returnLine =
-    (returnStart !== "-" && returnArrive !== "-")
+    returnStart !== "-" && returnArrive !== "-"
       ? `복귀 (출발시간 ${returnStart} ~ 도착시간 ${returnArrive})`
       : "복귀 (-)";
 
-  const workMins = (workStart !== "-" && workEnd !== "-") ? calcWorkMinutes(workStart, workEnd) : null;
+  const workMins = workStart !== "-" && workEnd !== "-" ? calcWorkMinutes(workStart, workEnd) : null;
 
   const workLine =
-    (workMins != null)
-      ? `업무시간 ${workStart} ~ ${workEnd} (총 ${formatDuration(workMins)})`
-      : "업무시간 -";
+    workMins != null ? `업무시간 ${workStart} ~ ${workEnd} (총 ${formatDuration(workMins)})` : "업무시간 -";
 
   return { departLine, returnLine, workLine, workEnd, workMins };
 }
@@ -222,6 +256,105 @@ function statusBadgeClass(s: "pending" | "approved" | "rejected") {
   return "text-indigo-700 bg-indigo-50 border-indigo-200";
 }
 
+/* =========================
+   ✅ 조회기간 프리셋 버튼(HTML 수정 없이 JS로 삽입)
+========================= */
+
+function injectRangeButtons(fromInput: HTMLInputElement, toInput: HTMLInputElement, searchBtn: HTMLButtonElement) {
+  const wrap = fromInput.parentElement;
+  if (!wrap) return;
+
+  // ✅ 이미 붙었으면 중복 생성 방지
+  if ((wrap as any)._rangeBtnsInjected) return;
+  (wrap as any)._rangeBtnsInjected = true;
+
+  const row = document.createElement("div");
+  row.className = "mt-2 flex flex-wrap gap-1.5";
+
+  const mkBtn = (label: string, onClick: () => void) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.className =
+      "px-2 py-1 rounded-lg border text-[11px] bg-white hover:bg-gray-50 active:scale-[0.99] " +
+      "border-gray-200 text-gray-700";
+    b.addEventListener("click", () => {
+      onClick();
+      // ✅ UX: 눌렀으면 바로 조회
+      searchBtn.click();
+    });
+    return b;
+  };
+
+  const setToday = () => {
+    const ymd = todayYMDKST();
+    fromInput.value = ymd;
+    toInput.value = ymd;
+  };
+
+  const setThisWeek = () => {
+    const { start, end } = getWeekRange(todayYMDKST());
+    fromInput.value = start;
+    toInput.value = end;
+  };
+
+  const setLastWeek = () => {
+    const { start } = getWeekRange(todayYMDKST());
+    const startMs = parseYMDToMsKST(start);
+    if (startMs == null) return;
+
+    const lastMonMs = startMs - 7 * DAY_MS;
+    const lastSunMs = lastMonMs + 6 * DAY_MS;
+    fromInput.value = ymdFromMsKST(lastMonMs);
+    toInput.value = ymdFromMsKST(lastSunMs);
+  };
+
+  const setThisMonth = () => {
+    const today = todayYMDKST();
+    const ms = parseYMDToMsKST(today);
+    if (ms == null) return;
+
+    const k = new Date(ms + KST_OFFSET_MS); // KST 기준 날짜를 UTC로 다룸
+    const y = k.getUTCFullYear();
+    const m = k.getUTCMonth() + 1;
+
+    const firstMs = Date.UTC(y, m - 1, 1) - KST_OFFSET_MS;
+    const lastMs = Date.UTC(y, m, 0) - KST_OFFSET_MS;
+
+    fromInput.value = ymdFromMsKST(firstMs);
+    toInput.value = ymdFromMsKST(lastMs);
+  };
+
+  const setLastMonth = () => {
+    const today = todayYMDKST();
+    const ms = parseYMDToMsKST(today);
+    if (ms == null) return;
+
+    const k = new Date(ms + KST_OFFSET_MS);
+    let y = k.getUTCFullYear();
+    let m = k.getUTCMonth() + 1; // 1~12
+    m -= 1;
+    if (m <= 0) {
+      m = 12;
+      y -= 1;
+    }
+
+    const firstMs = Date.UTC(y, m - 1, 1) - KST_OFFSET_MS;
+    const lastMs = Date.UTC(y, m, 0) - KST_OFFSET_MS;
+
+    fromInput.value = ymdFromMsKST(firstMs);
+    toInput.value = ymdFromMsKST(lastMs);
+  };
+
+  row.appendChild(mkBtn("오늘(KST)", setToday));
+  row.appendChild(mkBtn("이번주", setThisWeek));
+  row.appendChild(mkBtn("전주", setLastWeek));
+  row.appendChild(mkBtn("이번달", setThisMonth));
+  row.appendChild(mkBtn("지난달", setLastMonth));
+
+  wrap.appendChild(row);
+}
+
 export function initTripApprovalPanel(_panelId: string) {
   const fromInput = getEl<HTMLInputElement>("appr_from");
   const toInput = getEl<HTMLInputElement>("appr_to");
@@ -234,20 +367,22 @@ export function initTripApprovalPanel(_panelId: string) {
   if ((searchBtn as any)._bound) return;
   (searchBtn as any)._bound = true;
 
+  // ✅ 조회기간 버튼 삽입 (HTML 수정 없이)
+  injectRangeButtons(fromInput, toInput, searchBtn);
+
   // 기본 조회 기간: 전주(월~일)  ✅ 제출 기준이 전주라서
-  const today = new Date();
-  const day = (today.getDay() + 6) % 7; // 월=0
-  const thisMon = new Date(today);
-  thisMon.setDate(today.getDate() - day); // 이번주 월요일
+  // (KST 기준으로 계산)
+  {
+    const { start } = getWeekRange(todayYMDKST()); // 이번주 월요일
+    const thisMonMs = parseYMDToMsKST(start);
+    if (thisMonMs != null) {
+      const prevMonMs = thisMonMs - 7 * DAY_MS;
+      const prevSunMs = prevMonMs + 6 * DAY_MS;
+      fromInput.value = ymdFromMsKST(prevMonMs);
+      toInput.value = ymdFromMsKST(prevSunMs);
+    }
+  }
 
-  const prevMon = new Date(thisMon);
-  prevMon.setDate(thisMon.getDate() - 7); // ✅ 전주 월요일
-
-  const prevSun = new Date(prevMon);
-  prevSun.setDate(prevMon.getDate() + 6); // ✅ 전주 일요일
-
-  fromInput.value = prevMon.toISOString().slice(0, 10);
-  toInput.value = prevSun.toISOString().slice(0, 10);
   // ✅ 제출 이벤트가 오면 관리자 화면 자동 갱신(새로고침 X)
   function triggerAdminRefresh() {
     (document.getElementById("appr_search") as HTMLButtonElement | null)?.click();
@@ -260,7 +395,7 @@ export function initTripApprovalPanel(_panelId: string) {
     bc.onmessage = (ev) => {
       if (ev?.data?.type === "trip:submitted") triggerAdminRefresh();
     };
-  } catch { }
+  } catch {}
 
   window.addEventListener("storage", (e) => {
     if (e.key === "trip:submitted") triggerAdminRefresh();
@@ -349,11 +484,13 @@ export function initTripApprovalPanel(_panelId: string) {
         tdCount.textContent = String(g.rows.length);
         tr.appendChild(tdCount);
 
-        // ✅ 상태 컬럼 추가
+        // ✅ 상태 컬럼
         const tdStatus = document.createElement("td");
         tdStatus.className = "border px-2 py-1 text-center";
         tdStatus.innerHTML = `
-          <span class="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] border ${statusBadgeClass(g.weekStatus)}">
+          <span class="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] border ${statusBadgeClass(
+            g.weekStatus
+          )}">
             ${statusLabel(g.weekStatus)}
           </span>
         `;
@@ -487,8 +624,9 @@ function openWeeklyDetailModal(group: WeeklyGroup) {
   modal.classList.add("flex");
 
   getEl<HTMLDivElement>("appr_d_name").textContent = group.req_name;
-  getEl<HTMLDivElement>("appr_d_date").textContent =
-    `${formatDateWithDow(group.weekStart)} ~ ${formatDateWithDow(group.weekEnd)}`;
+  getEl<HTMLDivElement>("appr_d_date").textContent = `${formatDateWithDow(group.weekStart)} ~ ${formatDateWithDow(
+    group.weekEnd
+  )}`;
 
   const tbody = getEl<HTMLTableSectionElement>("appr_detail_tbody");
   tbody.innerHTML = "";
@@ -532,12 +670,13 @@ function openWeeklyDetailModal(group: WeeklyGroup) {
     const endMin = parseHHMMToMinutes(w.workEnd);
 
     // 자정 이후 종료(00:00~08:30)도 잔업 처리
-    const isAfter2030 = endMin != null && endMin > (20 * 60 + 30);
-    const isMidnightTo0830 = endMin != null && endMin >= 0 && endMin <= (8 * 60 + 30);
+    const isAfter2030 = endMin != null && endMin > 20 * 60 + 30;
+    const isMidnightTo0830 = endMin != null && endMin >= 0 && endMin <= 8 * 60 + 30;
 
     if (isAfter2030 || isMidnightTo0830) {
       overtimeDates.push(formatDateLabel(row.trip_date));
     }
+
     const workTimeHtml = `
       <div class="text-gray-700">${w.departLine}</div>
       <div class="text-gray-700">${w.returnLine}</div>
@@ -548,7 +687,7 @@ function openWeeklyDetailModal(group: WeeklyGroup) {
 
     const tr = document.createElement("tr");
 
-    tr.appendChild(td(formatDateWithDow(row.trip_date)));          // ✅ 요일 포함
+    tr.appendChild(td(formatDateWithDow(row.trip_date))); // ✅ 요일 포함
     tr.appendChild(td(placeLabel(reg.depart_place ?? "")));
     tr.appendChild(td(reg.destination ?? ""));
     tr.appendChild(tdHTML(workTimeHtml));

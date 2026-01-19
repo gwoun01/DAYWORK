@@ -1,6 +1,5 @@
 // 05_business-master.ts
 
-
 type BusinessConfig = {
   fuel_price_gasoline: number | null;
   fuel_price_diesel: number | null;
@@ -10,7 +9,7 @@ type BusinessConfig = {
   exchange_rate_jpy: number | null;
   exchange_rate_cny: number | null;
 
-  duty_members_text: string; // ✅ 여기 안에 JSON 문자열로 저장 (startIndex, lastYm, lastAssigns 등)
+  duty_members_text: string;
   notice: string;
 };
 
@@ -21,48 +20,38 @@ type DistanceRow = {
   distance_km: number | null;
 };
 
-type DutyMember = {
-  no: number;
-  name: string;
-};
-
-type DutyAssign = {
-  date: string; // YYYY-MM-DD
-  name: string;
-};
+type DutyMember = { no: number; name: string };
+type DutyAssign = { date: string; name: string };
 
 type HolidayItem = {
-  date: string; // YYYY-MM-DD
-  dow: string; // 요일(일~토)
+  date: string;
+  dow: string;
   type: "주말" | "공휴일";
   holidayName?: string;
 };
 
-// ✅ 휴가 타입/아이템
 type VacationItem = {
   id: number;
   user_no: number | null;
   user_name: string;
   vac_type: "annual" | "half" | "etc";
-  start_date: string; // YYYY-MM-DD
-  end_date: string; // YYYY-MM-DD
+  start_date: string;
+  end_date: string;
   note?: string;
   created_at: string;
 };
 
-// ✅✅✅ 일정(캘린더 이벤트) 타입
 type CalendarEventItem = {
   id: number;
-  date: string;       // YYYY-MM-DD
-  title: string;      // 예: "장비검수"
-  created_at: string; // ISO
+  date: string;
+  title: string;
+  created_at: string;
   created_by?: number | null;
 };
 
 // ======================
 // 유틸
 // ======================
-
 function parseNumberOrNull(value: string): number | null {
   if (!value) return null;
   const n = Number(String(value).replace(/,/g, ""));
@@ -81,34 +70,28 @@ function mapRawDistance(row: any): DistanceRow {
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
-
 function ymd(d: Date) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
-
 function ym(d: Date) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 }
-
 function parseLocdateToYmd(loc: string) {
   const s = String(loc ?? "");
   if (!/^\d{8}$/.test(s)) return "";
   return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
 }
-
 function getDowKr(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   const day = d.getDay();
   const map = ["일", "월", "화", "수", "목", "금", "토"];
   return map[day] ?? "";
 }
-
 function isWeekend(dateStr: string): boolean {
   const d = new Date(dateStr + "T00:00:00");
   const day = d.getDay();
   return day === 0 || day === 6;
 }
-
 function getAllDaysOfMonth(base: Date) {
   const y = base.getFullYear();
   const m = base.getMonth();
@@ -117,20 +100,17 @@ function getAllDaysOfMonth(base: Date) {
   for (let i = 1; i <= last; i++) days.push(new Date(y, m, i));
   return days;
 }
-
 function escapeHtml(s: string) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
-// ✅ 날짜 표시용: "2026-01-07T00:00:00.000Z" → "2026-01-07"
 function ymdText(v: any) {
   if (!v) return "";
   const s = String(v);
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
-
 function vacTypeLabel(t: string) {
   if (t === "annual") return "연차";
   if (t === "half") return "반차";
@@ -139,8 +119,6 @@ function vacTypeLabel(t: string) {
 function openVacNoteModal(name: string, range: string, note: string) {
   alert(`[비고]\n${name}\n${range}\n\n${note}`);
 }
-
-// ✅ 월 계산 유틸(로테이션 프리뷰에 필요)
 function addMonthsToYm(ymStr: string, delta: number) {
   const [y, m] = ymStr.split("-").map(Number);
   const d = new Date(y, m - 1, 1);
@@ -153,114 +131,82 @@ function compareYm(a: string, b: string) {
 function mod(n: number, m: number) {
   return ((n % m) + m) % m;
 }
-
-// ✅✅✅ YYYY-MM-DD 체크(일정/필터에 사용)
 function isYmd(s: any) {
   return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
 // ======================
-// ✅ 요약 캘린더 유틸 (휴가/당직/일정 날짜별 펼치기)
+// ✅ 요약 캘린더 유틸
 // ======================
-
 type SumCalEvent = {
-  date: string; // YYYY-MM-DD
+  date: string;
   kind: "VACATION" | "DUTY" | "SCHEDULE";
   text: string;
-  id?: number; // ✅ 일정 삭제용 (SCHEDULE만 사용)
+  id?: number;
 };
+
 function datesBetweenInclusive(start: any, end: any) {
   const out: string[] = [];
-
-  // ✅ ISO("2026-01-07T00:00:00.000Z")든 뭐든 앞 10글자만 사용
   const s0 = ymdText(start);
   const e0 = ymdText(end);
-
-  // ✅ 유효성 체크
   if (!isYmd(s0) || !isYmd(e0)) return out;
   if (s0 > e0) return out;
 
   const s = new Date(s0 + "T00:00:00");
   const e = new Date(e0 + "T00:00:00");
-
-  // 혹시라도 Date가 깨지면 방어
   if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return out;
 
-  for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-    out.push(ymd(d));
-  }
+  for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) out.push(ymd(d));
   return out;
 }
 
 function buildVacationEvents(items: VacationItem[]) {
   const map = new Map<string, SumCalEvent[]>();
-
   for (const it of items) {
-    // ✅ ISO든 뭐든 앞 10글자 정규화
     const s = ymdText(it?.start_date);
     const e = ymdText(it?.end_date);
     if (!isYmd(s) || !isYmd(e)) continue;
 
     const label = `${it.user_name}(${vacTypeLabel(it.vac_type)})`;
     const days = datesBetweenInclusive(s, e);
-
     for (const ds of days) {
       if (!map.has(ds)) map.set(ds, []);
-      map.get(ds)!.push({
-        date: ds,
-        kind: "VACATION",
-        text: label,
-      });
+      map.get(ds)!.push({ date: ds, kind: "VACATION", text: label });
     }
   }
-
   return map;
 }
-
 
 function buildDutyEvents(assigns: DutyAssign[]) {
   const map = new Map<string, SumCalEvent[]>();
   for (const a of assigns) {
     if (!a?.date || !a?.name) continue;
     if (!map.has(a.date)) map.set(a.date, []);
-    map.get(a.date)!.push({
-      date: a.date,
-      kind: "DUTY",
-      text: a.name,
-    });
+    map.get(a.date)!.push({ date: a.date, kind: "DUTY", text: a.name });
   }
   return map;
 }
 
-// ✅✅✅ 일정(캘린더 이벤트) 펼치기
 function buildScheduleEvents(items: CalendarEventItem[]) {
   const map = new Map<string, SumCalEvent[]>();
   for (const it of items) {
     if (!it?.date || !isYmd(it.date)) continue;
-
     const title = String(it.title ?? "").trim();
     if (!title) continue;
 
     if (!map.has(it.date)) map.set(it.date, []);
-    map.get(it.date)!.push({
-      date: it.date,
-      kind: "SCHEDULE",
-      text: title,
-      id: Number(it.id), // ✅ 삭제용 id
-    });
+    map.get(it.date)!.push({ date: it.date, kind: "SCHEDULE", text: title, id: Number(it.id) });
   }
   return map;
 }
 
 // ======================
-// ✅ 대시보드 휴가/당직 캘린더 (당직생성과 무관하게 자동 표시)
+// ✅ 대시보드 휴가/당직 캘린더
 // ======================
-
 type DashEvent = { kind: "VACATION" | "DUTY"; text: string };
 
 function buildVacationMapForDash(items: VacationItem[]) {
   const map = new Map<string, DashEvent[]>();
-
   for (const it of items) {
     const s = ymdText(it?.start_date);
     const e = ymdText(it?.end_date);
@@ -268,13 +214,11 @@ function buildVacationMapForDash(items: VacationItem[]) {
 
     const label = `${it.user_name}(${vacTypeLabel(it.vac_type)})`;
     const days = datesBetweenInclusive(s, e);
-
     for (const ds of days) {
       if (!map.has(ds)) map.set(ds, []);
       map.get(ds)!.push({ kind: "VACATION", text: label });
     }
   }
-
   return map;
 }
 
@@ -710,6 +654,12 @@ export function initBusinessMasterPanel(API_BASE: string) {
 
   const distanceTbody = distanceTbodyEl;
 
+  // ✅ 다른 화면에서 거리 마스터가 바뀌었다고 알려오면, 이 화면도 동기화
+  window.addEventListener("client-master-changed", () => {
+    // 보이는 상태면 갱신(숨김이면 다음 진입 때 어차피 reloadBusinessMasterFromServer가 함)
+    const isHidden = panel.classList.contains("hidden");
+    if (!isHidden) loadDistances();
+  });
   // ✅✅✅ 통합 저장 핸들러 (유류/환율/공지/당직 등 saveConfig에 들어있는 값 저장)
   const onSave = async () => {
     await saveConfig(); // ✅ 기존 설정 저장 함수 그대로 사용
@@ -1784,48 +1734,66 @@ export function initBusinessMasterPanel(API_BASE: string) {
   }
 
   function renderDistanceTable() {
+    if (!distanceTbody) return;
+
     distanceTbody.innerHTML = "";
 
     if (!distanceRows.length) {
       distanceTbody.innerHTML = `
-        <tr>
-          <td colspan="6" class="border px-2 py-2 text-center text-xs text-gray-400">
-            등록된 거리 정보가 없습니다. [+ 행 추가] 버튼으로 추가하세요.
-          </td>
-        </tr>
-      `;
+      <tr>
+        <td colspan="6" class="border px-2 py-2 text-center text-xs text-gray-400">
+          등록된 거리 정보가 없습니다. [+ 행 추가] 버튼으로 추가하세요.
+        </td>
+      </tr>
+    `;
       return;
     }
+
+    // ✅ 거래처명 기준 정렬: 한글(가나다) → 알파벳(ABC)
+    distanceRows.sort((a, b) => {
+      const ak = (a.client_name || "").trim();
+      const bk = (b.client_name || "").trim();
+
+      const aIsKo = /^[가-힣]/.test(ak);
+      const bIsKo = /^[가-힣]/.test(bk);
+
+      // 1️⃣ 한글 먼저
+      if (aIsKo && !bIsKo) return -1;
+      if (!aIsKo && bIsKo) return 1;
+
+      // 2️⃣ 같은 그룹 안에서는 localeCompare
+      return ak.localeCompare(bk, "ko");
+    });
 
     distanceRows.forEach((row, index) => {
       const tr = document.createElement("tr");
       tr.dataset.index = String(index);
 
       tr.innerHTML = `
-        <td class="border-b px-2 py-2 text-center text-[11px]">${index + 1}</td>
-        <td class="border-b px-2 py-2">
-          <input type="text"
-            class="w-full border rounded-xl px-2 py-2 text-xs region-input bg-white"
-            value="${escapeHtml(row.region ?? "")}" />
-        </td>
-        <td class="border-b px-2 py-2">
-          <input type="text"
-            class="w-full border rounded-xl px-2 py-2 text-xs client-input bg-white"
-            value="${escapeHtml(row.client_name ?? "")}" />
-        </td>
-        <td class="border-b px-2 py-2">
-          <input type="number" step="0.1"
-            class="w-full border rounded-xl px-2 py-2 text-right text-xs distance-km-input bg-white"
-            placeholder="km"
-            value="${row.distance_km ?? ""}" />
-        </td>
-        <td class="border-b px-2 py-2 text-center">
-          <button type="button"
-            class="px-2 py-1 text-[11px] rounded-lg bg-red-100 text-red-700 hover:bg-red-200 btn-row-delete">
-            삭제
-          </button>
-        </td>
-      `;
+      <td class="border-b px-2 py-2 text-center text-[11px]">${index + 1}</td>
+      <td class="border-b px-2 py-2">
+        <input type="text"
+          class="w-full border rounded-xl px-2 py-2 text-xs region-input bg-white"
+          value="${escapeHtml(row.region ?? "")}" />
+      </td>
+      <td class="border-b px-2 py-2">
+        <input type="text"
+          class="w-full border rounded-xl px-2 py-2 text-xs client-input bg-white"
+          value="${escapeHtml(row.client_name ?? "")}" />
+      </td>
+      <td class="border-b px-2 py-2">
+        <input type="number" step="0.1"
+          class="w-full border rounded-xl px-2 py-2 text-right text-xs distance-km-input bg-white"
+          placeholder="km"
+          value="${row.distance_km ?? ""}" />
+      </td>
+      <td class="border-b px-2 py-2 text-center">
+        <button type="button"
+          class="px-2 py-1 text-[11px] rounded-lg bg-red-100 text-red-700 hover:bg-red-200 btn-row-delete">
+          삭제
+        </button>
+      </td>
+    `;
 
       distanceTbody.appendChild(tr);
     });
@@ -1861,18 +1829,22 @@ export function initBusinessMasterPanel(API_BASE: string) {
     }
 
     try {
+      // 1) 삭제 먼저
       for (const id of deletedIds) {
         if (!id) continue;
         const res = await fetch(`${API_BASE}/api/business-master/distances/${id}`, {
           method: "DELETE",
-          credentials: "include",
+          credentials: "include", // ✅ 추가(중요)
         });
         if (!res.ok) {
           console.error("[출장업무관리] 거리 삭제 실패 id=", id, "status=", res.status);
+          alert(`거리 삭제 실패(id=${id})`);
+          return; // ✅ 실패하면 중단 (헷갈림 방지)
         }
       }
       deletedIds = [];
 
+      // 2) 등록/수정
       for (const row of distanceRows) {
         const payload = {
           region: row.region,
@@ -1884,21 +1856,40 @@ export function initBusinessMasterPanel(API_BASE: string) {
           const res = await fetch(`${API_BASE}/api/business-master/distances`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include", // ✅ 추가(중요)
             body: JSON.stringify(payload),
           });
-          if (!res.ok) console.error("[출장업무관리] 거리 등록 실패 status=", res.status);
+          const json = await res.json().catch(() => null);
+          if (!res.ok || json?.ok !== true) {
+            console.error("[출장업무관리] 거리 등록 실패", res.status, json);
+            alert(json?.error || "거리 등록 실패");
+            return;
+          }
         } else {
           const res = await fetch(`${API_BASE}/api/business-master/distances/${row.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
+            credentials: "include", // ✅ 추가(중요)distanceRows.forEach(...)
             body: JSON.stringify(payload),
           });
-          if (!res.ok) console.error("[출장업무관리] 거리 수정 실패 id=", row.id, "status=", res.status);
+          const json = await res.json().catch(() => null);
+          if (!res.ok || json?.ok !== true) {
+            console.error("[출장업무관리] 거리 수정 실패", row.id, res.status, json);
+            alert(json?.error || "거리 수정 실패");
+            return;
+          }
         }
       }
-
+      window.dispatchEvent(new CustomEvent("client-master-changed"));
       alert("거리 마스터가 저장되었습니다.");
+
+      // ✅ 저장 직후, 나 자신 화면도 새로고침
       await loadDistances();
+      window.dispatchEvent(new CustomEvent("distance-master-changed"));
+
+      // ✅✅✅ 핵심: 사용자관리(유저 거리)도 즉시 갱신시키는 이벤트
+      window.dispatchEvent(new CustomEvent("client-master-changed"));
+      window.dispatchEvent(new Event("user-manage-refresh")); // (이미 쓰고 있으면 유지)
     } catch (err) {
       console.error("[출장업무관리] 거리 저장 중 오류:", err);
       alert("거리 저장 중 오류가 발생했습니다.");

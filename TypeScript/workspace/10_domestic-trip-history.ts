@@ -1,10 +1,15 @@
 // TypeScript/workspace/10_domestic-trip-history.ts
-// ✅ 통째 교체본 (요구사항 반영)
+// ✅ 통째 교체본 (요구사항 반영 + 삭제 기능 추가)
 // 1) 다른 화면 갔다가 오면 무조건 "오늘 기준 전주(월~일)"로 초기세팅 + 조회전 UI 리셋
 // 2) 제출 버튼은 "조회된 내역이 있으면" 항상 클릭 가능(주간아님/미정산/이미제출은 클릭 후 안내/모달)
 // 3) 주간(월~일) 아니면 모달로 주간 자동 변경 + 재조회 후 제출
-// 4) 미정산 포함 / 이미 제출 포함은 alert 안내(원하면 모달로도 바꿀 수 있음)
+// 4) 미정산 포함 / 이미 제출 포함은 alert 안내
+// 5) ✅ 반려사유 옆에 [삭제] 버튼 추가
+//    - ✅ 승인(approved)만 삭제 불가
+//    - ✅ 미제출/제출/반려/대기(pending/null) 삭제 가능
+//    - 삭제 후 자동 재조회
 import { ModalUtil } from "./utils/ModalUtil";
+
 function getEl<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
   if (!el) throw new Error(`element not found: #${id}`);
@@ -46,7 +51,7 @@ type BusinessTripRow = {
     settlement?: SettlementBlock;
   };
   created_at: string;
-  approve_status?: "approved" | "rejected" | null;
+  approve_status?: "approved" | "rejected" | "pending" | null;
   approve_comment?: string | null;
   submitted_at?: string | null;
 };
@@ -245,18 +250,73 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
     resultMsg.textContent = "조회할 기간을 선택한 뒤 [조회하기]를 눌러주세요.";
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" class="border px-2 py-3 text-center text-gray-400">
+        <td colspan="9" class="border px-2 py-3 text-center text-gray-400">
           조회된 정산 내역이 없습니다.
         </td>
       </tr>
     `;
     updateSubmitEnabled();
   }
+  // =========================
+  // ✅ 미제출 주간 안내 모달 (제출 화면에서만!)
+  // =========================
+  async function checkPendingWeeksModal() {
+    const me = getLoginUserName();
+    if (!me) return;
+
+    const ymdOnly = (v: any) => {
+      const s = String(v ?? "").trim();
+      if (!s) return "-";
+      // "2026-01-04T00:00:00.000Z" 같은 ISO면 앞 10자리만
+      if (s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+      const d = new Date(s);
+      if (Number.isNaN(d.getTime())) return s;
+      const yy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yy}-${mm}-${dd}`;
+    };
+
+    try {
+      const r = await fetch(
+        `${API_BASE}/api/business-trip/settlements-pending-weeks?req_name=${encodeURIComponent(me)}`
+      );
+      if (!r.ok) return;
+
+      const j = await r.json().catch(() => null);
+      const weeks = j?.data?.weeks ?? [];
+      const cutoff = ymdOnly(j?.data?.cutoff ?? "");
+
+      if (!Array.isArray(weeks) || weeks.length === 0) return;
+
+      const total = weeks.reduce((a: number, b: any) => a + Number(b?.count ?? 0), 0);
+      const first = weeks[0];
+
+      const ws = ymdOnly(first?.week_start);
+      const we = ymdOnly(first?.week_end);
+
+      await ModalUtil.show({
+        type: "warn",
+        title: "미제출 정산이 있습니다",
+        messageHtml:
+          `${cutoff} 이전 미제출 정산 <b>${total}건</b>이 있습니다.<br/>` +
+          `예: <b>${ws} ~ ${we}</b> (${Number(first?.count ?? 0)}건)<br/>` +
+          `제출은 <b>지난주까지</b>만 가능합니다.`,
+        showOk: true,
+        showCancel: false,
+        okText: "확인",
+        okClass: "bg-amber-600 hover:bg-amber-700",
+      });
+    } catch {
+      // ignore
+    }
+  }
 
   // ✅ 패널이 "다시 보일 때마다" 무조건 초기세팅(오늘 기준 전주) + 조회 전 UI 리셋
   function applyDefaultOnPanelShow() {
     setLastWeekRange();
     resetResultsUI();
+    checkPendingWeeksModal(); // ✅ 추가
   }
 
   // ✅ 패널 show 감지 (hidden -> visible)
@@ -284,6 +344,36 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
     try {
       localStorage.setItem("trip:submitted", JSON.stringify({ payload: payload ?? {}, ts: Date.now() }));
     } catch { }
+  }
+
+  // =========================
+  // ✅ 모달 helpers
+  // =========================
+  async function niceAlert(title: string, messageHtml: string, type: "alert" | "warn" = "alert") {
+    await ModalUtil.show({
+      type,
+      title,
+      messageHtml,
+      showOk: true,
+      showCancel: false,
+      okText: "확인",
+      okClass: type === "warn" ? "bg-amber-500 hover:bg-amber-600" : "bg-indigo-600 hover:bg-indigo-700",
+    });
+  }
+
+  async function niceConfirm(title: string, messageHtml: string, okText = "확인", cancelText = "취소") {
+    const ok = await ModalUtil.show({
+      type: "warn",
+      title,
+      messageHtml,
+      showOk: true,
+      showCancel: true,
+      okText,
+      cancelText,
+      okClass: "bg-emerald-600 hover:bg-emerald-700",
+      cancelClass: "border border-gray-300 text-gray-700 hover:bg-gray-50",
+    });
+    return ok === true;
   }
 
   // =========================
@@ -325,8 +415,6 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
 
   // =========================
   // ✅ 제출 가능/불가 안내 + 버튼 활성화
-  // ✅ 제출 버튼은 "조회된 내역이 있으면" 항상 클릭 가능하게 둔다
-  // - 주간아님/미정산/이미제출은 클릭 시 안내(모달/알림)
   // =========================
   function updateSubmitEnabled() {
     const okWeek = isMonToSunRange(fromInput.value, toInput.value);
@@ -364,6 +452,24 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
     return "제출";
   }
 
+  function canDeleteRow(r: BusinessTripRow) {
+    // ✅ 요구사항: 승인만 삭제 불가, 나머지는 삭제 가능
+    return r.approve_status !== "approved";
+  }
+
+  async function deleteTripById(tripId: string) {
+    const res = await fetch(`${API_BASE}/api/business-trip/${encodeURIComponent(tripId)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json?.ok === false) {
+      const msg = String(json?.message ?? "삭제 실패");
+      throw new Error(msg);
+    }
+    return json;
+  }
+
   function renderRows(rows: BusinessTripRow[]) {
     lastRows = rows;
     updateSubmitEnabled();
@@ -371,7 +477,7 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
     if (!rows.length) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="8" class="border px-2 py-3 text-center text-gray-400">
+          <td colspan="9" class="border px-2 py-3 text-center text-gray-400">
             조회된 정산 내역이 없습니다.
           </td>
         </tr>
@@ -395,21 +501,14 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
       const workEnd = s.work_end_time || "-";
 
       const departLine =
-        departStart !== "-" && arriveTime !== "-"
-          ? `출발 (출발시간 ${departStart} ~ 도착시간 ${arriveTime})`
-          : "출발 (-)";
+        departStart !== "-" && arriveTime !== "-" ? `출발 (출발시간 ${departStart} ~ 도착시간 ${arriveTime})` : "출발 (-)";
 
       const returnLine =
-        returnStart !== "-" && returnArrive !== "-"
-          ? `복귀 (출발시간 ${returnStart} ~ 도착시간 ${returnArrive})`
-          : "복귀 (-)";
+        returnStart !== "-" && returnArrive !== "-" ? `복귀 (출발시간 ${returnStart} ~ 도착시간 ${returnArrive})` : "복귀 (-)";
 
       const workDiff = workStart !== "-" && workEnd !== "-" ? calcHourDiff(workStart, workEnd) : "-";
 
-      const workLine =
-        workDiff !== "-"
-          ? `업무시간 ${workStart} ~ ${workEnd} (총 ${workDiff})`
-          : "업무시간 -";
+      const workLine = workDiff !== "-" ? `업무시간 ${workStart} ~ ${workEnd} (총 ${workDiff})` : "업무시간 -";
 
       const vehicleRaw = String(s.vehicle ?? "").trim();
       const vehicleText =
@@ -440,43 +539,107 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
       const st = statusText(row);
       const rejectReason = row.approve_status === "rejected" ? row.approve_comment ?? "" : "";
 
+      // ✅ 삭제 버튼 (승인이면 disabled)
+      const deleteDisabled = !canDeleteRow(row);
+      const deleteBtnHtml = `
+        <button
+          class="trip_del_btn px-2 py-1 rounded-md text-xs font-semibold ${deleteDisabled
+          ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+          : "bg-rose-600 text-white hover:bg-rose-700"
+        }"
+          data-trip-id="${String(row.trip_id).replace(/"/g, "&quot;")}"
+          ${deleteDisabled ? "disabled" : ""}
+          title="${deleteDisabled ? "승인된 건은 삭제할 수 없습니다." : "이 출장/정산을 삭제합니다."}"
+        >삭제</button>
+      `;
+
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td class="border px-2 py-1 text-center whitespace-nowrap">
-          ${formatYmdWithDow(row.trip_date)}
-        </td>
+  <td class="border px-2 py-1 text-center whitespace-nowrap">
+    ${formatYmdWithDow(row.trip_date)}
+  </td>
 
-        <td class="border px-2 py-2 text-left whitespace-normal leading-snug">
-          <div class="text-gray-700">${departLine}</div>
-          <div class="text-gray-700">${returnLine}</div>
-          <div class="font-bold text-indigo-600 mt-1">${workLine}</div>
-        </td>
+  <td class="border px-2 py-2 text-left whitespace-normal leading-snug">
+    <div class="text-gray-700">${departLine}</div>
+    <div class="text-gray-700">${returnLine}</div>
+    <div class="font-bold text-indigo-600 mt-1">${workLine}</div>
+  </td>
 
-        <td class="border px-2 py-1 text-center whitespace-nowrap">
-          ${vehicleText}
-        </td>
+  <td class="border px-2 py-1 text-center whitespace-nowrap">
+    ${vehicleText}
+  </td>
 
-        <td class="border px-2 py-1 text-center whitespace-nowrap">
-          ${mealsText}
-        </td>
+  <td class="border px-2 py-1 text-center whitespace-nowrap">
+    ${mealsText}
+  </td>
 
-        <td class="border px-2 py-1 truncate">
-          ${routeText}
-        </td>
+  <td class="border px-2 py-1 truncate">
+    ${routeText}
+  </td>
 
-        <td class="border px-2 py-1 whitespace-normal">
-          ${mainTask}
-        </td>
+  <td class="border px-2 py-1 whitespace-normal">
+    ${mainTask}
+  </td>
 
-        <td class="border px-2 py-1 text-center font-semibold whitespace-nowrap">
-          ${st}
-        </td>
+  <td class="border px-2 py-1 text-center font-semibold whitespace-nowrap">
+    ${st}
+  </td>
 
-        <td class="border px-2 py-1 text-rose-600 whitespace-normal">
-          ${rejectReason}
-        </td>
-      `;
+  <!-- ✅ 반려사유 칸: 반려사유만 -->
+  <td class="border px-2 py-1 text-rose-600 whitespace-normal">
+    ${rejectReason}
+  </td>
+
+  <!-- ✅ 삭제 칸: 삭제 버튼만 (반려사유 옆 공란 칸) -->
+  <td class="border px-2 py-1 text-center whitespace-nowrap">
+    ${deleteBtnHtml}
+  </td>
+`;
       tbody.appendChild(tr);
+
+    });
+
+    // ✅ 삭제 버튼 이벤트(렌더 후 한번에 바인딩)
+    const delBtns = Array.from(tbody.querySelectorAll<HTMLButtonElement>(".trip_del_btn"));
+    delBtns.forEach((btn) => {
+      if ((btn as any)._bound) return;
+      (btn as any)._bound = true;
+
+      btn.addEventListener("click", async () => {
+        const tripId = String(btn.dataset.tripId ?? "").trim();
+        if (!tripId) return;
+
+        // 현재 rows에서 상태 확인
+        const row = lastRows.find((x) => x.trip_id === tripId);
+        if (row?.approve_status === "approved") {
+          await niceAlert("삭제 불가", "승인된 건은 삭제할 수 없습니다.", "warn");
+          return;
+        }
+
+        const yes = await niceConfirm(
+          "정산/출장 삭제",
+          `정말 삭제하시겠습니까?<br/><b class="text-gray-900">${formatYmdWithDow(row?.trip_date ?? "")}</b>`,
+          "삭제",
+          "취소"
+        );
+        if (!yes) return;
+
+        try {
+          btn.disabled = true;
+          btn.textContent = "삭제중";
+
+          await deleteTripById(tripId);
+
+          await niceAlert("삭제 완료", "삭제되었습니다.");
+          await fetchHistory(); // ✅ 삭제 후 재조회
+        } catch (e: any) {
+          console.error(e);
+          await niceAlert("삭제 실패", String(e?.message ?? "삭제 실패"), "warn");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "삭제";
+        }
+      });
     });
   }
 
@@ -487,7 +650,7 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
     resultMsg.textContent = "조회 중...";
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" class="border px-2 py-3 text-center text-gray-400">
+        <td colspan="9" class="border px-2 py-3 text-center text-gray-400">
           조회 중...
         </td>
       </tr>
@@ -512,34 +675,7 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
   // ✅ 입력 바뀌면 안내 문구 갱신
   fromInput.addEventListener("change", updateSubmitEnabled);
   toInput.addEventListener("change", updateSubmitEnabled);
-  async function niceAlert(title: string, messageHtml: string, type: "alert" | "warn" = "alert") {
-    await ModalUtil.show({
-      type,
-      title,
-      messageHtml,
-      showOk: true,
-      showCancel: false,
-      okText: "확인",
-      okClass: type === "warn"
-        ? "bg-amber-500 hover:bg-amber-600"
-        : "bg-indigo-600 hover:bg-indigo-700",
-    });
-  }
 
-  async function niceConfirm(title: string, messageHtml: string, okText = "확인", cancelText = "취소") {
-    const ok = await ModalUtil.show({
-      type: "warn",
-      title,
-      messageHtml,
-      showOk: true,
-      showCancel: true,
-      okText,
-      cancelText,
-      okClass: "bg-emerald-600 hover:bg-emerald-700",
-      cancelClass: "border border-gray-300 text-gray-700 hover:bg-gray-50",
-    });
-    return ok === true;
-  }
   // =========================
   // ✅ 제출하기
   // =========================
@@ -579,6 +715,7 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
     notifyTripSubmitted({ from: fromInput.value, to: toInput.value, req_name: name });
     await fetchHistory();
   }
+
   submitBtn.onclick = async () => {
     try {
       // 0) 조회 내역 없음
@@ -601,7 +738,7 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
         return;
       }
 
-      // 2) 이미 제출 포함  ✅ 여기! 지금 니 스샷 메시지
+      // 2) 이미 제출 포함
       const anySubmitted = lastRows.some((r) => !!r.submitted_at);
       if (anySubmitted) {
         await niceAlert(

@@ -89,7 +89,7 @@ async function getFuelSettings(pool: Pool): Promise<{
     const priceLpg = toNumberOrNull(row.fuel_price_lpg) ?? DEFAULT_FUEL_PRICE;
 
     return { priceGasoline, priceDiesel, priceLpg, kmPerLiter: safeKmPerLiter };
-  } catch (e) { }
+  } catch (e) {}
 
   // ✅ 2순위 fallback: business_trip_config.config_json
   try {
@@ -309,6 +309,24 @@ async function calcFuelAmountByCase(
   };
 }
 
+// ✅ KST 기준 이번주 월요일(00:00) YYYY-MM-DD
+function getThisWeekMonKstYmd(): string {
+  const now = new Date();
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+
+  const day = kst.getUTCDay(); // 0(일)~6(토)
+  const diffToMon = (day + 6) % 7;
+
+  const mon = new Date(kst);
+  mon.setUTCDate(kst.getUTCDate() - diffToMon);
+  mon.setUTCHours(0, 0, 0, 0);
+
+  const y = mon.getUTCFullYear();
+  const m = String(mon.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(mon.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export default function businessTripRouter(pool: Pool) {
   const router = express.Router();
 
@@ -365,7 +383,7 @@ export default function businessTripRouter(pool: Pool) {
 
   /* ============================
     1) 국내출장 등록
-    ✅✅✅ 저장 성공 시점에 settlement_in_progress = TRUE 찍는다 (네 요구사항 2번)
+    ✅ 저장 성공 시점에 settlement_in_progress = TRUE
   ============================ */
   router.post("/domestic", async (req, res) => {
     const { trip_type, req_name, depart_place, destination, start_date, depart_time, arrive_time, purpose } = req.body ?? {};
@@ -421,7 +439,9 @@ export default function businessTripRouter(pool: Pool) {
           settlement_started_at = CASE
             WHEN business_trips.end_data IS NULL OR business_trips.end_data = '{}'::jsonb THEN NOW()
             ELSE business_trips.settlement_started_at
-          END
+          END,
+          -- ✅ 혹시 과거에 삭제된 레코드를 다시 쓰는 경우 복구
+          deleted_at = NULL
         RETURNING *;
       `;
 
@@ -437,7 +457,6 @@ export default function businessTripRouter(pool: Pool) {
 
   // =====================================================
   // (유지) "이어서 정산" 시작 찍기
-  // - 이미 domestic에서 TRUE 찍히지만, 눌러도 문제 없게 유지
   // =====================================================
   router.post("/settlement/start", async (req, res) => {
     const { req_name, trip_date } = req.body ?? {};
@@ -451,6 +470,7 @@ export default function businessTripRouter(pool: Pool) {
         SELECT trip_id, end_data
         FROM business_trips
         WHERE req_name = $1 AND trip_date = $2
+          AND deleted_at IS NULL
         LIMIT 1
         `,
         [name, date]
@@ -470,6 +490,7 @@ export default function businessTripRouter(pool: Pool) {
             settlement_started_at = NOW()
         WHERE req_name = $1
           AND trip_date = $2
+          AND deleted_at IS NULL
         RETURNING trip_id, req_name, trip_date, settlement_started_at;
         `,
         [name, date]
@@ -483,10 +504,7 @@ export default function businessTripRouter(pool: Pool) {
   });
 
   // =====================================================
-  // 진행중 정산 1건 조회 (로그아웃/재로그인 복원용)
-  // =====================================================
-  // =====================================================
-  // 진행중 정산 1건 조회 (컬럼 없이: end_data 비어있는 최신 1건)
+  // 진행중 정산 1건 조회 (end_data 비어있는 최신 1건)
   // =====================================================
   router.get("/settlement/in-progress", async (req, res) => {
     const name = String(req.query.req_name ?? "").trim();
@@ -498,6 +516,7 @@ export default function businessTripRouter(pool: Pool) {
       SELECT trip_id, req_name, trip_date, created_at
       FROM business_trips
       WHERE req_name = $1
+        AND deleted_at IS NULL
         AND (end_data IS NULL OR end_data = '{}'::jsonb)
       ORDER BY trip_date DESC, created_at DESC
       LIMIT 1
@@ -513,7 +532,7 @@ export default function businessTripRouter(pool: Pool) {
           trip_id: r.rows[0].trip_id,
           req_name: r.rows[0].req_name,
           trip_date: r.rows[0].trip_date,
-          settlement_started_at: null, // ✅ 컬럼 없으니 null 고정
+          settlement_started_at: null,
         },
       });
     } catch (err: any) {
@@ -521,7 +540,6 @@ export default function businessTripRouter(pool: Pool) {
       return res.status(500).json({ ok: false, message: "DB 오류" });
     }
   });
-
 
   /* ============================
     2) 정산 저장 + 식대/유류비 자동 계산
@@ -544,6 +562,7 @@ export default function businessTripRouter(pool: Pool) {
         FROM business_trips
         WHERE req_name = $1
           AND trip_date = $2
+          AND deleted_at IS NULL
         LIMIT 1
         `,
         [req_name, trip_date]
@@ -583,14 +602,15 @@ export default function businessTripRouter(pool: Pool) {
       const sql = `
         INSERT INTO business_trips (
           trip_id, req_name, trip_date, end_data, detail_json, created_at,
-          settlement_in_progress
+          settlement_in_progress, deleted_at
         )
         VALUES (
           $1, $2, $3,
           $4::jsonb,
           jsonb_build_object('settlement', $4::jsonb),
           NOW(),
-          FALSE
+          FALSE,
+          NULL
         )
         ON CONFLICT (req_name, trip_date)
         DO UPDATE SET
@@ -602,7 +622,8 @@ export default function businessTripRouter(pool: Pool) {
             EXCLUDED.end_data,
             true
           ),
-          settlement_in_progress = FALSE
+          settlement_in_progress = FALSE,
+          deleted_at = NULL
         RETURNING *;
       `;
 
@@ -612,6 +633,101 @@ export default function businessTripRouter(pool: Pool) {
       return res.json({ ok: true, data: { ...result.rows[0], calc } });
     } catch (err: any) {
       console.error("정산 저장 실패 FULL:", err);
+      return res.status(500).json({ ok: false, message: "DB 오류" });
+    }
+  });
+
+  // =====================================================
+  // (직원용) 정산/출장 삭제 (soft delete)
+  // ✅ 정책: 승인(approved)만 삭제 불가, 나머지는 삭제 가능 (미제출/제출/반려 OK)
+  // =====================================================
+  router.post("/settlement/delete", async (req, res) => {
+    const { req_name, trip_date } = req.body ?? {};
+    const name = String(req_name ?? "").trim();
+    const date = String(trip_date ?? "").trim();
+    if (!name || !date) return res.status(400).json({ ok: false, message: "req_name, trip_date 필요" });
+
+    try {
+      const chk = await pool.query(
+        `
+        SELECT trip_id, approve_status, deleted_at
+        FROM business_trips
+        WHERE req_name = $1
+          AND trip_date = $2
+        LIMIT 1
+        `,
+        [name, date]
+      );
+
+      if (chk.rows.length === 0) {
+        return res.status(404).json({ ok: false, message: "삭제할 데이터가 없습니다." });
+      }
+
+      const tripId = String(chk.rows[0]?.trip_id ?? "");
+      const approveStatus = String(chk.rows[0]?.approve_status ?? "");
+      const deletedAt = chk.rows[0]?.deleted_at;
+
+      if (deletedAt) return res.json({ ok: true, data: { trip_id: tripId, req_name: name, trip_date: date, already_deleted: true } });
+
+      if (approveStatus === "approved") {
+        return res.status(403).json({ ok: false, message: "승인된 건은 삭제할 수 없습니다." });
+      }
+
+      const upd = await pool.query(
+        `
+        UPDATE business_trips
+        SET deleted_at = NOW()
+        WHERE req_name = $1
+          AND trip_date = $2
+          AND deleted_at IS NULL
+        RETURNING trip_id, req_name, trip_date, deleted_at
+        `,
+        [name, date]
+      );
+
+      if (upd.rows.length === 0) {
+        return res.status(400).json({ ok: false, message: "삭제할 수 없는 상태입니다." });
+      }
+
+      return res.json({ ok: true, data: upd.rows[0] });
+    } catch (err: any) {
+      console.error("[settlement/delete] error FULL:", err);
+      return res.status(500).json({ ok: false, message: "DB 오류" });
+    }
+  });
+
+  // =====================================================
+  // (직원용) 컷오프 이전 미제출 주간 목록 조회
+  // =====================================================
+  router.get("/settlements-pending-weeks", async (req, res) => {
+    const reqName = String(req.query.req_name ?? "").trim();
+    if (!reqName) return res.status(400).json({ ok: false, message: "req_name 필요" });
+
+    const cutoff = getThisWeekMonKstYmd();
+
+    try {
+      const r = await pool.query(
+        `
+      SELECT
+        date_trunc('week', trip_date)::date AS week_start,
+        (date_trunc('week', trip_date)::date + 6) AS week_end,
+        COUNT(*)::int AS count
+      FROM business_trips
+      WHERE req_name = $1
+        AND deleted_at IS NULL
+        AND trip_date < $2::date
+        AND submitted_at IS NULL
+        AND end_data IS NOT NULL
+        AND end_data <> '{}'::jsonb
+      GROUP BY 1
+      ORDER BY 1 ASC
+      `,
+        [reqName, cutoff]
+      );
+
+      return res.json({ ok: true, data: { cutoff, weeks: r.rows } });
+    } catch (err: any) {
+      console.error("[settlements-pending-weeks] error:", err);
       return res.status(500).json({ ok: false, message: "DB 오류" });
     }
   });
@@ -631,6 +747,7 @@ export default function businessTripRouter(pool: Pool) {
         FROM business_trips
         WHERE req_name = $1
           AND trip_date = $2
+          AND deleted_at IS NULL
         LIMIT 1
         `,
         [reqName, date]
@@ -663,7 +780,8 @@ export default function businessTripRouter(pool: Pool) {
           created_at,
           approve_status
         FROM business_trips
-        WHERE trip_date = COALESCE($1::date, CURRENT_DATE)
+        WHERE deleted_at IS NULL
+          AND trip_date = COALESCE($1::date, CURRENT_DATE)
         ORDER BY created_at DESC;
         `,
         [date || null]
@@ -707,7 +825,7 @@ export default function businessTripRouter(pool: Pool) {
 
     try {
       const params: any[] = [from, to];
-      let where = "trip_date BETWEEN $1::date AND $2::date";
+      let where = "trip_date BETWEEN $1::date AND $2::date AND deleted_at IS NULL";
 
       if (reqName) {
         where += " AND req_name = $3";
@@ -742,41 +860,40 @@ export default function businessTripRouter(pool: Pool) {
   });
 
   /* ============================
-     6) (관리자용) 정산 내역 기간 조회 - 전체 직원 + 상태 필터
+     6) (관리자용) 정산 내역 기간 조회 - 제출된 건만 + 상태 필터
   ============================ */
-/* ============================
-   6) (관리자용) 정산 내역 기간 조회 - 제출된 건만 + 상태 필터
-   ✅ 핵심: submitted_at 포함 + 제출된 건만 보이게
-============================ */
-router.get("/settlements-range-admin", async (req, res) => {
-  const from = String(req.query.from ?? "").trim();
-  const to = String(req.query.to ?? "").trim();
-  const rawStatus = String(req.query.status ?? "").trim();
+  router.get("/settlements-range-admin", async (req, res) => {
+    const from = String(req.query.from ?? "").trim();
+    const to = String(req.query.to ?? "").trim();
+    const rawStatus = String(req.query.status ?? "").trim();
 
-  if (!from || !to) return res.status(400).json({ ok: false, message: "from, to 날짜는 필수입니다." });
+    if (!from || !to) return res.status(400).json({ ok: false, message: "from, to 날짜는 필수입니다." });
 
-  let status: "all" | "pending" | "approved" | "rejected" = "all";
-  if (rawStatus === "pending") status = "pending";
-  else if (rawStatus === "approved") status = "approved";
-  else if (rawStatus === "rejected") status = "rejected";
+    let status: "all" | "pending" | "approved" | "rejected" = "all";
+    if (rawStatus === "pending") status = "pending";
+    else if (rawStatus === "approved") status = "approved";
+    else if (rawStatus === "rejected") status = "rejected";
 
-  try {
-    const params: any[] = [from, to];
-    let where = "bt.trip_date BETWEEN $1::date AND $2::date";
+    try {
+      const params: any[] = [from, to];
+      let where = "bt.trip_date BETWEEN $1::date AND $2::date";
 
-    // ✅ 1) 관리자 승인탭은 "제출된 건만" 보이게 (핵심)
-    where += " AND bt.submitted_at IS NOT NULL";
+      // ✅ 삭제 제외
+      where += " AND bt.deleted_at IS NULL";
 
-    // ✅ 2) 상태 필터
-    if (status === "approved" || status === "rejected") {
-      where += " AND bt.approve_status = $3";
-      params.push(status);
-    } else if (status === "pending") {
-      where += " AND (bt.approve_status IS NULL OR bt.approve_status = 'pending')";
-    }
+      // ✅ 제출된 건만
+      where += " AND bt.submitted_at IS NOT NULL";
 
-    const result = await pool.query(
-      `
+      // ✅ 상태 필터
+      if (status === "approved" || status === "rejected") {
+        where += " AND bt.approve_status = $3";
+        params.push(status);
+      } else if (status === "pending") {
+        where += " AND (bt.approve_status IS NULL OR bt.approve_status = 'pending')";
+      }
+
+      const result = await pool.query(
+        `
       SELECT
         bt.trip_id,
         bt.req_name,
@@ -789,7 +906,7 @@ router.get("/settlements-range-admin", async (req, res) => {
         bt.approve_by,
         bt.approve_at,
         bt.approve_comment,
-        bt.submitted_at,         -- ✅ 추가(중요)
+        bt.submitted_at,
         u.company_part
       FROM business_trips bt
       LEFT JOIN innomax_users u
@@ -797,16 +914,15 @@ router.get("/settlements-range-admin", async (req, res) => {
       WHERE ${where}
       ORDER BY bt.trip_date ASC, bt.req_name ASC, bt.created_at ASC
       `,
-      params
-    );
+        params
+      );
 
-    return res.json({ ok: true, data: result.rows });
-  } catch (err: any) {
-    console.error("관리자용 정산 내역 기간조회 실패 FULL:", err);
-    return res.status(500).json({ ok: false, message: "DB 오류" });
-  }
-});
-
+      return res.json({ ok: true, data: result.rows });
+    } catch (err: any) {
+      console.error("관리자용 정산 내역 기간조회 실패 FULL:", err);
+      return res.status(500).json({ ok: false, message: "DB 오류" });
+    }
+  });
 
   /* ============================
      7) 승인/반려 업데이트
@@ -820,6 +936,7 @@ router.get("/settlements-range-admin", async (req, res) => {
         approve_at      = NOW(),
         approve_comment = $4
       WHERE trip_id = $1
+        AND deleted_at IS NULL
       RETURNING trip_id, approve_status, approve_by, approve_at, approve_comment;
     `;
     const result = await pool.query(sql, [tripId, decision, approver, comment]);
@@ -867,6 +984,7 @@ router.get("/settlements-range-admin", async (req, res) => {
       SELECT trip_id, req_name, trip_date, start_data, detail_json, created_at
       FROM business_trips
       WHERE req_name = $1
+        AND deleted_at IS NULL
         AND (end_data IS NULL OR end_data = '{}'::jsonb)
       ORDER BY trip_date DESC, created_at DESC
       LIMIT 1
@@ -878,7 +996,6 @@ router.get("/settlements-range-admin", async (req, res) => {
 
       const row = r.rows[0];
 
-      // start_data가 비었으면 detail_json.register에서 보정
       const start =
         row.start_data && Object.keys(row.start_data).length > 0
           ? row.start_data
@@ -890,7 +1007,7 @@ router.get("/settlements-range-admin", async (req, res) => {
           trip_id: row.trip_id,
           req_name: row.req_name,
           trip_date: row.trip_date,
-          start_data: start, // ✅ 이게 핵심
+          start_data: start,
         },
       });
     } catch (err: any) {
@@ -898,10 +1015,10 @@ router.get("/settlements-range-admin", async (req, res) => {
       return res.status(500).json({ ok: false, message: "DB 오류" });
     }
   });
+
   // =====================================================
   // 8) (직원용) 정산서 "주간(월~일)" 제출
-  // - submitted_at 찍고, approve_status 는 그대로 NULL(=pending) 유지
-  // - 이미 승인/반려된 건은 제출 못하게 막음
+  // - 이번 주 포함 기간 제출 불가
   // =====================================================
   function isMonToSun(from: string, to: string) {
     const s = new Date(from);
@@ -926,13 +1043,23 @@ router.get("/settlements-range-admin", async (req, res) => {
       return res.status(400).json({ ok: false, message: "제출은 월~일(1주일) 기간만 가능합니다." });
     }
 
+    // ✅ 이번주 포함 주간은 제출 불가
+    const cutoff = getThisWeekMonKstYmd();
+    if (toStr >= cutoff) {
+      return res.status(400).json({
+        ok: false,
+        message: `아직 제출기간이 아닙니다. 이번 주(${cutoff}~)가 포함된 기간은 제출할 수 없습니다.`,
+      });
+    }
+
     try {
-      // 1) 범위 내 데이터 확인
+      // 1) 범위 내 데이터 확인 (삭제 제외)
       const r = await pool.query(
         `
         SELECT trip_id, end_data, approve_status, submitted_at
         FROM business_trips
         WHERE req_name = $1
+          AND deleted_at IS NULL
           AND trip_date BETWEEN $2::date AND $3::date
         ORDER BY trip_date ASC
         `,
@@ -949,18 +1076,19 @@ router.get("/settlements-range-admin", async (req, res) => {
         return res.status(400).json({ ok: false, message: "정산 저장이 완료되지 않은 날짜가 있어 제출할 수 없습니다." });
       }
 
-      // 3) 이미 승인/반려된 주간은 제출 못하게(원하면 정책 바꿀 수 있음)
+      // 3) 이미 승인/반려된 주간은 제출 못하게
       const decided = r.rows.find((x) => x.approve_status === "approved" || x.approve_status === "rejected");
       if (decided) {
         return res.status(400).json({ ok: false, message: "이미 승인/반려된 내역이 포함되어 제출할 수 없습니다." });
       }
 
-      // 4) 제출 처리: submitted_at 일괄 업데이트
+      // 4) 제출 처리
       const upd = await pool.query(
         `
         UPDATE business_trips
         SET submitted_at = NOW()
         WHERE req_name = $1
+          AND deleted_at IS NULL
           AND trip_date BETWEEN $2::date AND $3::date
         RETURNING trip_id, trip_date, submitted_at
         `,
@@ -974,6 +1102,51 @@ router.get("/settlements-range-admin", async (req, res) => {
     }
   });
 
-  return router;
+  // =====================================================
+  // ✅ (직원용/공통) trip_id로 삭제 (soft delete)
+  // - 라우터 안에서는 "/:trip_id" 가 맞음
+  // - 승인(approved)만 삭제 불가, 나머지 삭제 가능
+  // =====================================================
+  router.delete("/:trip_id", async (req, res) => {
+    const trip_id = String(req.params.trip_id || "").trim();
+    if (!trip_id) return res.status(400).json({ ok: false, message: "trip_id required" });
 
+    try {
+      const q1 = await pool.query(
+        `
+        SELECT approve_status, deleted_at
+        FROM business_trips
+        WHERE trip_id = $1
+        LIMIT 1
+        `,
+        [trip_id]
+      );
+
+      if (q1.rowCount === 0) return res.status(404).json({ ok: false, message: "not found" });
+
+      const row = q1.rows[0];
+      if (row.deleted_at) return res.json({ ok: true, message: "already deleted" });
+
+      if (row.approve_status === "approved") {
+        return res.status(403).json({ ok: false, message: "승인된 건은 삭제할 수 없습니다." });
+      }
+
+      await pool.query(
+        `
+        UPDATE business_trips
+        SET deleted_at = NOW()
+        WHERE trip_id = $1
+          AND deleted_at IS NULL
+        `,
+        [trip_id]
+      );
+
+      return res.json({ ok: true });
+    } catch (e: any) {
+      console.error("delete trip error", e);
+      return res.status(500).json({ ok: false, message: e?.message ?? "server error" });
+    }
+  });
+
+  return router;
 }

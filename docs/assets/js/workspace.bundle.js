@@ -895,39 +895,68 @@ function getEl(id) {
         throw new Error(`element not found: #${id}`);
     return el;
 }
-/** ISO 날짜/문자열 → YYYY-MM-DD */
+/* =========================
+   ✅ KST 날짜 유틸 (UTC 밀림 방지)
+========================= */
+const DAY_MS = 24 * 60 * 60 * 1000;
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+/** 어떤 ms(UTC epoch)든 KST 기준 YYYY-MM-DD */
+function ymdFromMsKST(ms) {
+    return new Date(ms + KST_OFFSET_MS).toISOString().slice(0, 10);
+}
+/** YYYY-MM-DD → "KST 자정"의 epoch(ms) */
+function parseYMDToMsKST(ymd) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd ?? "").trim());
+    if (!m)
+        return null;
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d))
+        return null;
+    // Date.UTC(y, mo-1, d) 는 "UTC 자정". KST 자정은 UTC로 -9시간.
+    return Date.UTC(y, mo - 1, d) - KST_OFFSET_MS;
+}
+/** 지금(브라우저 위치가 어디든) KST 기준 오늘 YYYY-MM-DD */
+function todayYMDKST() {
+    return ymdFromMsKST(Date.now());
+}
+/** ISO 날짜/문자열 → YYYY-MM-DD (KST UX 우선) */
 function formatDateLabel(value) {
     if (!value)
         return "";
-    if (value.length >= 10)
-        return value.slice(0, 10);
-    const d = new Date(value);
+    const s = String(value).trim();
+    if (s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s))
+        return s.slice(0, 10);
+    // "2026-01-19T..." 같은 경우도 KST 기준 날짜로
+    const d = new Date(s);
     if (isNaN(d.getTime()))
-        return value;
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        return s;
+    return ymdFromMsKST(d.getTime());
 }
 const DOW_KR = ["일", "월", "화", "수", "목", "금", "토"];
 function formatDateWithDow(value) {
     const ymd = formatDateLabel(value);
-    const d = new Date(ymd);
-    if (Number.isNaN(d.getTime()))
+    const ms = parseYMDToMsKST(ymd);
+    if (ms == null)
         return ymd;
-    return `${ymd}(${DOW_KR[d.getDay()]})`;
+    // KST 기준 요일: (ms+9h) 를 UTC로 보고 getUTCDay
+    const dow = new Date(ms + KST_OFFSET_MS).getUTCDay();
+    return `${ymd}(${DOW_KR[dow]})`;
 }
-/** 특정 날짜가 속한 주(월~일) */
+/** 특정 날짜가 속한 주(월~일) - KST 기준 */
 function getWeekRange(dateStr) {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) {
-        return { start: formatDateLabel(dateStr), end: formatDateLabel(dateStr) };
-    }
-    const day = (d.getDay() + 6) % 7; // 월=0
-    const monday = new Date(d);
-    monday.setDate(d.getDate() - day);
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
+    const ymd = formatDateLabel(dateStr);
+    const ms = parseYMDToMsKST(ymd);
+    if (ms == null)
+        return { start: ymd, end: ymd };
+    const dow = new Date(ms + KST_OFFSET_MS).getUTCDay(); // 0=일..6=토 (KST 기준)
+    const day = (dow + 6) % 7; // 월=0
+    const mondayMs = ms - day * DAY_MS;
+    const sundayMs = mondayMs + 6 * DAY_MS;
     return {
-        start: monday.toISOString().slice(0, 10),
-        end: sunday.toISOString().slice(0, 10),
+        start: ymdFromMsKST(mondayMs),
+        end: ymdFromMsKST(sundayMs),
     };
 }
 /** ✅ 주간 상태 계산 */
@@ -1049,16 +1078,14 @@ function buildWork3LinesForAdmin(reg, set) {
     const returnArrive = set?.return_time || "-";
     const workStart = reg?.work_start_time || arriveTime || "-";
     const workEnd = set?.work_end_time || "-";
-    const departLine = (departStart !== "-" && arriveTime !== "-")
+    const departLine = departStart !== "-" && arriveTime !== "-"
         ? `출발 (출발시간 ${departStart} ~ 도착시간 ${arriveTime})`
         : "출발 (-)";
-    const returnLine = (returnStart !== "-" && returnArrive !== "-")
+    const returnLine = returnStart !== "-" && returnArrive !== "-"
         ? `복귀 (출발시간 ${returnStart} ~ 도착시간 ${returnArrive})`
         : "복귀 (-)";
-    const workMins = (workStart !== "-" && workEnd !== "-") ? calcWorkMinutes(workStart, workEnd) : null;
-    const workLine = (workMins != null)
-        ? `업무시간 ${workStart} ~ ${workEnd} (총 ${formatDuration(workMins)})`
-        : "업무시간 -";
+    const workMins = workStart !== "-" && workEnd !== "-" ? calcWorkMinutes(workStart, workEnd) : null;
+    const workLine = workMins != null ? `업무시간 ${workStart} ~ ${workEnd} (총 ${formatDuration(workMins)})` : "업무시간 -";
     return { departLine, returnLine, workLine, workEnd, workMins };
 }
 /** ✅ 상태 라벨 */
@@ -1076,6 +1103,91 @@ function statusBadgeClass(s) {
         return "text-rose-700 bg-rose-50 border-rose-200";
     return "text-indigo-700 bg-indigo-50 border-indigo-200";
 }
+/* =========================
+   ✅ 조회기간 프리셋 버튼(HTML 수정 없이 JS로 삽입)
+========================= */
+function injectRangeButtons(fromInput, toInput, searchBtn) {
+    const wrap = fromInput.parentElement;
+    if (!wrap)
+        return;
+    // ✅ 이미 붙었으면 중복 생성 방지
+    if (wrap._rangeBtnsInjected)
+        return;
+    wrap._rangeBtnsInjected = true;
+    const row = document.createElement("div");
+    row.className = "mt-2 flex flex-wrap gap-1.5";
+    const mkBtn = (label, onClick) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.className =
+            "px-2 py-1 rounded-lg border text-[11px] bg-white hover:bg-gray-50 active:scale-[0.99] " +
+                "border-gray-200 text-gray-700";
+        b.addEventListener("click", () => {
+            onClick();
+            // ✅ UX: 눌렀으면 바로 조회
+            searchBtn.click();
+        });
+        return b;
+    };
+    const setToday = () => {
+        const ymd = todayYMDKST();
+        fromInput.value = ymd;
+        toInput.value = ymd;
+    };
+    const setThisWeek = () => {
+        const { start, end } = getWeekRange(todayYMDKST());
+        fromInput.value = start;
+        toInput.value = end;
+    };
+    const setLastWeek = () => {
+        const { start } = getWeekRange(todayYMDKST());
+        const startMs = parseYMDToMsKST(start);
+        if (startMs == null)
+            return;
+        const lastMonMs = startMs - 7 * DAY_MS;
+        const lastSunMs = lastMonMs + 6 * DAY_MS;
+        fromInput.value = ymdFromMsKST(lastMonMs);
+        toInput.value = ymdFromMsKST(lastSunMs);
+    };
+    const setThisMonth = () => {
+        const today = todayYMDKST();
+        const ms = parseYMDToMsKST(today);
+        if (ms == null)
+            return;
+        const k = new Date(ms + KST_OFFSET_MS); // KST 기준 날짜를 UTC로 다룸
+        const y = k.getUTCFullYear();
+        const m = k.getUTCMonth() + 1;
+        const firstMs = Date.UTC(y, m - 1, 1) - KST_OFFSET_MS;
+        const lastMs = Date.UTC(y, m, 0) - KST_OFFSET_MS;
+        fromInput.value = ymdFromMsKST(firstMs);
+        toInput.value = ymdFromMsKST(lastMs);
+    };
+    const setLastMonth = () => {
+        const today = todayYMDKST();
+        const ms = parseYMDToMsKST(today);
+        if (ms == null)
+            return;
+        const k = new Date(ms + KST_OFFSET_MS);
+        let y = k.getUTCFullYear();
+        let m = k.getUTCMonth() + 1; // 1~12
+        m -= 1;
+        if (m <= 0) {
+            m = 12;
+            y -= 1;
+        }
+        const firstMs = Date.UTC(y, m - 1, 1) - KST_OFFSET_MS;
+        const lastMs = Date.UTC(y, m, 0) - KST_OFFSET_MS;
+        fromInput.value = ymdFromMsKST(firstMs);
+        toInput.value = ymdFromMsKST(lastMs);
+    };
+    row.appendChild(mkBtn("오늘(KST)", setToday));
+    row.appendChild(mkBtn("이번주", setThisWeek));
+    row.appendChild(mkBtn("전주", setLastWeek));
+    row.appendChild(mkBtn("이번달", setThisMonth));
+    row.appendChild(mkBtn("지난달", setLastMonth));
+    wrap.appendChild(row);
+}
 function initTripApprovalPanel(_panelId) {
     const fromInput = getEl("appr_from");
     const toInput = getEl("appr_to");
@@ -1087,17 +1199,20 @@ function initTripApprovalPanel(_panelId) {
     if (searchBtn._bound)
         return;
     searchBtn._bound = true;
+    // ✅ 조회기간 버튼 삽입 (HTML 수정 없이)
+    injectRangeButtons(fromInput, toInput, searchBtn);
     // 기본 조회 기간: 전주(월~일)  ✅ 제출 기준이 전주라서
-    const today = new Date();
-    const day = (today.getDay() + 6) % 7; // 월=0
-    const thisMon = new Date(today);
-    thisMon.setDate(today.getDate() - day); // 이번주 월요일
-    const prevMon = new Date(thisMon);
-    prevMon.setDate(thisMon.getDate() - 7); // ✅ 전주 월요일
-    const prevSun = new Date(prevMon);
-    prevSun.setDate(prevMon.getDate() + 6); // ✅ 전주 일요일
-    fromInput.value = prevMon.toISOString().slice(0, 10);
-    toInput.value = prevSun.toISOString().slice(0, 10);
+    // (KST 기준으로 계산)
+    {
+        const { start } = getWeekRange(todayYMDKST()); // 이번주 월요일
+        const thisMonMs = parseYMDToMsKST(start);
+        if (thisMonMs != null) {
+            const prevMonMs = thisMonMs - 7 * DAY_MS;
+            const prevSunMs = prevMonMs + 6 * DAY_MS;
+            fromInput.value = ymdFromMsKST(prevMonMs);
+            toInput.value = ymdFromMsKST(prevSunMs);
+        }
+    }
     // ✅ 제출 이벤트가 오면 관리자 화면 자동 갱신(새로고침 X)
     function triggerAdminRefresh() {
         document.getElementById("appr_search")?.click();
@@ -1182,7 +1297,7 @@ function initTripApprovalPanel(_panelId) {
                 tdCount.className = "border px-2 py-1 text-center";
                 tdCount.textContent = String(g.rows.length);
                 tr.appendChild(tdCount);
-                // ✅ 상태 컬럼 추가
+                // ✅ 상태 컬럼
                 const tdStatus = document.createElement("td");
                 tdStatus.className = "border px-2 py-1 text-center";
                 tdStatus.innerHTML = `
@@ -1311,8 +1426,7 @@ function openWeeklyDetailModal(group) {
     modal.classList.remove("hidden");
     modal.classList.add("flex");
     getEl("appr_d_name").textContent = group.req_name;
-    getEl("appr_d_date").textContent =
-        `${formatDateWithDow(group.weekStart)} ~ ${formatDateWithDow(group.weekEnd)}`;
+    getEl("appr_d_date").textContent = `${formatDateWithDow(group.weekStart)} ~ ${formatDateWithDow(group.weekEnd)}`;
     const tbody = getEl("appr_detail_tbody");
     tbody.innerHTML = "";
     const sorted = [...group.rows].sort((a, b) => a.trip_date.localeCompare(b.trip_date));
@@ -1349,8 +1463,8 @@ function openWeeklyDetailModal(group) {
         // ✅ 잔업 알림: 업무 종료시간이 20:30 초과
         const endMin = parseHHMMToMinutes(w.workEnd);
         // 자정 이후 종료(00:00~08:30)도 잔업 처리
-        const isAfter2030 = endMin != null && endMin > (20 * 60 + 30);
-        const isMidnightTo0830 = endMin != null && endMin >= 0 && endMin <= (8 * 60 + 30);
+        const isAfter2030 = endMin != null && endMin > 20 * 60 + 30;
+        const isMidnightTo0830 = endMin != null && endMin >= 0 && endMin <= 8 * 60 + 30;
         if (isAfter2030 || isMidnightTo0830) {
             overtimeDates.push(formatDateLabel(row.trip_date));
         }
@@ -1599,6 +1713,29 @@ function initUserManagePanel(API_BASE) {
                 console.error("[사용자관리] 거래처 마스터 로딩 중 오류:", err);
             }
         }
+        // ✅✅✅ masterClients 기준으로 distanceRows에 "없는 거래처만" 추가(기존 값 유지)
+        function mergeMasterClientsIntoDistanceRows() {
+            if (!Array.isArray(distanceRows))
+                distanceRows = [];
+            if (!Array.isArray(masterClients))
+                masterClients = [];
+            const key = (client) => String(client ?? "").trim();
+            const exists = new Set(distanceRows.map((r) => key(r.client_name)));
+            for (const c of masterClients) {
+                const ck = key(c.client_name);
+                if (!ck)
+                    continue;
+                if (exists.has(ck))
+                    continue;
+                distanceRows.push({
+                    region: c.region, // 지역은 마스터값으로 채워줌
+                    client_name: c.client_name,
+                    travel_time_text: c.travel_time_text,
+                    home_distance_km: null,
+                });
+                exists.add(ck);
+            }
+        }
         // ============= 거리표 렌더링/수집 함수들 =============
         /** 거리표 렌더링 */
         function renderDistanceTable() {
@@ -1607,46 +1744,60 @@ function initUserManagePanel(API_BASE) {
             distanceTbody.innerHTML = "";
             if (!distanceRows.length) {
                 distanceTbody.innerHTML = `
-          <tr>
-            <td colspan="5" class="border px-2 py-1 text-center text-[11px] text-gray-400">
-              등록된 거리 정보가 없습니다. [+ 거리 행 추가] 버튼으로 추가하세요.
-            </td>
-          </tr>
-        `;
+      <tr>
+        <td colspan="5" class="border px-2 py-1 text-center text-[11px] text-gray-400">
+          등록된 거리 정보가 없습니다. [+ 거리 행 추가] 버튼으로 추가하세요.
+        </td>
+      </tr>
+    `;
                 return;
             }
+            // ✅ 거래처명 기준 정렬: 한글(가나다) → 영어(ABC)
+            distanceRows.sort((a, b) => {
+                const ak = (a.client_name || "").trim();
+                const bk = (b.client_name || "").trim();
+                const aIsKo = /^[가-힣]/.test(ak);
+                const bIsKo = /^[가-힣]/.test(bk);
+                // 1️⃣ 한글 우선
+                if (aIsKo && !bIsKo)
+                    return -1;
+                if (!aIsKo && bIsKo)
+                    return 1;
+                // 2️⃣ 같은 그룹 내 정렬
+                return ak.localeCompare(bk, "ko");
+            });
             distanceRows.forEach((row, index) => {
                 const tr = document.createElement("tr");
                 tr.dataset.index = String(index);
                 tr.innerHTML = `
-          <td class="border px-1 py-1 text-center text-[11px]">${index + 1}</td>
-          <td class="border px-1 py-1">
-            <input type="text"
-              class="w-full border rounded px-1 py-[2px] text-[11px] region-input"
-              value="${row.region ?? ""}"
-            />
-          </td>
-          <td class="border px-1 py-1">
-            <input type="text"
-              class="w-full border rounded px-1 py-[2px] text-[11px] client-input"
-              value="${row.client_name ?? ""}"
-            />
-          </td>
-          <td class="border px-1 py-1">
-            <input type="text"
-              class="w-full border rounded px-1 py-[2px] text-[11px] travel-time-input"
-              placeholder="예: 1시간8분"
-              value="${row.travel_time_text ?? ""}"
-            />
-          </td>
-          <td class="border px-1 py-1">
-            <input type="number" step="0.1"
-              class="w-full border rounded px-1 py-[2px] text-right text-[11px] home-km-input"
-              placeholder="자택→출장지 km"
-              value="${row.home_distance_km ?? ""}"
-            />
-          </td>
-        `;
+      <td class="border px-1 py-1 text-center text-[11px]">${index + 1}</td>
+      <td class="border px-1 py-1">
+        <input type="text"
+          class="w-full border rounded px-1 py-[2px] text-[11px] region-input"
+          value="${row.region ?? ""}"
+        />
+      </td>
+      <td class="border px-1 py-1">
+        <input type="text"
+          class="w-full border rounded px-1 py-[2px] text-[11px] client-input"
+          value="${row.client_name ?? ""}"
+        />
+      </td>
+      <td class="border px-1 py-1">
+        <input type="text"
+          class="w-full border rounded px-1 py-[2px] text-[11px] travel-time-input"
+          placeholder="예: 1시간8분"
+          value="${row.travel_time_text ?? ""}"
+        />
+      </td>
+      <td class="border px-1 py-1">
+        <input type="number" step="0.1"
+          class="w-full border rounded px-1 py-[2px] text-right text-[11px] home-km-input"
+          placeholder="자택→출장지 km"
+          value="${row.home_distance_km ?? ""}"
+        />
+      </td>
+    `;
                 distanceTbody.appendChild(tr);
             });
         }
@@ -1751,6 +1902,7 @@ function initUserManagePanel(API_BASE) {
                             home_distance_km: null,
                         }));
             }
+            mergeMasterClientsIntoDistanceRows();
             renderDistanceTable();
             userModal.classList.remove("hidden");
         }
@@ -1966,6 +2118,41 @@ function initUserManagePanel(API_BASE) {
             console.log("[사용자관리] refresh 이벤트 수신 → loadUsers()");
             loadUsers();
         });
+        // ✅ 거리마스터 저장/수정되면 사용자관리 거래처 마스터 자동 갱신 + (모달 열려있으면) 표에도 자동 반영
+        window.addEventListener("distance-master-changed", async () => {
+            console.log("[사용자관리] distance-master-changed 수신 → 거래처 마스터 재로딩");
+            await loadMasterClients();
+            // 모달이 열려있으면(= hidden 아니면) 현재 distanceRows에 누락된 거래처를 자동 추가
+            if (userModal && !userModal.classList.contains("hidden")) {
+                syncDistanceRowsFromTable(); // 현재 입력중인 값 유지
+                const exists = new Set(distanceRows.map((r) => (r.client_name || "").trim()));
+                for (const c of masterClients) {
+                    const key = (c.client_name || "").trim();
+                    if (!key)
+                        continue;
+                    if (exists.has(key))
+                        continue;
+                    distanceRows.push({
+                        region: c.region,
+                        client_name: c.client_name,
+                        travel_time_text: c.travel_time_text,
+                        home_distance_km: null,
+                    });
+                }
+                renderDistanceTable(); // 정렬 포함해서 다시 렌더
+            }
+        });
+        // ✅✅✅ 거리마스터 저장 후(05에서 쏘는 이벤트) 거래처 마스터 즉시 반영
+        window.addEventListener("client-master-changed", async () => {
+            console.log("[사용자관리] client-master-changed 수신 → loadMasterClients()");
+            await loadMasterClients();
+            // 모달이 열려 있을 때만 거리표까지 즉시 갱신(닫혀있으면 다음에 열 때 openModal에서 merge됨)
+            const isModalOpen = userModal && !userModal.classList.contains("hidden");
+            if (isModalOpen) {
+                mergeMasterClientsIntoDistanceRows();
+                renderDistanceTable();
+            }
+        });
         // 초기 데이터 로딩
         await loadMasterClients();
         await loadUsers();
@@ -2044,7 +2231,6 @@ function escapeHtml(s) {
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
 }
-// ✅ 날짜 표시용: "2026-01-07T00:00:00.000Z" → "2026-01-07"
 function ymdText(v) {
     if (!v)
         return "";
@@ -2061,7 +2247,6 @@ function vacTypeLabel(t) {
 function openVacNoteModal(name, range, note) {
     alert(`[비고]\n${name}\n${range}\n\n${note}`);
 }
-// ✅ 월 계산 유틸(로테이션 프리뷰에 필요)
 function addMonthsToYm(ymStr, delta) {
     const [y, m] = ymStr.split("-").map(Number);
     const d = new Date(y, m - 1, 1);
@@ -2074,34 +2259,28 @@ function compareYm(a, b) {
 function mod(n, m) {
     return ((n % m) + m) % m;
 }
-// ✅✅✅ YYYY-MM-DD 체크(일정/필터에 사용)
 function isYmd(s) {
     return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 function datesBetweenInclusive(start, end) {
     const out = [];
-    // ✅ ISO("2026-01-07T00:00:00.000Z")든 뭐든 앞 10글자만 사용
     const s0 = ymdText(start);
     const e0 = ymdText(end);
-    // ✅ 유효성 체크
     if (!isYmd(s0) || !isYmd(e0))
         return out;
     if (s0 > e0)
         return out;
     const s = new Date(s0 + "T00:00:00");
     const e = new Date(e0 + "T00:00:00");
-    // 혹시라도 Date가 깨지면 방어
     if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()))
         return out;
-    for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+    for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1))
         out.push(ymd(d));
-    }
     return out;
 }
 function buildVacationEvents(items) {
     const map = new Map();
     for (const it of items) {
-        // ✅ ISO든 뭐든 앞 10글자 정규화
         const s = ymdText(it?.start_date);
         const e = ymdText(it?.end_date);
         if (!isYmd(s) || !isYmd(e))
@@ -2111,11 +2290,7 @@ function buildVacationEvents(items) {
         for (const ds of days) {
             if (!map.has(ds))
                 map.set(ds, []);
-            map.get(ds).push({
-                date: ds,
-                kind: "VACATION",
-                text: label,
-            });
+            map.get(ds).push({ date: ds, kind: "VACATION", text: label });
         }
     }
     return map;
@@ -2127,15 +2302,10 @@ function buildDutyEvents(assigns) {
             continue;
         if (!map.has(a.date))
             map.set(a.date, []);
-        map.get(a.date).push({
-            date: a.date,
-            kind: "DUTY",
-            text: a.name,
-        });
+        map.get(a.date).push({ date: a.date, kind: "DUTY", text: a.name });
     }
     return map;
 }
-// ✅✅✅ 일정(캘린더 이벤트) 펼치기
 function buildScheduleEvents(items) {
     const map = new Map();
     for (const it of items) {
@@ -2146,12 +2316,7 @@ function buildScheduleEvents(items) {
             continue;
         if (!map.has(it.date))
             map.set(it.date, []);
-        map.get(it.date).push({
-            date: it.date,
-            kind: "SCHEDULE",
-            text: title,
-            id: Number(it.id), // ✅ 삭제용 id
-        });
+        map.get(it.date).push({ date: it.date, kind: "SCHEDULE", text: title, id: Number(it.id) });
     }
     return map;
 }
@@ -2539,6 +2704,13 @@ function initBusinessMasterPanel(API_BASE) {
     }
     panel._bound = true;
     const distanceTbody = distanceTbodyEl;
+    // ✅ 다른 화면에서 거리 마스터가 바뀌었다고 알려오면, 이 화면도 동기화
+    window.addEventListener("client-master-changed", () => {
+        // 보이는 상태면 갱신(숨김이면 다음 진입 때 어차피 reloadBusinessMasterFromServer가 함)
+        const isHidden = panel.classList.contains("hidden");
+        if (!isHidden)
+            loadDistances();
+    });
     // ✅✅✅ 통합 저장 핸들러 (유류/환율/공지/당직 등 saveConfig에 들어있는 값 저장)
     const onSave = async () => {
         await saveConfig(); // ✅ 기존 설정 저장 함수 그대로 사용
@@ -3501,45 +3673,61 @@ function initBusinessMasterPanel(API_BASE) {
         }
     }
     function renderDistanceTable() {
+        if (!distanceTbody)
+            return;
         distanceTbody.innerHTML = "";
         if (!distanceRows.length) {
             distanceTbody.innerHTML = `
-        <tr>
-          <td colspan="6" class="border px-2 py-2 text-center text-xs text-gray-400">
-            등록된 거리 정보가 없습니다. [+ 행 추가] 버튼으로 추가하세요.
-          </td>
-        </tr>
-      `;
+      <tr>
+        <td colspan="6" class="border px-2 py-2 text-center text-xs text-gray-400">
+          등록된 거리 정보가 없습니다. [+ 행 추가] 버튼으로 추가하세요.
+        </td>
+      </tr>
+    `;
             return;
         }
+        // ✅ 거래처명 기준 정렬: 한글(가나다) → 알파벳(ABC)
+        distanceRows.sort((a, b) => {
+            const ak = (a.client_name || "").trim();
+            const bk = (b.client_name || "").trim();
+            const aIsKo = /^[가-힣]/.test(ak);
+            const bIsKo = /^[가-힣]/.test(bk);
+            // 1️⃣ 한글 먼저
+            if (aIsKo && !bIsKo)
+                return -1;
+            if (!aIsKo && bIsKo)
+                return 1;
+            // 2️⃣ 같은 그룹 안에서는 localeCompare
+            return ak.localeCompare(bk, "ko");
+        });
         distanceRows.forEach((row, index) => {
             const tr = document.createElement("tr");
             tr.dataset.index = String(index);
             tr.innerHTML = `
-        <td class="border-b px-2 py-2 text-center text-[11px]">${index + 1}</td>
-        <td class="border-b px-2 py-2">
-          <input type="text"
-            class="w-full border rounded-xl px-2 py-2 text-xs region-input bg-white"
-            value="${escapeHtml(row.region ?? "")}" />
-        </td>
-        <td class="border-b px-2 py-2">
-          <input type="text"
-            class="w-full border rounded-xl px-2 py-2 text-xs client-input bg-white"
-            value="${escapeHtml(row.client_name ?? "")}" />
-        </td>
-        <td class="border-b px-2 py-2">
-          <input type="number" step="0.1"
-            class="w-full border rounded-xl px-2 py-2 text-right text-xs distance-km-input bg-white"
-            placeholder="km"
-            value="${row.distance_km ?? ""}" />
-        </td>
-        <td class="border-b px-2 py-2 text-center">
-          <button type="button"
-            class="px-2 py-1 text-[11px] rounded-lg bg-red-100 text-red-700 hover:bg-red-200 btn-row-delete">
-            삭제
-          </button>
-        </td>
-      `;
+      <td class="border-b px-2 py-2 text-center text-[11px]">${index + 1}</td>
+      <td class="border-b px-2 py-2">
+        <input type="text"
+          class="w-full border rounded-xl px-2 py-2 text-xs region-input bg-white"
+          value="${escapeHtml(row.region ?? "")}" />
+      </td>
+      <td class="border-b px-2 py-2">
+        <input type="text"
+          class="w-full border rounded-xl px-2 py-2 text-xs client-input bg-white"
+          value="${escapeHtml(row.client_name ?? "")}" />
+      </td>
+      <td class="border-b px-2 py-2">
+        <input type="number" step="0.1"
+          class="w-full border rounded-xl px-2 py-2 text-right text-xs distance-km-input bg-white"
+          placeholder="km"
+          value="${row.distance_km ?? ""}" />
+      </td>
+      <td class="border-b px-2 py-2 text-center">
+        <button type="button"
+          class="px-2 py-1 text-[11px] rounded-lg bg-red-100 text-red-700 hover:bg-red-200 btn-row-delete">
+          삭제
+        </button>
+      </td>
+    `;
             distanceTbody.appendChild(tr);
         });
     }
@@ -3570,18 +3758,22 @@ function initBusinessMasterPanel(API_BASE) {
             }
         }
         try {
+            // 1) 삭제 먼저
             for (const id of deletedIds) {
                 if (!id)
                     continue;
                 const res = await fetch(`${API_BASE}/api/business-master/distances/${id}`, {
                     method: "DELETE",
-                    credentials: "include",
+                    credentials: "include", // ✅ 추가(중요)
                 });
                 if (!res.ok) {
                     console.error("[출장업무관리] 거리 삭제 실패 id=", id, "status=", res.status);
+                    alert(`거리 삭제 실패(id=${id})`);
+                    return; // ✅ 실패하면 중단 (헷갈림 방지)
                 }
             }
             deletedIds = [];
+            // 2) 등록/수정
             for (const row of distanceRows) {
                 const payload = {
                     region: row.region,
@@ -3592,23 +3784,39 @@ function initBusinessMasterPanel(API_BASE) {
                     const res = await fetch(`${API_BASE}/api/business-master/distances`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
+                        credentials: "include", // ✅ 추가(중요)
                         body: JSON.stringify(payload),
                     });
-                    if (!res.ok)
-                        console.error("[출장업무관리] 거리 등록 실패 status=", res.status);
+                    const json = await res.json().catch(() => null);
+                    if (!res.ok || json?.ok !== true) {
+                        console.error("[출장업무관리] 거리 등록 실패", res.status, json);
+                        alert(json?.error || "거리 등록 실패");
+                        return;
+                    }
                 }
                 else {
                     const res = await fetch(`${API_BASE}/api/business-master/distances/${row.id}`, {
                         method: "PUT",
                         headers: { "Content-Type": "application/json" },
+                        credentials: "include", // ✅ 추가(중요)distanceRows.forEach(...)
                         body: JSON.stringify(payload),
                     });
-                    if (!res.ok)
-                        console.error("[출장업무관리] 거리 수정 실패 id=", row.id, "status=", res.status);
+                    const json = await res.json().catch(() => null);
+                    if (!res.ok || json?.ok !== true) {
+                        console.error("[출장업무관리] 거리 수정 실패", row.id, res.status, json);
+                        alert(json?.error || "거리 수정 실패");
+                        return;
+                    }
                 }
             }
+            window.dispatchEvent(new CustomEvent("client-master-changed"));
             alert("거리 마스터가 저장되었습니다.");
+            // ✅ 저장 직후, 나 자신 화면도 새로고침
             await loadDistances();
+            window.dispatchEvent(new CustomEvent("distance-master-changed"));
+            // ✅✅✅ 핵심: 사용자관리(유저 거리)도 즉시 갱신시키는 이벤트
+            window.dispatchEvent(new CustomEvent("client-master-changed"));
+            window.dispatchEvent(new Event("user-manage-refresh")); // (이미 쓰고 있으면 유지)
         }
         catch (err) {
             console.error("[출장업무관리] 거리 저장 중 오류:", err);
@@ -4442,6 +4650,35 @@ function clearQueryParams(keys) {
         // ignore
     }
 }
+// ✅ 날짜 표시 유틸: 어떤 값이 와도 YYYY-MM-DD로 고정
+function toYmd(v) {
+    if (!v)
+        return "";
+    const s = String(v).trim();
+    // 이미 YYYY-MM-DD 형태면 그대로
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m)
+        return m[1];
+    // Date/ISO 등은 ISO로 바꾼 뒤 앞 10자리만
+    try {
+        const iso = new Date(v).toISOString();
+        return iso.slice(0, 10);
+    }
+    catch {
+        return "";
+    }
+}
+// ✅ YYYY-MM-DD → (월/화/...) KST 기준 요일
+function ymdToKoreanDow(ymd) {
+    const [y, m, d] = String(ymd).split("-").map((x) => Number(x));
+    if (!y || !m || !d)
+        return "";
+    // UTC로 만들고 +9h 해서 KST 요일 계산
+    const dt = new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
+    const kst = new Date(dt.getTime() + 9 * 60 * 60 * 1000);
+    const dow = ["일", "월", "화", "수", "목", "금", "토"][kst.getUTCDay()];
+    return dow ? `(${dow})` : "";
+}
 function initDomesticTripSettlementPanel(API_BASE) {
     console.log("[정산] initDomesticTripSettlementPanel 호출");
     const section = document.getElementById("bt_settlement_section");
@@ -4530,6 +4767,25 @@ function initDomesticTripSettlementPanel(API_BASE) {
         const now = collectFormSnapshot();
         setDirtyUI(now !== snapshot);
     }
+    // ✅✅✅ (추가) 폼 완전 초기화 (이전 데이터 잔존 방지)
+    function clearForm(msg) {
+        workEndInput.value = "";
+        returnTimeInput.value = "";
+        returnPlaceSelect.value = "";
+        if (returnPlaceOther) {
+            returnPlaceOther.value = "";
+            returnPlaceOther.classList.add("hidden");
+        }
+        document.querySelectorAll(`input[name="bt_vehicle"]`).forEach((r) => (r.checked = false));
+        mealBreakfastCheck.checked = false;
+        mealLunchCheck.checked = false;
+        mealDinnerCheck.checked = false;
+        mealBreakfastOwner.value = "";
+        mealLunchOwner.value = "";
+        mealDinnerOwner.value = "";
+        resultBox.textContent = msg ?? "";
+        applySnapshotNow(); // dirty 해제
+    }
     // ✅ 입력 변화 감지(최소 침습)
     const bindDirty = (el) => {
         if (!el)
@@ -4577,10 +4833,24 @@ function initDomesticTripSettlementPanel(API_BASE) {
         }
         return { ok: true, req_name, trip_date };
     }
+    // ✅✅✅ (추가) 타겟이 바뀌면 폼을 무조건 비움 (이전 값 잔존 방지)
+    let lastTargetKey = "";
+    function syncTargetAndClearIfChanged() {
+        const t = validateTargetOrClear();
+        const key = `${t.req_name}|${t.trip_date}`;
+        if (!t.req_name || !t.trip_date) {
+            lastTargetKey = "";
+            // 타겟이 없으면 화면 잔존값도 지우는 게 안전
+            clearForm("");
+            return;
+        }
+        if (lastTargetKey && key !== lastTargetKey) {
+            clearForm("✅ 이전 정산 입력값을 초기화했습니다.");
+        }
+        lastTargetKey = key;
+    }
     /**
-     * ✅✅✅ (추가) URL 파라미터가 없을 때 "진행중 정산" 1건을 서버에서 다시 찾아 자동 세팅
-     * - 08에서 이미 해주지만, 09에서 한번 더 안전장치로 보강
-     * - 조건: settlement_in_progress=true 인 건만 복원됨
+     * ✅ URL 파라미터가 없을 때 "진행중 정산" 1건을 서버에서 다시 찾아 자동 세팅
      */
     async function restoreTargetIfMissing() {
         const me = currentUserName();
@@ -4588,7 +4858,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
             return;
         const now = readSettleTarget();
         if (now.req_name && now.trip_date)
-            return; // 이미 있으면 끝
+            return;
         try {
             const r = await fetch(`${API_BASE}/api/business-trip/settlement/in-progress?req_name=${encodeURIComponent(me)}`);
             if (!r.ok)
@@ -4608,11 +4878,14 @@ function initDomesticTripSettlementPanel(API_BASE) {
     }
     // ✅ 초기 1회: 혹시 URL이 비어있으면 진행중 복원 시도
     restoreTargetIfMissing().then(() => {
-        // 복원 이후에도 계정 불일치면 바로 제거
-        validateTargetOrClear();
-        // ✅ 최초 스냅샷 기준점 잡기
+        // ✅ 타겟 확정 + 변경 시 폼 초기화
+        syncTargetAndClearIfChanged();
+        // ✅ 최초 스냅샷 기준점
         applySnapshotNow();
     });
+    // ✅ (선택) URL이 바뀌는 SPA 환경 대응: 뒤로가기/해시 변경 시에도 타겟 동기화
+    window.addEventListener("hashchange", () => syncTargetAndClearIfChanged());
+    window.addEventListener("popstate", () => syncTargetAndClearIfChanged());
     resetBtn.addEventListener("click", async () => {
         if (isDirty) {
             const ok = await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
@@ -4629,28 +4902,14 @@ function initDomesticTripSettlementPanel(API_BASE) {
             if (ok !== true)
                 return;
         }
-        workEndInput.value = "";
-        returnTimeInput.value = "";
-        returnPlaceSelect.value = "";
-        if (returnPlaceOther) {
-            returnPlaceOther.value = "";
-            returnPlaceOther.classList.add("hidden");
-        }
-        document.querySelectorAll(`input[name="bt_vehicle"]`).forEach((r) => (r.checked = false));
-        mealBreakfastCheck.checked = false;
-        mealLunchCheck.checked = false;
-        mealDinnerCheck.checked = false;
-        mealBreakfastOwner.value = "";
-        mealLunchOwner.value = "";
-        mealDinnerOwner.value = "";
-        resultBox.textContent = "정산 입력값이 초기화되었습니다.";
-        applySnapshotNow();
+        clearForm("정산 입력값이 초기화되었습니다.");
     });
     saveBtn.addEventListener("click", async () => {
         const vehicleValueRaw = getCheckedRadioValue("bt_vehicle");
         const vehicleValue = toVehicleCode(vehicleValueRaw);
-        // ✅ 혹시 저장 순간에도 URL이 비어있으면 한번 더 복원 시도 후 검증
+        // ✅ 저장 순간에도 URL이 비어있으면 한번 더 복원 시도 후 검증
         await restoreTargetIfMissing();
+        syncTargetAndClearIfChanged(); // ✅ 타겟 동기화(혹시 변경됐으면 초기화)
         const t = validateTargetOrClear();
         const trip_date = t.trip_date;
         const req_name = t.req_name;
@@ -4684,10 +4943,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
             });
             return;
         }
-        // ✅ 회사/자택은 company/home 그대로 보내고, 기타만 텍스트로 보냄
-        const return_place = returnPlaceSelect.value === "other"
-            ? (returnPlaceOther?.value ?? "").trim()
-            : returnPlaceSelect.value; // company | home
+        const return_place = returnPlaceSelect.value === "other" ? (returnPlaceOther?.value ?? "").trim() : returnPlaceSelect.value;
         if (!return_place) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
@@ -4732,7 +4988,6 @@ function initDomesticTripSettlementPanel(API_BASE) {
         try {
             saveBtn.disabled = true;
             resultBox.textContent = "정산 내용 저장 중...";
-            // ✅ 정산 저장(서버 계산/검증은 여기서 1회 더 수행됨)
             const res = await fetch(`${API_BASE}/api/business-trip/settlement`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -4752,7 +5007,6 @@ function initDomesticTripSettlementPanel(API_BASE) {
             }
             const data = await res.json().catch(() => null);
             console.log("[정산] 응답 data =", data);
-            // (선택) 개인차량인데 km=0이면 안내
             const fuelKm = data?.data?.calc?.fuel_distance_km ?? 0;
             if (vehicleValue === "personal" && Number(fuelKm) === 0) {
                 await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
@@ -4771,13 +5025,11 @@ function initDomesticTripSettlementPanel(API_BASE) {
                 showOk: true,
                 showCancel: false,
             });
-            // ✅✅✅ 정산 완료 후: URL 파라미터 제거 + 등록 화면에 '정산완료' 신호
             clearQueryParams(["req_name", "trip_date"]);
             window.dispatchEvent(new Event("domestic-trip-settled"));
-            // 대시보드 갱신
             window.dispatchEvent(new Event("trip-status-refresh"));
-            // ✅ 저장 성공 기준으로 dirty 해제
             applySnapshotNow();
+            lastTargetKey = ""; // ✅ 타겟 제거했으니 키도 초기화
         }
         catch (err) {
             console.error("[정산] 저장 중 오류:", err);
@@ -4794,8 +5046,25 @@ function initDomesticTripSettlementPanel(API_BASE) {
             saveBtn.disabled = false;
         }
     });
+    // ✅✅✅ (추가) SPA 패널 전환 대응: 정산 섹션이 "보이는 순간" 타겟 점검 + 타겟 없으면 clearForm()
+    // - 너의 화면은 hidden 토글 방식이라 hashchange가 안 나서 값이 남았던 것
+    const mo = new MutationObserver(() => {
+        const isHidden = section.classList.contains("hidden");
+        if (!isHidden) {
+            // 섹션이 보이는 순간마다: 타겟 동기화 + 없으면 폼 초기화
+            syncTargetAndClearIfChanged();
+            // 타겟이 있더라도, 여기서 snapshot 기준점 다시 잡아줘야 "dirty"가 이상하게 안 뜸
+            applySnapshotNow();
+        }
+    });
+    mo.observe(section, { attributes: true, attributeFilter: ["class"] });
+    // ✅ 섹션이 이미 보이는 상태로 init 되었을 수도 있으니 1회 보정
+    if (!section.classList.contains("hidden")) {
+        syncTargetAndClearIfChanged();
+        applySnapshotNow();
+    }
     // ✅ 섹션이 열려있는 상태에서 다른 계정으로 로그인하거나 URL 파라미터가 꼬이면 즉시 제거
-    validateTargetOrClear();
+    syncTargetAndClearIfChanged();
 }
 
 
@@ -4813,11 +5082,15 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* harmony import */ var _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./utils/ModalUtil */ "./TypeScript/workspace/utils/ModalUtil.ts");
 // TypeScript/workspace/10_domestic-trip-history.ts
-// ✅ 통째 교체본 (요구사항 반영)
+// ✅ 통째 교체본 (요구사항 반영 + 삭제 기능 추가)
 // 1) 다른 화면 갔다가 오면 무조건 "오늘 기준 전주(월~일)"로 초기세팅 + 조회전 UI 리셋
 // 2) 제출 버튼은 "조회된 내역이 있으면" 항상 클릭 가능(주간아님/미정산/이미제출은 클릭 후 안내/모달)
 // 3) 주간(월~일) 아니면 모달로 주간 자동 변경 + 재조회 후 제출
-// 4) 미정산 포함 / 이미 제출 포함은 alert 안내(원하면 모달로도 바꿀 수 있음)
+// 4) 미정산 포함 / 이미 제출 포함은 alert 안내
+// 5) ✅ 반려사유 옆에 [삭제] 버튼 추가
+//    - ✅ 승인(approved)만 삭제 불가
+//    - ✅ 미제출/제출/반려/대기(pending/null) 삭제 가능
+//    - 삭제 후 자동 재조회
 
 function getEl(id) {
     const el = document.getElementById(id);
@@ -5007,17 +5280,69 @@ function initDomesticTripHistoryPanel(API_BASE) {
         resultMsg.textContent = "조회할 기간을 선택한 뒤 [조회하기]를 눌러주세요.";
         tbody.innerHTML = `
       <tr>
-        <td colspan="8" class="border px-2 py-3 text-center text-gray-400">
+        <td colspan="9" class="border px-2 py-3 text-center text-gray-400">
           조회된 정산 내역이 없습니다.
         </td>
       </tr>
     `;
         updateSubmitEnabled();
     }
+    // =========================
+    // ✅ 미제출 주간 안내 모달 (제출 화면에서만!)
+    // =========================
+    async function checkPendingWeeksModal() {
+        const me = getLoginUserName();
+        if (!me)
+            return;
+        const ymdOnly = (v) => {
+            const s = String(v ?? "").trim();
+            if (!s)
+                return "-";
+            // "2026-01-04T00:00:00.000Z" 같은 ISO면 앞 10자리만
+            if (s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s))
+                return s.slice(0, 10);
+            const d = new Date(s);
+            if (Number.isNaN(d.getTime()))
+                return s;
+            const yy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, "0");
+            const dd = String(d.getDate()).padStart(2, "0");
+            return `${yy}-${mm}-${dd}`;
+        };
+        try {
+            const r = await fetch(`${API_BASE}/api/business-trip/settlements-pending-weeks?req_name=${encodeURIComponent(me)}`);
+            if (!r.ok)
+                return;
+            const j = await r.json().catch(() => null);
+            const weeks = j?.data?.weeks ?? [];
+            const cutoff = ymdOnly(j?.data?.cutoff ?? "");
+            if (!Array.isArray(weeks) || weeks.length === 0)
+                return;
+            const total = weeks.reduce((a, b) => a + Number(b?.count ?? 0), 0);
+            const first = weeks[0];
+            const ws = ymdOnly(first?.week_start);
+            const we = ymdOnly(first?.week_end);
+            await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                type: "warn",
+                title: "미제출 정산이 있습니다",
+                messageHtml: `${cutoff} 이전 미제출 정산 <b>${total}건</b>이 있습니다.<br/>` +
+                    `예: <b>${ws} ~ ${we}</b> (${Number(first?.count ?? 0)}건)<br/>` +
+                    `제출은 <b>지난주까지</b>만 가능합니다.`,
+                showOk: true,
+                showCancel: false,
+                okText: "확인",
+                okClass: "bg-amber-600 hover:bg-amber-700",
+            });
+        }
+        catch {
+            // ignore
+        }
+    }
     // ✅ 패널이 "다시 보일 때마다" 무조건 초기세팅(오늘 기준 전주) + 조회 전 UI 리셋
     function applyDefaultOnPanelShow() {
         setLastWeekRange();
         resetResultsUI();
+        checkPendingWeeksModal(); // ✅ 추가
     }
     // ✅ 패널 show 감지 (hidden -> visible)
     const mo = new MutationObserver(() => {
@@ -5043,6 +5368,34 @@ function initDomesticTripHistoryPanel(API_BASE) {
             localStorage.setItem("trip:submitted", JSON.stringify({ payload: payload ?? {}, ts: Date.now() }));
         }
         catch { }
+    }
+    // =========================
+    // ✅ 모달 helpers
+    // =========================
+    async function niceAlert(title, messageHtml, type = "alert") {
+        await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+            type,
+            title,
+            messageHtml,
+            showOk: true,
+            showCancel: false,
+            okText: "확인",
+            okClass: type === "warn" ? "bg-amber-500 hover:bg-amber-600" : "bg-indigo-600 hover:bg-indigo-700",
+        });
+    }
+    async function niceConfirm(title, messageHtml, okText = "확인", cancelText = "취소") {
+        const ok = await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+            type: "warn",
+            title,
+            messageHtml,
+            showOk: true,
+            showCancel: true,
+            okText,
+            cancelText,
+            okClass: "bg-emerald-600 hover:bg-emerald-700",
+            cancelClass: "border border-gray-300 text-gray-700 hover:bg-gray-50",
+        });
+        return ok === true;
     }
     // =========================
     // ✅ 주간 제출 전용 모달
@@ -5077,8 +5430,6 @@ function initDomesticTripHistoryPanel(API_BASE) {
     }
     // =========================
     // ✅ 제출 가능/불가 안내 + 버튼 활성화
-    // ✅ 제출 버튼은 "조회된 내역이 있으면" 항상 클릭 가능하게 둔다
-    // - 주간아님/미정산/이미제출은 클릭 시 안내(모달/알림)
     // =========================
     function updateSubmitEnabled() {
         const okWeek = isMonToSunRange(fromInput.value, toInput.value);
@@ -5115,13 +5466,29 @@ function initDomesticTripHistoryPanel(API_BASE) {
             return "반려(X)";
         return "제출";
     }
+    function canDeleteRow(r) {
+        // ✅ 요구사항: 승인만 삭제 불가, 나머지는 삭제 가능
+        return r.approve_status !== "approved";
+    }
+    async function deleteTripById(tripId) {
+        const res = await fetch(`${API_BASE}/api/business-trip/${encodeURIComponent(tripId)}`, {
+            method: "DELETE",
+            credentials: "include",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || json?.ok === false) {
+            const msg = String(json?.message ?? "삭제 실패");
+            throw new Error(msg);
+        }
+        return json;
+    }
     function renderRows(rows) {
         lastRows = rows;
         updateSubmitEnabled();
         if (!rows.length) {
             tbody.innerHTML = `
         <tr>
-          <td colspan="8" class="border px-2 py-3 text-center text-gray-400">
+          <td colspan="9" class="border px-2 py-3 text-center text-gray-400">
             조회된 정산 내역이 없습니다.
           </td>
         </tr>
@@ -5138,16 +5505,10 @@ function initDomesticTripHistoryPanel(API_BASE) {
             const returnArrive = s.return_time || "-";
             const workStart = r.work_start_time || arriveTime || "-";
             const workEnd = s.work_end_time || "-";
-            const departLine = departStart !== "-" && arriveTime !== "-"
-                ? `출발 (출발시간 ${departStart} ~ 도착시간 ${arriveTime})`
-                : "출발 (-)";
-            const returnLine = returnStart !== "-" && returnArrive !== "-"
-                ? `복귀 (출발시간 ${returnStart} ~ 도착시간 ${returnArrive})`
-                : "복귀 (-)";
+            const departLine = departStart !== "-" && arriveTime !== "-" ? `출발 (출발시간 ${departStart} ~ 도착시간 ${arriveTime})` : "출발 (-)";
+            const returnLine = returnStart !== "-" && returnArrive !== "-" ? `복귀 (출발시간 ${returnStart} ~ 도착시간 ${returnArrive})` : "복귀 (-)";
             const workDiff = workStart !== "-" && workEnd !== "-" ? calcHourDiff(workStart, workEnd) : "-";
-            const workLine = workDiff !== "-"
-                ? `업무시간 ${workStart} ~ ${workEnd} (총 ${workDiff})`
-                : "업무시간 -";
+            const workLine = workDiff !== "-" ? `업무시간 ${workStart} ~ ${workEnd} (총 ${workDiff})` : "업무시간 -";
             const vehicleRaw = String(s.vehicle ?? "").trim();
             const vehicleText = vehicleRaw === "personal"
                 ? "개인차"
@@ -5174,43 +5535,97 @@ function initDomesticTripHistoryPanel(API_BASE) {
             const mainTask = r.purpose || "-";
             const st = statusText(row);
             const rejectReason = row.approve_status === "rejected" ? row.approve_comment ?? "" : "";
+            // ✅ 삭제 버튼 (승인이면 disabled)
+            const deleteDisabled = !canDeleteRow(row);
+            const deleteBtnHtml = `
+        <button
+          class="trip_del_btn px-2 py-1 rounded-md text-xs font-semibold ${deleteDisabled
+                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                : "bg-rose-600 text-white hover:bg-rose-700"}"
+          data-trip-id="${String(row.trip_id).replace(/"/g, "&quot;")}"
+          ${deleteDisabled ? "disabled" : ""}
+          title="${deleteDisabled ? "승인된 건은 삭제할 수 없습니다." : "이 출장/정산을 삭제합니다."}"
+        >삭제</button>
+      `;
             const tr = document.createElement("tr");
             tr.innerHTML = `
-        <td class="border px-2 py-1 text-center whitespace-nowrap">
-          ${formatYmdWithDow(row.trip_date)}
-        </td>
+  <td class="border px-2 py-1 text-center whitespace-nowrap">
+    ${formatYmdWithDow(row.trip_date)}
+  </td>
 
-        <td class="border px-2 py-2 text-left whitespace-normal leading-snug">
-          <div class="text-gray-700">${departLine}</div>
-          <div class="text-gray-700">${returnLine}</div>
-          <div class="font-bold text-indigo-600 mt-1">${workLine}</div>
-        </td>
+  <td class="border px-2 py-2 text-left whitespace-normal leading-snug">
+    <div class="text-gray-700">${departLine}</div>
+    <div class="text-gray-700">${returnLine}</div>
+    <div class="font-bold text-indigo-600 mt-1">${workLine}</div>
+  </td>
 
-        <td class="border px-2 py-1 text-center whitespace-nowrap">
-          ${vehicleText}
-        </td>
+  <td class="border px-2 py-1 text-center whitespace-nowrap">
+    ${vehicleText}
+  </td>
 
-        <td class="border px-2 py-1 text-center whitespace-nowrap">
-          ${mealsText}
-        </td>
+  <td class="border px-2 py-1 text-center whitespace-nowrap">
+    ${mealsText}
+  </td>
 
-        <td class="border px-2 py-1 truncate">
-          ${routeText}
-        </td>
+  <td class="border px-2 py-1 truncate">
+    ${routeText}
+  </td>
 
-        <td class="border px-2 py-1 whitespace-normal">
-          ${mainTask}
-        </td>
+  <td class="border px-2 py-1 whitespace-normal">
+    ${mainTask}
+  </td>
 
-        <td class="border px-2 py-1 text-center font-semibold whitespace-nowrap">
-          ${st}
-        </td>
+  <td class="border px-2 py-1 text-center font-semibold whitespace-nowrap">
+    ${st}
+  </td>
 
-        <td class="border px-2 py-1 text-rose-600 whitespace-normal">
-          ${rejectReason}
-        </td>
-      `;
+  <!-- ✅ 반려사유 칸: 반려사유만 -->
+  <td class="border px-2 py-1 text-rose-600 whitespace-normal">
+    ${rejectReason}
+  </td>
+
+  <!-- ✅ 삭제 칸: 삭제 버튼만 (반려사유 옆 공란 칸) -->
+  <td class="border px-2 py-1 text-center whitespace-nowrap">
+    ${deleteBtnHtml}
+  </td>
+`;
             tbody.appendChild(tr);
+        });
+        // ✅ 삭제 버튼 이벤트(렌더 후 한번에 바인딩)
+        const delBtns = Array.from(tbody.querySelectorAll(".trip_del_btn"));
+        delBtns.forEach((btn) => {
+            if (btn._bound)
+                return;
+            btn._bound = true;
+            btn.addEventListener("click", async () => {
+                const tripId = String(btn.dataset.tripId ?? "").trim();
+                if (!tripId)
+                    return;
+                // 현재 rows에서 상태 확인
+                const row = lastRows.find((x) => x.trip_id === tripId);
+                if (row?.approve_status === "approved") {
+                    await niceAlert("삭제 불가", "승인된 건은 삭제할 수 없습니다.", "warn");
+                    return;
+                }
+                const yes = await niceConfirm("정산/출장 삭제", `정말 삭제하시겠습니까?<br/><b class="text-gray-900">${formatYmdWithDow(row?.trip_date ?? "")}</b>`, "삭제", "취소");
+                if (!yes)
+                    return;
+                try {
+                    btn.disabled = true;
+                    btn.textContent = "삭제중";
+                    await deleteTripById(tripId);
+                    await niceAlert("삭제 완료", "삭제되었습니다.");
+                    await fetchHistory(); // ✅ 삭제 후 재조회
+                }
+                catch (e) {
+                    console.error(e);
+                    await niceAlert("삭제 실패", String(e?.message ?? "삭제 실패"), "warn");
+                }
+                finally {
+                    btn.disabled = false;
+                    btn.textContent = "삭제";
+                }
+            });
         });
     }
     async function fetchHistory() {
@@ -5220,7 +5635,7 @@ function initDomesticTripHistoryPanel(API_BASE) {
         resultMsg.textContent = "조회 중...";
         tbody.innerHTML = `
       <tr>
-        <td colspan="8" class="border px-2 py-3 text-center text-gray-400">
+        <td colspan="9" class="border px-2 py-3 text-center text-gray-400">
           조회 중...
         </td>
       </tr>
@@ -5240,33 +5655,6 @@ function initDomesticTripHistoryPanel(API_BASE) {
     // ✅ 입력 바뀌면 안내 문구 갱신
     fromInput.addEventListener("change", updateSubmitEnabled);
     toInput.addEventListener("change", updateSubmitEnabled);
-    async function niceAlert(title, messageHtml, type = "alert") {
-        await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
-            type,
-            title,
-            messageHtml,
-            showOk: true,
-            showCancel: false,
-            okText: "확인",
-            okClass: type === "warn"
-                ? "bg-amber-500 hover:bg-amber-600"
-                : "bg-indigo-600 hover:bg-indigo-700",
-        });
-    }
-    async function niceConfirm(title, messageHtml, okText = "확인", cancelText = "취소") {
-        const ok = await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
-            type: "warn",
-            title,
-            messageHtml,
-            showOk: true,
-            showCancel: true,
-            okText,
-            cancelText,
-            okClass: "bg-emerald-600 hover:bg-emerald-700",
-            cancelClass: "border border-gray-300 text-gray-700 hover:bg-gray-50",
-        });
-        return ok === true;
-    }
     // =========================
     // ✅ 제출하기
     // =========================
@@ -5314,7 +5702,7 @@ function initDomesticTripHistoryPanel(API_BASE) {
                 await niceAlert("제출할 수 없습니다", "미등록 또는 정산저장이 되지 않은 출장입니다.<br/>정산 저장을 완료한 뒤 제출해주세요.", "warn");
                 return;
             }
-            // 2) 이미 제출 포함  ✅ 여기! 지금 니 스샷 메시지
+            // 2) 이미 제출 포함
             const anySubmitted = lastRows.some((r) => !!r.submitted_at);
             if (anySubmitted) {
                 await niceAlert("제출할 수 없습니다", "이미 제출된 정산이 포함되어 있습니다.<br/>제출할 주간만 다시 조회해서 제출해주세요.", "warn");

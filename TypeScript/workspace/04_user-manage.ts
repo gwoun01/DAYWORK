@@ -229,7 +229,29 @@ export function initUserManagePanel(API_BASE: string) {
         console.error("[사용자관리] 거래처 마스터 로딩 중 오류:", err);
       }
     }
+    // ✅✅✅ masterClients 기준으로 distanceRows에 "없는 거래처만" 추가(기존 값 유지)
+    function mergeMasterClientsIntoDistanceRows() {
+      if (!Array.isArray(distanceRows)) distanceRows = [];
+      if (!Array.isArray(masterClients)) masterClients = [];
 
+      const key = (client: string) => String(client ?? "").trim();
+
+      const exists = new Set(distanceRows.map((r) => key(r.client_name)));
+
+      for (const c of masterClients) {
+        const ck = key(c.client_name);
+        if (!ck) continue;
+        if (exists.has(ck)) continue;
+
+        distanceRows.push({
+          region: c.region,                 // 지역은 마스터값으로 채워줌
+          client_name: c.client_name,
+          travel_time_text: c.travel_time_text,
+          home_distance_km: null,
+        });
+        exists.add(ck);
+      }
+    }
     // ============= 거리표 렌더링/수집 함수들 =============
 
     /** 거리표 렌더링 */
@@ -240,48 +262,64 @@ export function initUserManagePanel(API_BASE: string) {
 
       if (!distanceRows.length) {
         distanceTbody.innerHTML = `
-          <tr>
-            <td colspan="5" class="border px-2 py-1 text-center text-[11px] text-gray-400">
-              등록된 거리 정보가 없습니다. [+ 거리 행 추가] 버튼으로 추가하세요.
-            </td>
-          </tr>
-        `;
+      <tr>
+        <td colspan="5" class="border px-2 py-1 text-center text-[11px] text-gray-400">
+          등록된 거리 정보가 없습니다. [+ 거리 행 추가] 버튼으로 추가하세요.
+        </td>
+      </tr>
+    `;
         return;
       }
+
+      // ✅ 거래처명 기준 정렬: 한글(가나다) → 영어(ABC)
+      distanceRows.sort((a, b) => {
+        const ak = (a.client_name || "").trim();
+        const bk = (b.client_name || "").trim();
+
+        const aIsKo = /^[가-힣]/.test(ak);
+        const bIsKo = /^[가-힣]/.test(bk);
+
+        // 1️⃣ 한글 우선
+        if (aIsKo && !bIsKo) return -1;
+        if (!aIsKo && bIsKo) return 1;
+
+        // 2️⃣ 같은 그룹 내 정렬
+        return ak.localeCompare(bk, "ko");
+      });
 
       distanceRows.forEach((row, index) => {
         const tr = document.createElement("tr");
         tr.dataset.index = String(index);
 
         tr.innerHTML = `
-          <td class="border px-1 py-1 text-center text-[11px]">${index + 1}</td>
-          <td class="border px-1 py-1">
-            <input type="text"
-              class="w-full border rounded px-1 py-[2px] text-[11px] region-input"
-              value="${row.region ?? ""}"
-            />
-          </td>
-          <td class="border px-1 py-1">
-            <input type="text"
-              class="w-full border rounded px-1 py-[2px] text-[11px] client-input"
-              value="${row.client_name ?? ""}"
-            />
-          </td>
-          <td class="border px-1 py-1">
-            <input type="text"
-              class="w-full border rounded px-1 py-[2px] text-[11px] travel-time-input"
-              placeholder="예: 1시간8분"
-              value="${row.travel_time_text ?? ""}"
-            />
-          </td>
-          <td class="border px-1 py-1">
-            <input type="number" step="0.1"
-              class="w-full border rounded px-1 py-[2px] text-right text-[11px] home-km-input"
-              placeholder="자택→출장지 km"
-              value="${row.home_distance_km ?? ""}"
-            />
-          </td>
-        `;
+      <td class="border px-1 py-1 text-center text-[11px]">${index + 1}</td>
+      <td class="border px-1 py-1">
+        <input type="text"
+          class="w-full border rounded px-1 py-[2px] text-[11px] region-input"
+          value="${row.region ?? ""}"
+        />
+      </td>
+      <td class="border px-1 py-1">
+        <input type="text"
+          class="w-full border rounded px-1 py-[2px] text-[11px] client-input"
+          value="${row.client_name ?? ""}"
+        />
+      </td>
+      <td class="border px-1 py-1">
+        <input type="text"
+          class="w-full border rounded px-1 py-[2px] text-[11px] travel-time-input"
+          placeholder="예: 1시간8분"
+          value="${row.travel_time_text ?? ""}"
+        />
+      </td>
+      <td class="border px-1 py-1">
+        <input type="number" step="0.1"
+          class="w-full border rounded px-1 py-[2px] text-right text-[11px] home-km-input"
+          placeholder="자택→출장지 km"
+          value="${row.home_distance_km ?? ""}"
+        />
+      </td>
+    `;
 
         distanceTbody.appendChild(tr);
       });
@@ -382,6 +420,8 @@ export function initUserManagePanel(API_BASE: string) {
               home_distance_km: null,
             }));
       }
+
+      mergeMasterClientsIntoDistanceRows();
 
       renderDistanceTable();
       userModal.classList.remove("hidden");
@@ -616,7 +656,46 @@ export function initUserManagePanel(API_BASE: string) {
       console.log("[사용자관리] refresh 이벤트 수신 → loadUsers()");
       loadUsers();
     });
+    // ✅ 거리마스터 저장/수정되면 사용자관리 거래처 마스터 자동 갱신 + (모달 열려있으면) 표에도 자동 반영
+    window.addEventListener("distance-master-changed", async () => {
+      console.log("[사용자관리] distance-master-changed 수신 → 거래처 마스터 재로딩");
 
+      await loadMasterClients();
+
+      // 모달이 열려있으면(= hidden 아니면) 현재 distanceRows에 누락된 거래처를 자동 추가
+      if (userModal && !userModal.classList.contains("hidden")) {
+        syncDistanceRowsFromTable(); // 현재 입력중인 값 유지
+
+        const exists = new Set(distanceRows.map((r) => (r.client_name || "").trim()));
+        for (const c of masterClients) {
+          const key = (c.client_name || "").trim();
+          if (!key) continue;
+          if (exists.has(key)) continue;
+
+          distanceRows.push({
+            region: c.region,
+            client_name: c.client_name,
+            travel_time_text: c.travel_time_text,
+            home_distance_km: null,
+          });
+        }
+
+        renderDistanceTable(); // 정렬 포함해서 다시 렌더
+      }
+    });
+
+    // ✅✅✅ 거리마스터 저장 후(05에서 쏘는 이벤트) 거래처 마스터 즉시 반영
+    window.addEventListener("client-master-changed", async () => {
+      console.log("[사용자관리] client-master-changed 수신 → loadMasterClients()");
+      await loadMasterClients();
+
+      // 모달이 열려 있을 때만 거리표까지 즉시 갱신(닫혀있으면 다음에 열 때 openModal에서 merge됨)
+      const isModalOpen = userModal && !userModal.classList.contains("hidden");
+      if (isModalOpen) {
+        mergeMasterClientsIntoDistanceRows();
+        renderDistanceTable();
+      }
+    });
     // 초기 데이터 로딩
     await loadMasterClients();
     await loadUsers();
