@@ -3,6 +3,7 @@
 // 1) 다른 화면 갔다가 오면 무조건 "오늘 기준 전주(월~일)"로 초기세팅 + 조회전 UI 리셋
 // 2) 제출 버튼은 "조회된 내역이 있으면" 항상 클릭 가능(주간아님/미정산/이미제출은 클릭 후 안내/모달)
 // 3) 주간(월~일) 아니면 모달로 주간 자동 변경 + 재조회 후 제출
+//    ✅ 단, 자동 변경 기준은 "오늘"이 아니라 "서칭된 주(lastRows 기준)"로 잡는다
 // 4) 미정산 포함 / 이미 제출 포함은 alert 안내
 // 5) ✅ 반려사유 옆에 [삭제] 버튼 추가
 //    - ✅ 승인(approved)만 삭제 불가
@@ -257,6 +258,7 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
     `;
     updateSubmitEnabled();
   }
+
   // =========================
   // ✅ 미제출 주간 안내 모달 (제출 화면에서만!)
   // =========================
@@ -278,9 +280,7 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
     };
 
     try {
-      const r = await fetch(
-        `${API_BASE}/api/business-trip/settlements-pending-weeks?req_name=${encodeURIComponent(me)}`
-      );
+      const r = await fetch(`${API_BASE}/api/business-trip/settlements-pending-weeks?req_name=${encodeURIComponent(me)}`);
       if (!r.ok) return;
 
       const j = await r.json().catch(() => null);
@@ -339,11 +339,11 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
       const bc = new BroadcastChannel("trip-events");
       bc.postMessage({ type: "trip:submitted", payload: payload ?? {}, ts: Date.now() });
       bc.close();
-    } catch { }
+    } catch {}
 
     try {
       localStorage.setItem("trip:submitted", JSON.stringify({ payload: payload ?? {}, ts: Date.now() }));
-    } catch { }
+    } catch {}
   }
 
   // =========================
@@ -377,26 +377,59 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
   }
 
   // =========================
-  // ✅ 주간 제출 전용 모달
+  // ✅ "서칭된 주" 기준 계산 helpers (핵심!)
   // =========================
-  async function openWeekSubmitModal(opts: {
-    baseFrom: string;
-    onConvertAndSubmit: () => void;
-  }) {
-    const base = opts.baseFrom || "-";
-    const baseDate = base && base !== "-" ? new Date(base) : new Date();
-    const mon = startOfWeekMon(baseDate);
-    const sun = endOfWeekSun(baseDate);
-    const monStr = toYMD(mon);
-    const sunStr = toYMD(sun);
+  function parseYMDLocal(ymd: string) {
+    const [y, m, d] = String(ymd).slice(0, 10).split("-").map(Number);
+    return new Date(y, (m ?? 1) - 1, d ?? 1); // ✅ UTC 파싱 방지
+  }
+
+  function weekRangeMonSunByYMD(ymd: string) {
+    const dt = parseYMDLocal(ymd);
+    const day = dt.getDay(); // 0=일..6=토
+    const diffToMon = (day + 6) % 7; // 월요일 기준
+    const mon = new Date(dt);
+    mon.setDate(dt.getDate() - diffToMon);
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    return { monStr: toYMD(mon), sunStr: toYMD(sun) };
+  }
+
+  /** ✅ 모달에서 제안할 기준 날짜: 조회된 rows가 있으면 최신 날짜(max trip_date) 기준 */
+  function getSearchBasedBaseYmd(): string {
+    const dates = (lastRows ?? [])
+      .map((r) => String(r.trip_date ?? "").slice(0, 10).trim())
+      .filter(Boolean);
+
+    if (dates.length > 0) {
+      dates.sort(); // YYYY-MM-DD 문자열 정렬 = 날짜 정렬
+      return dates[dates.length - 1]; // ✅ 최신 날짜
+    }
+
+    // rows가 없으면 현재 입력값 to -> from 순서로 fallback
+    const t = String(toInput.value ?? "").slice(0, 10).trim();
+    if (t) return t;
+
+    const f = String(fromInput.value ?? "").slice(0, 10).trim();
+    if (f) return f;
+
+    return toYMD(new Date());
+  }
+
+  // =========================
+  // ✅ 주간 제출 전용 모달 (서칭된 주 기준으로 주간 제안)
+  // =========================
+  async function openWeekSubmitModal(opts: { onConvertAndSubmit: () => void }) {
+    const baseYmd = getSearchBasedBaseYmd();
+    const { monStr, sunStr } = weekRangeMonSunByYMD(baseYmd);
 
     const ok = await ModalUtil.show({
       type: "warn",
       title: "제출은 주간(월~일)만 가능합니다",
       messageHtml: `
-      현재 선택 기간은 주간(월~일)이 아닙니다.<br/>
-      <b class="text-gray-900">${monStr} ~ ${sunStr}</b> (월~일)로 자동 변경 후 제출할까요?
-    `,
+        현재 선택 기간은 주간(월~일)이 아닙니다.<br/>
+        <b class="text-gray-900">${monStr} ~ ${sunStr}</b> (월~일)로 자동 변경 후 제출할까요?
+      `,
       showOk: true,
       showCancel: true,
       okText: "주간으로 맞추고 제출",
@@ -515,12 +548,12 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
         vehicleRaw === "personal"
           ? "개인차"
           : vehicleRaw === "corp"
-            ? "법인차"
-            : vehicleRaw === "public"
-              ? "대중교통"
-              : vehicleRaw === "other"
-                ? "기타"
-                : vehicleRaw || "-";
+          ? "법인차"
+          : vehicleRaw === "public"
+          ? "대중교통"
+          : vehicleRaw === "other"
+          ? "기타"
+          : vehicleRaw || "-";
 
       const meals = s.meals || {};
       const mealStrs: string[] = [];
@@ -543,10 +576,11 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
       const deleteDisabled = !canDeleteRow(row);
       const deleteBtnHtml = `
         <button
-          class="trip_del_btn px-2 py-1 rounded-md text-xs font-semibold ${deleteDisabled
-          ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-          : "bg-rose-600 text-white hover:bg-rose-700"
-        }"
+          class="trip_del_btn px-2 py-1 rounded-md text-xs font-semibold ${
+            deleteDisabled
+              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+              : "bg-rose-600 text-white hover:bg-rose-700"
+          }"
           data-trip-id="${String(row.trip_id).replace(/"/g, "&quot;")}"
           ${deleteDisabled ? "disabled" : ""}
           title="${deleteDisabled ? "승인된 건은 삭제할 수 없습니다." : "이 출장/정산을 삭제합니다."}"
@@ -590,13 +624,12 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
     ${rejectReason}
   </td>
 
-  <!-- ✅ 삭제 칸: 삭제 버튼만 (반려사유 옆 공란 칸) -->
+  <!-- ✅ 삭제 칸: 삭제 버튼만 -->
   <td class="border px-2 py-1 text-center whitespace-nowrap">
     ${deleteBtnHtml}
   </td>
 `;
       tbody.appendChild(tr);
-
     });
 
     // ✅ 삭제 버튼 이벤트(렌더 후 한번에 바인딩)
@@ -609,7 +642,6 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
         const tripId = String(btn.dataset.tripId ?? "").trim();
         if (!tripId) return;
 
-        // 현재 rows에서 상태 확인
         const row = lastRows.find((x) => x.trip_id === tripId);
         if (row?.approve_status === "approved") {
           await niceAlert("삭제 불가", "승인된 건은 삭제할 수 없습니다.", "warn");
@@ -686,12 +718,7 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
       return;
     }
 
-    const yes = await niceConfirm(
-      "정산서 제출",
-      "이 기간(주간)의 정산서를 제출하시겠습니까?",
-      "제출",
-      "취소"
-    );
+    const yes = await niceConfirm("정산서 제출", "이 기간(주간)의 정산서를 제출하시겠습니까?", "제출", "취소");
     if (!yes) return;
 
     const res = await fetch(`${API_BASE}/api/business-trip/settlements-submit-week`, {
@@ -749,11 +776,10 @@ export function initDomesticTripHistoryPanel(API_BASE: string) {
         return;
       }
 
-      // 3) 주간 아니면 모달 → 주간으로 맞추고 제출
+      // 3) 주간 아니면 모달 → ✅ 서칭된 주 기준으로 맞추고 제출
       const okWeek = isMonToSunRange(fromInput.value, toInput.value);
       if (!okWeek) {
         await openWeekSubmitModal({
-          baseFrom: fromInput.value,
           onConvertAndSubmit: async () => {
             await fetchHistory();
             if (!lastRows.length) {

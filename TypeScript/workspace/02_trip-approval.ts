@@ -258,55 +258,80 @@ function statusBadgeClass(s: "pending" | "approved" | "rejected") {
 
 /* =========================
    ✅ 조회기간 프리셋 버튼(HTML 수정 없이 JS로 삽입)
+   - "조회 기간" 라벨 + pill 버튼 (제출화면처럼)
 ========================= */
 
 function injectRangeButtons(fromInput: HTMLInputElement, toInput: HTMLInputElement, searchBtn: HTMLButtonElement) {
-  const wrap = fromInput.parentElement;
-  if (!wrap) return;
+  const fromWrap = fromInput.parentElement;
+  const toWrap = toInput.parentElement;
+  if (!fromWrap || !toWrap) return;
+
+  // ✅ 시작/종료일 공통 영역(가장 가까운 공통 부모)을 잡아서 그 아래에 bar를 붙인다
+  let host: HTMLElement | null = null;
+
+  if (fromWrap.parentElement && fromWrap.parentElement.contains(toWrap)) host = fromWrap.parentElement as HTMLElement;
+  else if (toWrap.parentElement && toWrap.parentElement.contains(fromWrap)) host = toWrap.parentElement as HTMLElement;
+  else host = (fromWrap.parentElement?.parentElement as HTMLElement | null) ?? (fromWrap as HTMLElement);
 
   // ✅ 이미 붙었으면 중복 생성 방지
-  if ((wrap as any)._rangeBtnsInjected) return;
-  (wrap as any)._rangeBtnsInjected = true;
+  if ((host as any)._rangeBarInjected) return;
+  (host as any)._rangeBarInjected = true;
 
-  const row = document.createElement("div");
-  row.className = "mt-2 flex flex-wrap gap-1.5";
+  const bar = document.createElement("div");
+  bar.className = "mt-2 flex items-center gap-3";
+
+  const title = document.createElement("div");
+  title.className = "text-xs font-bold text-gray-700 w-[72px] text-center";
+  title.textContent = "조회 기간";
+
+  const btnWrap = document.createElement("div");
+  btnWrap.className = "flex flex-wrap gap-2";
 
   const mkBtn = (label: string, onClick: () => void) => {
     const b = document.createElement("button");
     b.type = "button";
     b.textContent = label;
+
+    // ✅ 제출화면 느낌의 pill
     b.className =
-      "px-2 py-1 rounded-lg border text-[11px] bg-white hover:bg-gray-50 active:scale-[0.99] " +
-      "border-gray-200 text-gray-700";
+      "px-3 py-1.5 rounded-full border text-xs bg-white " +
+      "border-[#c7d8ee] text-gray-700 hover:bg-[#f5f9ff] active:scale-[0.99]";
+
     b.addEventListener("click", () => {
       onClick();
-      // ✅ UX: 눌렀으면 바로 조회
+      // ✅ UX: 기간 선택 즉시 조회(원래 동작 유지하고 싶으면 이 줄만 지우면 됨)
       searchBtn.click();
     });
     return b;
   };
 
+  // ====== 프리셋 계산 ======
   const setToday = () => {
     const ymd = todayYMDKST();
     fromInput.value = ymd;
     toInput.value = ymd;
   };
 
-  const setThisWeek = () => {
-    const { start, end } = getWeekRange(todayYMDKST());
-    fromInput.value = start;
+  const set1Day = () => setToday(); // 제출화면의 "1일" = 오늘로 (원하면 "최근 1일"로 바꿀 수 있음)
+
+  const set1Week = () => {
+    // ✅ 최근 7일(오늘 포함) : 오늘-6 ~ 오늘
+    const end = todayYMDKST();
+    const endMs = parseYMDToMsKST(end);
+    if (endMs == null) return;
+    const startMs = endMs - 6 * DAY_MS;
+    fromInput.value = ymdFromMsKST(startMs);
     toInput.value = end;
   };
 
-  const setLastWeek = () => {
-    const { start } = getWeekRange(todayYMDKST());
-    const startMs = parseYMDToMsKST(start);
-    if (startMs == null) return;
-
-    const lastMonMs = startMs - 7 * DAY_MS;
-    const lastSunMs = lastMonMs + 6 * DAY_MS;
-    fromInput.value = ymdFromMsKST(lastMonMs);
-    toInput.value = ymdFromMsKST(lastSunMs);
+  const set1Month = () => {
+    // ✅ 최근 30일(오늘 포함) : 오늘-29 ~ 오늘
+    const end = todayYMDKST();
+    const endMs = parseYMDToMsKST(end);
+    if (endMs == null) return;
+    const startMs = endMs - 29 * DAY_MS;
+    fromInput.value = ymdFromMsKST(startMs);
+    toInput.value = end;
   };
 
   const setThisMonth = () => {
@@ -314,7 +339,7 @@ function injectRangeButtons(fromInput: HTMLInputElement, toInput: HTMLInputEleme
     const ms = parseYMDToMsKST(today);
     if (ms == null) return;
 
-    const k = new Date(ms + KST_OFFSET_MS); // KST 기준 날짜를 UTC로 다룸
+    const k = new Date(ms + KST_OFFSET_MS);
     const y = k.getUTCFullYear();
     const m = k.getUTCMonth() + 1;
 
@@ -325,7 +350,7 @@ function injectRangeButtons(fromInput: HTMLInputElement, toInput: HTMLInputEleme
     toInput.value = ymdFromMsKST(lastMs);
   };
 
-  const setLastMonth = () => {
+  const setPrevMonth = () => {
     const today = todayYMDKST();
     const ms = parseYMDToMsKST(today);
     if (ms == null) return;
@@ -346,13 +371,42 @@ function injectRangeButtons(fromInput: HTMLInputElement, toInput: HTMLInputEleme
     toInput.value = ymdFromMsKST(lastMs);
   };
 
-  row.appendChild(mkBtn("오늘(KST)", setToday));
-  row.appendChild(mkBtn("이번주", setThisWeek));
-  row.appendChild(mkBtn("전주", setLastWeek));
-  row.appendChild(mkBtn("이번달", setThisMonth));
-  row.appendChild(mkBtn("지난달", setLastMonth));
+  const setThisWeek = () => {
+    const { start, end } = getWeekRange(todayYMDKST());
+    fromInput.value = start;
+    toInput.value = end;
+  };
 
-  wrap.appendChild(row);
+  const setLastWeek = () => {
+    const { start } = getWeekRange(todayYMDKST()); // 이번주 월
+    const startMs = parseYMDToMsKST(start);
+    if (startMs == null) return;
+
+    const lastMonMs = startMs - 7 * DAY_MS;
+    const lastSunMs = lastMonMs + 6 * DAY_MS;
+    fromInput.value = ymdFromMsKST(lastMonMs);
+    toInput.value = ymdFromMsKST(lastSunMs);
+  };
+
+  // ✅ 제출화면 버튼 구성 그대로
+  btnWrap.appendChild(mkBtn("1일", set1Day));
+  btnWrap.appendChild(mkBtn("1주일", set1Week));
+  btnWrap.appendChild(mkBtn("한달", set1Month));
+  btnWrap.appendChild(mkBtn("전월", setPrevMonth));
+  btnWrap.appendChild(mkBtn("당월", setThisMonth));
+  btnWrap.appendChild(mkBtn("이번주(월~일)", setThisWeek));
+  btnWrap.appendChild(mkBtn("지난주(월~일)", setLastWeek));
+
+  bar.appendChild(title);
+  bar.appendChild(btnWrap);
+
+  // (선택) 제출화면처럼 안내 문구까지 넣고 싶으면 살려둬도 됨
+  const note = document.createElement("div");
+  note.className = "mt-1 text-[11px] text-gray-500";
+  note.textContent = "* 제출은 월~일(1주일) 기간일 때만 가능합니다.";
+
+  host.appendChild(bar);
+  host.appendChild(note);
 }
 
 export function initTripApprovalPanel(_panelId: string) {

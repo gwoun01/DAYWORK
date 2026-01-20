@@ -89,7 +89,7 @@ async function getFuelSettings(pool: Pool): Promise<{
     const priceLpg = toNumberOrNull(row.fuel_price_lpg) ?? DEFAULT_FUEL_PRICE;
 
     return { priceGasoline, priceDiesel, priceLpg, kmPerLiter: safeKmPerLiter };
-  } catch (e) {}
+  } catch (e) { }
 
   // ✅ 2순위 fallback: business_trip_config.config_json
   try {
@@ -650,46 +650,32 @@ export default function businessTripRouter(pool: Pool) {
     try {
       const chk = await pool.query(
         `
-        SELECT trip_id, approve_status, deleted_at
-        FROM business_trips
-        WHERE req_name = $1
-          AND trip_date = $2
-        LIMIT 1
-        `,
+      SELECT trip_id, approve_status
+      FROM business_trips
+      WHERE req_name = $1 AND trip_date = $2
+      LIMIT 1
+      `,
         [name, date]
       );
 
-      if (chk.rows.length === 0) {
-        return res.status(404).json({ ok: false, message: "삭제할 데이터가 없습니다." });
-      }
+      if (chk.rows.length === 0) return res.status(404).json({ ok: false, message: "삭제할 데이터가 없습니다." });
 
       const tripId = String(chk.rows[0]?.trip_id ?? "");
       const approveStatus = String(chk.rows[0]?.approve_status ?? "");
-      const deletedAt = chk.rows[0]?.deleted_at;
-
-      if (deletedAt) return res.json({ ok: true, data: { trip_id: tripId, req_name: name, trip_date: date, already_deleted: true } });
 
       if (approveStatus === "approved") {
         return res.status(403).json({ ok: false, message: "승인된 건은 삭제할 수 없습니다." });
       }
 
-      const upd = await pool.query(
+      const del = await pool.query(
         `
-        UPDATE business_trips
-        SET deleted_at = NOW()
-        WHERE req_name = $1
-          AND trip_date = $2
-          AND deleted_at IS NULL
-        RETURNING trip_id, req_name, trip_date, deleted_at
-        `,
+      DELETE FROM business_trips
+      WHERE req_name = $1 AND trip_date = $2
+      `,
         [name, date]
       );
 
-      if (upd.rows.length === 0) {
-        return res.status(400).json({ ok: false, message: "삭제할 수 없는 상태입니다." });
-      }
-
-      return res.json({ ok: true, data: upd.rows[0] });
+      return res.json({ ok: true, data: { trip_id: tripId, deleted: del.rowCount } });
     } catch (err: any) {
       console.error("[settlement/delete] error FULL:", err);
       return res.status(500).json({ ok: false, message: "DB 오류" });
@@ -1114,34 +1100,29 @@ export default function businessTripRouter(pool: Pool) {
     try {
       const q1 = await pool.query(
         `
-        SELECT approve_status, deleted_at
-        FROM business_trips
-        WHERE trip_id = $1
-        LIMIT 1
-        `,
+      SELECT approve_status
+      FROM business_trips
+      WHERE trip_id = $1
+      LIMIT 1
+      `,
         [trip_id]
       );
 
       if (q1.rowCount === 0) return res.status(404).json({ ok: false, message: "not found" });
 
-      const row = q1.rows[0];
-      if (row.deleted_at) return res.json({ ok: true, message: "already deleted" });
-
-      if (row.approve_status === "approved") {
+      if (q1.rows[0].approve_status === "approved") {
         return res.status(403).json({ ok: false, message: "승인된 건은 삭제할 수 없습니다." });
       }
 
-      await pool.query(
+      const del = await pool.query(
         `
-        UPDATE business_trips
-        SET deleted_at = NOW()
-        WHERE trip_id = $1
-          AND deleted_at IS NULL
-        `,
+      DELETE FROM business_trips
+      WHERE trip_id = $1
+      `,
         [trip_id]
       );
 
-      return res.json({ ok: true });
+      return res.json({ ok: true, deleted: del.rowCount });
     } catch (e: any) {
       console.error("delete trip error", e);
       return res.status(500).json({ ok: false, message: e?.message ?? "server error" });

@@ -38,6 +38,18 @@ function textOrEmpty(v: any) {
   return String(v ?? "").trim();
 }
 
+// ✅ HH:mm → 분(min) 변환 (자정 넘어감 판단에 사용)
+function parseHHMMToMinutes(v: any): number | null {
+  const s = String(v ?? "").trim();
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return hh * 60 + mm;
+}
+
 /**
  * ✅ URL 파라미터 읽기 (search + hash 둘 다 대응)
  */
@@ -104,6 +116,7 @@ function clearQueryParams(keys: string[]) {
     // ignore
   }
 }
+
 // ✅ 날짜 표시 유틸: 어떤 값이 와도 YYYY-MM-DD로 고정
 function toYmd(v: any): string {
   if (!v) return "";
@@ -174,15 +187,6 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     return (userNameEl?.textContent ?? "").trim();
   }
 
-  // ✅ 복귀지 기타 토글
-  returnPlaceSelect.addEventListener("change", () => {
-    if (!returnPlaceOther) return;
-    const isOther = returnPlaceSelect.value === "other";
-    returnPlaceOther.classList.toggle("hidden", !isOther);
-    if (!isOther) returnPlaceOther.value = "";
-    markDirty();
-  });
-
   // ✅ 체크 안 한 식사는 owner="none"
   const normalizeMeal = (checked: boolean, owner: string) => {
     if (!checked) return { checked: false, owner: "none" };
@@ -190,7 +194,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
   };
 
   // ===========================
-  // ✅ (추가) 변경 감지(Dirty) + 새로고침 경고
+  // ✅ 변경 감지(Dirty) + 새로고침 경고
   // ===========================
   let snapshot = "";
   let isDirty = false;
@@ -238,7 +242,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     setDirtyUI(now !== snapshot);
   }
 
-  // ✅✅✅ (추가) 폼 완전 초기화 (이전 데이터 잔존 방지)
+  // ✅✅✅ 폼 완전 초기화
   function clearForm(msg?: string) {
     workEndInput.value = "";
     returnTimeInput.value = "";
@@ -262,6 +266,39 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     resultBox.textContent = msg ?? "";
     applySnapshotNow(); // dirty 해제
   }
+
+  // ✅✅✅ 08에서 "이어서 정산" 누르면 무조건 폼 초기화(브라우저 자동복원 제거)
+  window.addEventListener("settlement:force-clear", () => {
+    clearForm("");
+    applySnapshotNow();
+  });
+
+  // ✅✅✅ 정산 시간 인터락(자정 넘어감 허용)
+  // - 업무종료(예: 23:00) > 복귀(예: 02:00)면 "익일 복귀" 안내만 띄움
+  function showNextDayHint_Settlement() {
+    const s = parseHHMMToMinutes(workEndInput.value);
+    const e = parseHHMMToMinutes(returnTimeInput.value);
+    if (s == null || e == null) return;
+
+    if (s > e) {
+      resultBox.textContent =
+        "ℹ️ 복귀시간이 업무종료시간보다 빠릅니다 → 익일 복귀(자정 넘어감)으로 처리됩니다.";
+    }
+  }
+
+  workEndInput.addEventListener("change", showNextDayHint_Settlement);
+  returnTimeInput.addEventListener("change", showNextDayHint_Settlement);
+  workEndInput.addEventListener("input", showNextDayHint_Settlement);
+  returnTimeInput.addEventListener("input", showNextDayHint_Settlement);
+
+  // ✅ 복귀지 기타 토글
+  returnPlaceSelect.addEventListener("change", () => {
+    if (!returnPlaceOther) return;
+    const isOther = returnPlaceSelect.value === "other";
+    returnPlaceOther.classList.toggle("hidden", !isOther);
+    if (!isOther) returnPlaceOther.value = "";
+    markDirty();
+  });
 
   // ✅ 입력 변화 감지(최소 침습)
   const bindDirty = (el: HTMLElement | null) => {
@@ -294,47 +331,54 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     (e as any).returnValue = "";
   });
 
-  // ✅ 정산 대상(요청자/날짜) 읽기: URL 파라미터에서만
-  function readSettleTarget(): { req_name: string; trip_date: string } {
+  // ✅ 정산 대상(요청자/날짜/✅trip_id) 읽기: URL 파라미터에서만
+  function readSettleTarget(): { req_name: string; trip_date: string; trip_id: string } {
     const req_name = textOrEmpty(getQueryParam("req_name"));
     const trip_date = textOrEmpty(getQueryParam("trip_date"));
-    return { req_name, trip_date };
+    const trip_id = textOrEmpty(getQueryParam("trip_id"));
+    return { req_name, trip_date, trip_id };
   }
 
   // ✅ 다른 계정 로그인 상태에서 URL 파라미터가 남아있으면 즉시 제거(정보 잔존 방지)
   function validateTargetOrClear() {
-    const { req_name, trip_date } = readSettleTarget();
+    const { req_name, trip_date, trip_id } = readSettleTarget();
     const me = currentUserName();
 
-    if (!req_name || !trip_date) return { ok: false, req_name, trip_date };
+    if (!req_name || !trip_date) return { ok: false, req_name, trip_date, trip_id };
 
     if (me && req_name !== me) {
-      clearQueryParams(["req_name", "trip_date"]);
-      return { ok: false, req_name: "", trip_date: "" };
+      clearQueryParams(["req_name", "trip_date", "trip_id"]);
+      return { ok: false, req_name: "", trip_date: "", trip_id: "" };
     }
 
-    return { ok: true, req_name, trip_date };
+    return { ok: true, req_name, trip_date, trip_id };
   }
 
-  // ✅✅✅ (추가) 타겟이 바뀌면 폼을 무조건 비움 (이전 값 잔존 방지)
+  // ✅✅✅ 핵심: 타겟이 바뀌면 폼을 무조건 비움
+  // - 기존엔 req_name|trip_date 만 써서 "같은날 2건"이면 안 비워졌음
   let lastTargetKey = "";
   function syncTargetAndClearIfChanged() {
     const t = validateTargetOrClear();
-    const key = `${t.req_name}|${t.trip_date}`;
+
+    // ✅ trip_id가 있으면 반드시 포함(같은 날짜 다건 처리)
+    const key = `${t.req_name}|${t.trip_date}|${t.trip_id || "-"}`;
+
     if (!t.req_name || !t.trip_date) {
       lastTargetKey = "";
-      // 타겟이 없으면 화면 잔존값도 지우는 게 안전
       clearForm("");
       return;
     }
+
     if (lastTargetKey && key !== lastTargetKey) {
       clearForm("✅ 이전 정산 입력값을 초기화했습니다.");
     }
+
     lastTargetKey = key;
   }
 
   /**
    * ✅ URL 파라미터가 없을 때 "진행중 정산" 1건을 서버에서 다시 찾아 자동 세팅
+   * - 가능하면 trip_id도 같이 세팅 (서버가 내려주면)
    */
   async function restoreTargetIfMissing() {
     const me = currentUserName();
@@ -353,7 +397,11 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
       if (!data?.trip_date) return;
       if (String(data.req_name ?? "") !== me) return;
 
-      setQueryParams({ req_name: me, trip_date: data.trip_date });
+      const params: Record<string, string> = { req_name: me, trip_date: String(data.trip_date) };
+      const tid = textOrEmpty(data.trip_id ?? data.id);
+      if (tid) params.trip_id = tid;
+
+      setQueryParams(params);
       resultBox.textContent = "✅ 진행중 정산 건을 자동으로 불러왔습니다. 이어서 작성하세요.";
     } catch {
       // ignore
@@ -362,17 +410,13 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
 
   // ✅ 초기 1회: 혹시 URL이 비어있으면 진행중 복원 시도
   restoreTargetIfMissing().then(() => {
-    // ✅ 타겟 확정 + 변경 시 폼 초기화
     syncTargetAndClearIfChanged();
-    // ✅ 최초 스냅샷 기준점
     applySnapshotNow();
   });
 
-  // ✅ (선택) URL이 바뀌는 SPA 환경 대응: 뒤로가기/해시 변경 시에도 타겟 동기화
+  // ✅ (선택) URL이 바뀌는 SPA 환경 대응
   window.addEventListener("hashchange", () => syncTargetAndClearIfChanged());
   window.addEventListener("popstate", () => syncTargetAndClearIfChanged());
-
-
 
   resetBtn.addEventListener("click", async () => {
     if (isDirty) {
@@ -399,11 +443,12 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
 
     // ✅ 저장 순간에도 URL이 비어있으면 한번 더 복원 시도 후 검증
     await restoreTargetIfMissing();
-    syncTargetAndClearIfChanged(); // ✅ 타겟 동기화(혹시 변경됐으면 초기화)
+    syncTargetAndClearIfChanged();
 
     const t = validateTargetOrClear();
     const trip_date = t.trip_date;
     const req_name = t.req_name;
+    const trip_id = t.trip_id; // ✅ 있으면 같이 전송(백엔드가 무시해도 OK)
 
     if (!trip_date || !req_name) {
       await ModalUtil.show({
@@ -495,7 +540,7 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
       const res = await fetch(`${API_BASE}/api/business-trip/settlement`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ req_name, trip_date, detail_json }),
+        body: JSON.stringify({ req_name, trip_date, trip_id, detail_json }),
       });
 
       if (!res.ok) {
@@ -536,12 +581,12 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
         showCancel: false,
       });
 
-      clearQueryParams(["req_name", "trip_date"]);
+      clearQueryParams(["req_name", "trip_date", "trip_id"]);
       window.dispatchEvent(new Event("domestic-trip-settled"));
       window.dispatchEvent(new Event("trip-status-refresh"));
 
       applySnapshotNow();
-      lastTargetKey = ""; // ✅ 타겟 제거했으니 키도 초기화
+      lastTargetKey = "";
     } catch (err: any) {
       console.error("[정산] 저장 중 오류:", err);
       resultBox.textContent = `❌ 정산 저장 중 오류: ${err?.message ?? "알 수 없는 오류"}`;
@@ -557,14 +602,11 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     }
   });
 
-  // ✅✅✅ (추가) SPA 패널 전환 대응: 정산 섹션이 "보이는 순간" 타겟 점검 + 타겟 없으면 clearForm()
-  // - 너의 화면은 hidden 토글 방식이라 hashchange가 안 나서 값이 남았던 것
+  // ✅ SPA 패널 전환 대응: 정산 섹션이 "보이는 순간" 타겟 점검 + 타겟 없으면 clearForm()
   const mo = new MutationObserver(() => {
     const isHidden = section.classList.contains("hidden");
     if (!isHidden) {
-      // 섹션이 보이는 순간마다: 타겟 동기화 + 없으면 폼 초기화
       syncTargetAndClearIfChanged();
-      // 타겟이 있더라도, 여기서 snapshot 기준점 다시 잡아줘야 "dirty"가 이상하게 안 뜸
       applySnapshotNow();
     }
   });
@@ -576,6 +618,5 @@ export function initDomesticTripSettlementPanel(API_BASE: string) {
     applySnapshotNow();
   }
 
-  // ✅ 섹션이 열려있는 상태에서 다른 계정으로 로그인하거나 URL 파라미터가 꼬이면 즉시 제거
   syncTargetAndClearIfChanged();
 }

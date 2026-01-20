@@ -101,6 +101,12 @@ function compareYm(a, b) {
 function mod(n, m) {
     return ((n % m) + m) % m;
 }
+// ✅ 날짜 범위(YYYY-MM-DD) 안에 포함되는지
+function isBetweenYmd(target, start, end) {
+    if (!isYmdStr(target) || !isYmdStr(start) || !isYmdStr(end))
+        return false;
+    return start <= target && target <= end;
+}
 // ----------------------
 // ✅ DOM이 늦게 생기는 문제 해결(기존 유지)
 // ----------------------
@@ -117,6 +123,127 @@ async function waitForElement(id, timeoutMs = 8000) {
         };
         tick();
     });
+}
+// ----------------------
+// ✅ 캘린더 고정 스타일 주입 (dutyCalGrid 기준 / 셀 높이 충분히 크게 / 최대 2개 표시 + 더보기 버튼)
+// ----------------------
+function ensureDashboardCalFixedStyle() {
+    if (document.getElementById("dashCalFixedStyle"))
+        return;
+    const style = document.createElement("style");
+    style.id = "dashCalFixedStyle";
+    style.textContent = `
+    /* ✅ 격자선 안 깨지게: grid 자체에 왼쪽/위 border 주고, 셀은 오른쪽/아래만 */
+    #dutyCalGrid{
+      border-left: 1px solid #e5e7eb;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    /* ✅ 셀 높이 크게(요청) */
+    #dutyCalGrid > div{
+      box-sizing: border-box;
+      min-height: 160px; /* ✅ 충분히 크게 */
+      overflow: hidden;
+      background: #fff;
+    }
+
+    /* ✅ 뱃지: 텍스트 2~3줄 정도 */
+    .dash-pill{
+      padding: 6px 10px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.2;
+      white-space: normal;
+      word-break: keep-all;
+
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+
+      cursor: pointer;
+      user-select: none;
+    }
+    .dash-pill:hover{ filter: brightness(0.98); }
+
+    .dash-more-btn{
+      margin-top: 6px;
+      width: 100%;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 6px 10px;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      cursor: pointer;
+    }
+    .dash-more-btn:hover{ background:#f9fafb; }
+
+    .dash-day{
+      font-size: 12px;
+      font-weight: 900;
+      margin-bottom: 6px;
+    }
+
+    .dash-content{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-height:0;
+      overflow:hidden;
+    }
+  `;
+    document.head.appendChild(style);
+}
+function ensureDashCalModal() {
+    if (document.getElementById("dashCalModal"))
+        return;
+    const wrap = document.createElement("div");
+    wrap.id = "dashCalModal";
+    wrap.className = "fixed inset-0 z-[9999] hidden";
+    wrap.innerHTML = `
+    <div class="absolute inset-0 bg-black/40"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b">
+          <div class="font-bold text-gray-900 text-sm" id="dashCalModalTitle">상세</div>
+          <button id="dashCalModalClose" class="px-2 py-1 rounded-lg border text-xs hover:bg-gray-50 active:bg-gray-100">닫기</button>
+        </div>
+        <div class="p-4 space-y-2 max-h-[60vh] overflow-auto" id="dashCalModalBody"></div>
+        <div class="px-4 py-3 border-t bg-gray-50 flex justify-end">
+          <button id="dashCalModalOk" class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 active:bg-indigo-800">확인</button>
+        </div>
+      </div>
+    </div>
+  `;
+    document.body.appendChild(wrap);
+    const close = () => wrap.classList.add("hidden");
+    wrap.querySelector("#dashCalModalClose")?.addEventListener("click", close);
+    wrap.querySelector("#dashCalModalOk")?.addEventListener("click", close);
+    wrap
+        .querySelector("div.absolute.inset-0.bg-black\\/40")
+        ?.addEventListener("click", close);
+}
+function openDashCalModal(title, lines) {
+    ensureDashboardCalFixedStyle();
+    ensureDashCalModal();
+    const modal = document.getElementById("dashCalModal");
+    const titleEl = document.getElementById("dashCalModalTitle");
+    const bodyEl = document.getElementById("dashCalModalBody");
+    if (!modal || !titleEl || !bodyEl)
+        return;
+    titleEl.textContent = title;
+    bodyEl.innerHTML = lines.length
+        ? lines
+            .map((t) => `
+          <div class="border rounded-xl px-3 py-2 text-sm text-gray-800 bg-white">
+            ${escapeHtml(t)}
+          </div>
+        `)
+            .join("")
+        : `<div class="text-sm text-gray-500">표시할 내용이 없습니다.</div>`;
+    modal.classList.remove("hidden");
 }
 // ----------------------
 // ✅ API: 휴일(주말+공휴일)
@@ -185,6 +312,34 @@ async function fetchVacations(API_BASE) {
         return [];
     }
 }
+// ----------------------
+// ✅ API: 일정(대시보드 캘린더용)  + 월별 맵
+// ----------------------
+async function fetchDashboardSchedules(API_BASE, ymStr) {
+    try {
+        const res = await fetch(`${API_BASE}/api/business-master/calendar-events?ym=${encodeURIComponent(ymStr)}`, { credentials: "include" });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || json?.ok !== true)
+            return [];
+        return Array.isArray(json.items) ? json.items : [];
+    }
+    catch {
+        return [];
+    }
+}
+function buildScheduleMapForMonth(viewingYm, schedules) {
+    const map = new Map();
+    for (const it of schedules) {
+        if (!it?.date || !it.title)
+            continue;
+        if (!it.date.startsWith(viewingYm))
+            continue;
+        if (!map.has(it.date))
+            map.set(it.date, []);
+        map.get(it.date).push(it);
+    }
+    return map;
+}
 // ✅ "월 기준 날짜별 휴가자 배열" map
 function buildVacationMapForMonth(items, base) {
     const y = base.getFullYear();
@@ -195,7 +350,6 @@ function buildVacationMapForMonth(items, base) {
     for (const v of items) {
         if (!v?.user_name)
             continue;
-        // ✅ start/end 정규화 (ISO -> YYYY-MM-DD)
         const sStr = ymdText(v.start_date);
         const eStr = ymdText(v.end_date);
         if (!isYmdStr(sStr) || !isYmdStr(eStr))
@@ -241,7 +395,9 @@ async function fetchDutyMembers(API_BASE) {
 }
 async function fetchBusinessMasterConfig(API_BASE) {
     try {
-        const res = await fetch(`${API_BASE}/api/business-master/config`, { credentials: "include" });
+        const res = await fetch(`${API_BASE}/api/business-master/config`, {
+            credentials: "include",
+        });
         if (!res.ok)
             return null;
         const data = await res.json().catch(() => null);
@@ -265,7 +421,9 @@ async function fetchBusinessMasterConfig(API_BASE) {
 }
 async function fetchDutyConfig(API_BASE) {
     try {
-        const res = await fetch(`${API_BASE}/api/business-master/config`, { credentials: "include" });
+        const res = await fetch(`${API_BASE}/api/business-master/config`, {
+            credentials: "include",
+        });
         if (!res.ok)
             return { startIndex: 0, lastYm: "", lastAssigns: [] };
         const data = await res.json().catch(() => ({}));
@@ -294,21 +452,8 @@ async function fetchDutyConfig(API_BASE) {
         return { startIndex: 0, lastYm: "", lastAssigns: [] };
     }
 }
-// ✅ 회사 일정(캘린더용) 불러오기
-async function fetchDashboardSchedules(API_BASE, ymStr) {
-    try {
-        const res = await fetch(`${API_BASE}/api/business-master/calendar-events?ym=${encodeURIComponent(ymStr)}`, { credentials: "include" });
-        const json = await res.json().catch(() => null);
-        if (!res.ok || json?.ok !== true)
-            return [];
-        return Array.isArray(json.items) ? json.items : [];
-    }
-    catch {
-        return [];
-    }
-}
 // ----------------------
-// ✅ 대시보드: 공지/유류/환율 렌더 (추가)
+// ✅ 대시보드: 공지/유류/환율 렌더
 // ----------------------
 async function refreshDashboardTopNoticeFuelFx(API_BASE) {
     // DOM이 없을 수도 있으니(패널 전환 시) 기다렸다가 세팅
@@ -317,17 +462,15 @@ async function refreshDashboardTopNoticeFuelFx(API_BASE) {
     const cfg = await fetchBusinessMasterConfig(API_BASE);
     if (!cfg)
         return;
-    // 1) 공지(상단 공지판)
-    //const noticeCard = document.querySelector("#panel-dashboard .bg-white .font-bold.text-gray-800") as HTMLElement | null;
-    const noticeCard = Array.from(document.querySelectorAll("#panel-dashboard .bg-white"))
-        .find((el) => (el.textContent || "").includes("공지사항 알림판")) ?? null;
+    // 1) 공지(상단 공지판) - "공지사항 알림판" 카드에 내용 삽입
+    const noticeCard = Array.from(document.querySelectorAll("#panel-dashboard .bg-white")).find((el) => (el.textContent || "").includes("공지사항 알림판")) ?? null;
     if (noticeCard) {
         let out = noticeCard.querySelector("#dashNoticeText");
         if (!out) {
             out = document.createElement("div");
             out.id = "dashNoticeText";
-            out.className = "mt-3 text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap break-words";
-            // 카드 안의 첫 설명문 다음에 꽂아줌
+            out.className =
+                "mt-3 text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap break-words";
             noticeCard.appendChild(out);
         }
         out.textContent = (cfg.notice ?? cfg.note ?? "").trim() || "-";
@@ -336,13 +479,9 @@ async function refreshDashboardTopNoticeFuelFx(API_BASE) {
     setText("fuelUnitGasoline", fmtNumber(cfg.fuel_price_gasoline, "0"));
     setText("fuelUnitDiesel", fmtNumber(cfg.fuel_price_diesel, "0"));
     setText("fuelUnitGas", fmtNumber(cfg.fuel_price_lpg, "0"));
-    // 전기 유류대는 아직 config에 없으니 0 유지
-    // (원하면 나중에 config에 fuel_price_electric 같은 필드 추가해서 연동하면 됨)
-    // 여기서는 기존 표시값 유지(없으면 0)
     const elElec = document.getElementById("fuelUnitElectric");
     if (elElec && !elElec.textContent)
         elElec.textContent = "0";
-    // 기준일 표시는 “설정 저장일”이 따로 없어서 오늘로 표시(원하면 config updatedAt 저장해서 정확히 가능)
     setText("fuelPriceBaseDate", todayYmd());
     // 3) 환율
     setText("fxUsdKrw", fmtNumber(cfg.exchange_rate_usd, "0"));
@@ -351,9 +490,9 @@ async function refreshDashboardTopNoticeFuelFx(API_BASE) {
     setText("fxBaseDate", todayYmd());
 }
 // ----------------------
-// ✅ 대시보드: 표(#dutyHolidayBody) 렌더 (휴일 + 당직 + 휴가)
+// ✅ 대시보드: 표(#dutyHolidayBody) 렌더 (휴일 + 당직 + 휴가 + 일정)  ※ 숨김 유지용
 // ----------------------
-function renderDashboardHolidayDuty(holidays, assignsMap, vacMap) {
+function renderDashboardHolidayDutyTable(holidays, assignsMap, vacMap, scheduleMap) {
     const tbody = document.getElementById("dutyHolidayBody");
     if (!tbody)
         return;
@@ -374,11 +513,14 @@ function renderDashboardHolidayDuty(holidays, assignsMap, vacMap) {
             : "주말";
         const dutyName = assignsMap[h.date] || "";
         const vacNames = vacMap[h.date] ?? [];
+        const sch = scheduleMap.get(h.date) ?? [];
         const lines = [];
         if (dutyName)
             lines.push(`당직: ${escapeHtml(dutyName)}`);
         if (vacNames.length)
             lines.push(`휴가: ${vacNames.map(escapeHtml).join(", ")}`);
+        if (sch.length)
+            lines.push(`일정: ${sch.map((x) => escapeHtml(x.title)).join(", ")}`);
         const cell = lines.length === 0
             ? `<span class="text-gray-400">-</span>`
             : lines.map((t) => `<div class="whitespace-nowrap">${t}</div>`).join("");
@@ -394,25 +536,15 @@ function renderDashboardHolidayDuty(holidays, assignsMap, vacMap) {
         .join("");
 }
 // ----------------------
-// ✅ 대시보드: 달력 그리드(#dutyCalGrid) 렌더 (휴일/당직/휴가)
+// ✅ 대시보드: 달력 그리드(#dutyCalGrid) 렌더 (휴일/휴가/당직/일정) + 셀당 최대 2개 + 더보기 모달
 // ----------------------
-function ensureDutyCalLabel() {
-    let label = document.getElementById("dutyCalLabel");
-    if (!label) {
-        label = document.createElement("div");
-        label.id = "dutyCalLabel";
-        label.className = "hidden";
-        document.body.appendChild(label);
-    }
-    const txt = (label.textContent || "").trim();
-    if (!/^\d{4}-\d{2}$/.test(txt))
-        label.textContent = ym(new Date());
-}
-function renderDashboardCalendarGrid(viewingYm, holidays, assignsMap, vacMap) {
+function renderDashboardCalendarGrid(viewingYm, holidays, assignsMap, vacMap, scheduleMap) {
     const grid = document.getElementById("dutyCalGrid");
     if (!grid)
         return;
-    ensureDutyCalLabel();
+    // ✅ dutyCalGrid 기준: cell 자체 min-height는 style에서 고정
+    grid.style.gridAutoRows = "1fr";
+    grid.style.alignItems = "stretch";
     const label = document.getElementById("dutyCalLabel");
     if (label)
         label.textContent = viewingYm;
@@ -420,119 +552,123 @@ function renderDashboardCalendarGrid(viewingYm, holidays, assignsMap, vacMap) {
     if (!m)
         return;
     const y = Number(m[1]);
-    const mo = Number(m[2]); // 1~12
+    const mo = Number(m[2]);
     const first = new Date(y, mo - 1, 1);
     const lastDay = new Date(y, mo, 0).getDate();
-    const startDow = first.getDay(); // 0=일
+    const startDow = first.getDay();
     const holidayMap = new Map();
     for (const h of holidays)
         holidayMap.set(h.date, h);
     grid.innerHTML = "";
-    // 앞 빈칸
-    for (let i = 0; i < startDow; i++) {
+    const mkEmpty = () => {
         const empty = document.createElement("div");
-        empty.className = "min-h-[90px] border-b border-r bg-gray-50/50";
-        grid.appendChild(empty);
-    }
-    // 날짜 셀
+        empty.className = "border-r border-b bg-gray-50/40";
+        return empty;
+    };
+    // 앞 빈칸
+    for (let i = 0; i < startDow; i++)
+        grid.appendChild(mkEmpty());
     for (let d = 1; d <= lastDay; d++) {
         const key = `${y}-${pad2(mo)}-${pad2(d)}`;
-        const cell = document.createElement("div");
-        cell.className = "min-h-[90px] border-b border-r p-1 overflow-hidden bg-white";
-        cell.dataset.date = key;
         const h = holidayMap.get(key);
         const dow = new Date(key + "T00:00:00").getDay();
         const isRed = (h && h.type === "공휴일") || dow === 0;
+        const cell = document.createElement("div");
+        cell.className = "border-r border-b p-2 bg-white overflow-hidden flex flex-col";
+        cell.dataset.date = key;
         const dayEl = document.createElement("div");
-        dayEl.className = `text-[11px] font-bold mb-1 ${isRed ? "text-rose-600" : "text-gray-900"}`;
+        dayEl.className = `dash-day ${isRed ? "text-rose-600" : "text-gray-900"}`;
         dayEl.textContent = String(d);
         cell.appendChild(dayEl);
-        // 휴일 배지(주말/공휴일)
+        const contentBox = document.createElement("div");
+        contentBox.className = "dash-content";
+        cell.appendChild(contentBox);
+        // ✅ 표시 우선순위: 휴일 -> 휴가 -> 당직 -> 일정 (요청: 모두 표시)
+        const lines = [];
         if (h) {
-            const badge = document.createElement("div");
             const isHoliday = h.type === "공휴일";
-            badge.className =
-                "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 " +
-                    (isHoliday ? "bg-rose-50 text-rose-700" : "bg-gray-100 text-gray-700");
-            badge.textContent = isHoliday ? (h.holidayName ? `공휴일(${h.holidayName})` : "공휴일") : "주말";
-            cell.appendChild(badge);
+            const txt = isHoliday
+                ? h.holidayName
+                    ? `공휴일 ${h.holidayName}`
+                    : "공휴일"
+                : "주말";
+            lines.push({ kind: "holiday", text: txt });
         }
-        // 휴가 1줄(+더보기)
         const vacs = vacMap[key] ?? [];
-        if (vacs.length) {
-            const vLine = document.createElement("div");
-            vLine.className =
-                "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 bg-amber-50 text-amber-800 whitespace-normal break-keep";
-            vLine.textContent = `휴가 ${vacs[0]}${vacs.length > 1 ? ` 외 ${vacs.length - 1}` : ""}`;
-            cell.appendChild(vLine);
-        }
-        // 당직 1줄
+        if (vacs.length)
+            lines.push({ kind: "vac", text: `휴가 ${vacs.join(", ")}` });
         const dutyName = assignsMap[key] || "";
-        if (dutyName) {
-            const dLine = document.createElement("div");
-            dLine.className =
-                "px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 whitespace-normal break-keep";
-            dLine.textContent = `당직 ${dutyName}`;
-            cell.appendChild(dLine);
+        if (dutyName)
+            lines.push({ kind: "duty", text: `당직 ${dutyName}` });
+        const sch = scheduleMap.get(key) ?? [];
+        if (sch.length) {
+            // 일정 여러개면 한 줄로 묶고(셀 표시 제한 때문에), 모달에서 전체 보여줌
+            const titles = sch.map((x) => x.title).filter(Boolean);
+            if (titles.length)
+                lines.push({ kind: "schedule", text: `일정 ${titles.join(", ")}` });
+        }
+        const makePill = (kind, text) => {
+            const pill = document.createElement("div");
+            if (kind === "holiday") {
+                const isHoliday = text.startsWith("공휴일");
+                pill.className =
+                    "dash-pill " + (isHoliday ? "bg-rose-50 text-rose-700" : "bg-gray-100 text-gray-700");
+            }
+            else if (kind === "vac") {
+                pill.className = "dash-pill bg-amber-50 text-amber-800";
+            }
+            else if (kind === "duty") {
+                pill.className = "dash-pill bg-indigo-50 text-indigo-700";
+            }
+            else {
+                pill.className = "dash-pill bg-emerald-50 text-emerald-700";
+            }
+            pill.textContent = text;
+            // ✅ pill 클릭 → 해당 날짜 전체를 모달로
+            pill.addEventListener("click", () => {
+                const title = `${key} 상세`;
+                openDashCalModal(title, lines.map((x) => x.text));
+            });
+            return pill;
+        };
+        const MAX_SHOW = 2;
+        const show = lines.slice(0, MAX_SHOW);
+        const remain = lines.length - show.length;
+        for (const it of show)
+            contentBox.appendChild(makePill(it.kind, it.text));
+        if (remain > 0) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "dash-more-btn";
+            btn.textContent = `+ 더보기 (${remain})`;
+            btn.addEventListener("click", () => {
+                openDashCalModal(`${key} 상세`, lines.map((x) => x.text));
+            });
+            contentBox.appendChild(btn);
+        }
+        if (lines.length === 0) {
+            const none = document.createElement("div");
+            none.className = "text-[11px] text-gray-300 font-semibold";
+            none.textContent = "-";
+            contentBox.appendChild(none);
         }
         grid.appendChild(cell);
     }
     // 뒤 빈칸
     const totalCells = startDow + lastDay;
     const remain = (7 - (totalCells % 7)) % 7;
-    for (let i = 0; i < remain; i++) {
-        const empty = document.createElement("div");
-        empty.className = "min-h-[90px] border-b border-r bg-gray-50/30";
-        grid.appendChild(empty);
-    }
-}
-// ✅ 대시보드 캘린더 셀에 "일정"만 추가 표시
-function appendSchedulesToDashboardCalendar(viewingYm, schedules) {
-    const grid = document.getElementById("dutyCalGrid");
-    if (!grid)
-        return;
-    const monthItems = schedules.filter((s) => s.date.startsWith(viewingYm));
-    const map = new Map();
-    for (const it of monthItems) {
-        if (!map.has(it.date))
-            map.set(it.date, []);
-        map.get(it.date).push(it);
-    }
-    const cells = grid.querySelectorAll("div[data-date]");
-    cells.forEach((cell) => {
-        const date = cell.dataset.date;
-        const items = map.get(date);
-        if (!items?.length)
-            return;
-        // 🔒 중복 표시 방지
-        cell.querySelectorAll(".dash-schedule").forEach((n) => n.remove());
-        const first = items[0];
-        const line = document.createElement("div");
-        line.className =
-            "dash-schedule px-1.5 py-0.5 mt-1 rounded bg-slate-50 text-slate-800 text-[10px] font-semibold";
-        line.textContent = `일정 ${first.title}`;
-        cell.appendChild(line);
-        if (items.length > 1) {
-            const more = document.createElement("div");
-            more.className = "dash-schedule text-[10px] text-slate-600 underline cursor-pointer";
-            more.textContent = `+${items.length - 1}건`;
-            more.onclick = (e) => {
-                e.stopPropagation();
-                alert(`[${date}]\n\n일정:\n` + items.map((x) => `- ${x.title}`).join("\n"));
-            };
-            cell.appendChild(more);
-        }
-    });
+    for (let i = 0; i < remain; i++)
+        grid.appendChild(mkEmpty());
 }
 // ----------------------
-// ✅ 핵심: "당직생성 버튼" 없이도 현재월 당직을 자동으로 계산해서 대시보드에 그리기
+// ✅ 핵심: "당직생성 버튼" 없이도 현재월 당직을 자동으로 계산해서 대시보드에 그리기(표시용)
 // ----------------------
 async function computeDutyAssignsForYm(API_BASE, viewingYm, members, cfg) {
     if (!members.length)
         return [];
     const len = members.length;
     const safeStartIndex = mod(Number(cfg.startIndex || 0), len);
-    // lastYm가 없으면: 그냥 0부터 현재월 휴일 수만큼 배정(처음 사용)
+    // cfg.lastYm 없으면 "현재월"만 단순 배정
     if (!/^\d{4}-\d{2}$/.test(cfg.lastYm)) {
         const [yy, mm] = viewingYm.split("-").map(Number);
         const base = new Date(yy, mm - 1, 1);
@@ -545,11 +681,10 @@ async function computeDutyAssignsForYm(API_BASE, viewingYm, members, cfg) {
         }
         return assigns.filter((a) => a.date && a.name);
     }
-    // viewingYm == lastYm이고 lastAssigns가 있으면 그걸 그대로 사용(정확)
+    // 같은 달이면 저장된 lastAssigns 그대로
     if (compareYm(viewingYm, cfg.lastYm) === 0 && cfg.lastAssigns.length) {
         return cfg.lastAssigns;
     }
-    // helper: 어떤 월의 휴일 수
     async function getHolidayCount(ymStr) {
         const [yy, mm] = ymStr.split("-").map(Number);
         const monthBase = new Date(yy, mm - 1, 1);
@@ -557,8 +692,8 @@ async function computeDutyAssignsForYm(API_BASE, viewingYm, members, cfg) {
         return items.length;
     }
     let startIdx = 0;
+    // viewingYm이 lastYm보다 미래면, 중간 달 휴일 수만큼 인덱스 이동
     if (compareYm(viewingYm, cfg.lastYm) > 0) {
-        // 미래 월: lastYm 다음달부터 누적해서 idx 이동
         let idx = safeStartIndex;
         for (let cur = addMonthsToYm(cfg.lastYm, 1); compareYm(cur, viewingYm) < 0; cur = addMonthsToYm(cur, 1)) {
             const cnt = await getHolidayCount(cur);
@@ -567,7 +702,7 @@ async function computeDutyAssignsForYm(API_BASE, viewingYm, members, cfg) {
         startIdx = idx;
     }
     else {
-        // 과거 월: 뒤로 돌리기
+        // 과거 달로 이동(거의 안 쓰지만 안전)
         let idxAfter = safeStartIndex;
         for (let cur = cfg.lastYm; compareYm(cur, addMonthsToYm(viewingYm, 1)) >= 0; cur = addMonthsToYm(cur, -1)) {
             const cnt = await getHolidayCount(cur);
@@ -592,14 +727,19 @@ async function computeDutyAssignsForYm(API_BASE, viewingYm, members, cfg) {
     return assigns;
 }
 // ----------------------
-// ✅ 대시보드 캘린더(표+그리드) 전체 리프레시
+// ✅ 대시보드 캘린더(표+그리드) 전체 리프레시 (휴일/휴가/당직/일정 모두)
 // ----------------------
 async function refreshDashboardDutyVacationCalendar(API_BASE) {
-    const tbody = await waitForElement("dutyHolidayBody", 8000);
     const grid = await waitForElement("dutyCalGrid", 8000);
-    if (!tbody && !grid)
+    if (!grid)
         return;
-    const viewingYm = ym(new Date());
+    ensureDashboardCalFixedStyle();
+    const labelEl = document.getElementById("dutyCalLabel");
+    let viewingYm = (labelEl?.textContent ?? "").trim();
+    if (!/^\d{4}-\d{2}$/.test(viewingYm))
+        viewingYm = ym(new Date());
+    if (labelEl)
+        labelEl.textContent = viewingYm;
     const [yy, mm] = viewingYm.split("-").map(Number);
     const base = new Date(yy, mm - 1, 1);
     // 1) 휴일
@@ -607,20 +747,20 @@ async function refreshDashboardDutyVacationCalendar(API_BASE) {
     // 2) 휴가
     const vacations = await fetchVacations(API_BASE);
     const vacMap = buildVacationMapForMonth(vacations, base);
-    // 3) 당직 후보 + config 기반 로테이션 계산
+    // 3) 당직 계산(표시용)
     const members = await fetchDutyMembers(API_BASE);
     const cfg = await fetchDutyConfig(API_BASE);
     const assigns = await computeDutyAssignsForYm(API_BASE, viewingYm, members, cfg);
     const assignsMap = {};
     for (const a of assigns)
         assignsMap[a.date] = a.name;
-    // 4) 표 렌더
-    renderDashboardHolidayDuty(holidays, assignsMap, vacMap);
-    // 5) 그리드 렌더
-    renderDashboardCalendarGrid(viewingYm, holidays, assignsMap, vacMap);
-    // 6) 회사 일정 표시
+    // 4) 일정(월별)
     const schedules = await fetchDashboardSchedules(API_BASE, viewingYm);
-    appendSchedulesToDashboardCalendar(viewingYm, schedules);
+    const scheduleMap = buildScheduleMapForMonth(viewingYm, schedules);
+    // 5) (숨김) 표 렌더 - 유지용
+    renderDashboardHolidayDutyTable(holidays, assignsMap, vacMap, scheduleMap);
+    // 6) 캘린더 렌더 (dutyCalGrid)
+    renderDashboardCalendarGrid(viewingYm, holidays, assignsMap, vacMap, scheduleMap);
 }
 /* ============================================================
  * ✅ 휴가자 현황(대시보드)
@@ -637,7 +777,7 @@ function renderDashboardVacation(items, baseDateYmd) {
         const e = ymdText(v.end_date);
         if (!isYmdStr(s) || !isYmdStr(e))
             return false;
-        return s <= baseDateYmd && baseDateYmd <= e; // YYYY-MM-DD 문자열 비교는 안전
+        return isBetweenYmd(baseDateYmd, s, e);
     });
     const filter = filterSelect?.value ?? "all";
     if (filter !== "all") {
@@ -663,7 +803,6 @@ function renderDashboardVacation(items, baseDateYmd) {
     }
     tbody.innerHTML = todayItems
         .map((v, idx) => {
-        // ✅ ISO든 뭐든 무조건 YYYY-MM-DD로 잘라서 표시
         const s = ymdText(v.start_date);
         const e = ymdText(v.end_date);
         const range = s && e ? (s === e ? s : `${s} ~ ${e}`) : "-";
@@ -735,6 +874,8 @@ function initDashboardTripStatus(API_BASE) {
         console.warn("[대시보드] 출장자 현황용 요소를 찾지 못했습니다.");
         return;
     }
+    // ✅ 캘린더 스타일 1회 주입
+    ensureDashboardCalFixedStyle();
     const tbodyEl = tbody;
     let lastItems = [];
     let currentDate;
@@ -742,8 +883,9 @@ function initDashboardTripStatus(API_BASE) {
         const keyword = (searchInput?.value ?? "").trim().toLowerCase();
         const filter = filterSelect?.value ?? "all";
         let items = lastItems.slice();
-        if (filter === "overseas" || filter === "inhouse") {
-            items = [];
+        // (지금은 domestic/overseas/inhouse 서버 필터가 없어서 UI만 유지)
+        if (filter === "overseas" || filter === "inhouse" || filter === "domestic") {
+            // TODO: 서버에서 type 내려오면 여기서 필터 가능
         }
         if (keyword) {
             items = items.filter((it) => {
@@ -786,9 +928,8 @@ function initDashboardTripStatus(API_BASE) {
     }
     async function loadTripStatus(date) {
         currentDate = date;
-        if (dateLabel) {
+        if (dateLabel)
             dateLabel.textContent = date ?? "오늘";
-        }
         tbodyEl.innerHTML = `
       <tr>
         <td colspan="6" class="border px-2 py-3 text-center text-xs text-gray-400">
@@ -843,7 +984,7 @@ function initDashboardTripStatus(API_BASE) {
     });
     // ✅ 최초 로딩 (출장)
     loadTripStatus();
-    // ✅ ✅ ✅ 대시보드 캘린더(휴일/당직/휴가)
+    // ✅ ✅ ✅ 대시보드 캘린더(휴일/당직/휴가/일정)
     refreshDashboardDutyVacationCalendar(API_BASE);
     // ✅ ✅ ✅ 공지/유류/환율: 최초 1회 로딩
     refreshDashboardTopNoticeFuelFx(API_BASE);
@@ -861,11 +1002,9 @@ function initDashboardTripStatus(API_BASE) {
         reloadVacation();
         refreshDashboardDutyVacationCalendar(API_BASE);
     });
-    // ✅ 설정/당직쪽에서 "저장됨" 이벤트 보내면 대시보드도 즉시 새로고침
     window.addEventListener("duty-config-changed", () => {
         refreshDashboardDutyVacationCalendar(API_BASE);
     });
-    // ✅ ✅ ✅ 출장업무관리에서 config 저장했을 때: 공지/유류/환율 즉시 갱신
     window.addEventListener("business-config-changed", () => {
         refreshDashboardTopNoticeFuelFx(API_BASE);
     });
@@ -1105,57 +1244,80 @@ function statusBadgeClass(s) {
 }
 /* =========================
    ✅ 조회기간 프리셋 버튼(HTML 수정 없이 JS로 삽입)
+   - "조회 기간" 라벨 + pill 버튼 (제출화면처럼)
 ========================= */
 function injectRangeButtons(fromInput, toInput, searchBtn) {
-    const wrap = fromInput.parentElement;
-    if (!wrap)
+    const fromWrap = fromInput.parentElement;
+    const toWrap = toInput.parentElement;
+    if (!fromWrap || !toWrap)
         return;
+    // ✅ 시작/종료일 공통 영역(가장 가까운 공통 부모)을 잡아서 그 아래에 bar를 붙인다
+    let host = null;
+    if (fromWrap.parentElement && fromWrap.parentElement.contains(toWrap))
+        host = fromWrap.parentElement;
+    else if (toWrap.parentElement && toWrap.parentElement.contains(fromWrap))
+        host = toWrap.parentElement;
+    else
+        host = fromWrap.parentElement?.parentElement ?? fromWrap;
     // ✅ 이미 붙었으면 중복 생성 방지
-    if (wrap._rangeBtnsInjected)
+    if (host._rangeBarInjected)
         return;
-    wrap._rangeBtnsInjected = true;
-    const row = document.createElement("div");
-    row.className = "mt-2 flex flex-wrap gap-1.5";
+    host._rangeBarInjected = true;
+    const bar = document.createElement("div");
+    bar.className = "mt-2 flex items-center gap-3";
+    const title = document.createElement("div");
+    title.className = "text-xs font-bold text-gray-700 w-[72px] text-center";
+    title.textContent = "조회 기간";
+    const btnWrap = document.createElement("div");
+    btnWrap.className = "flex flex-wrap gap-2";
     const mkBtn = (label, onClick) => {
         const b = document.createElement("button");
         b.type = "button";
         b.textContent = label;
+        // ✅ 제출화면 느낌의 pill
         b.className =
-            "px-2 py-1 rounded-lg border text-[11px] bg-white hover:bg-gray-50 active:scale-[0.99] " +
-                "border-gray-200 text-gray-700";
+            "px-3 py-1.5 rounded-full border text-xs bg-white " +
+                "border-[#c7d8ee] text-gray-700 hover:bg-[#f5f9ff] active:scale-[0.99]";
         b.addEventListener("click", () => {
             onClick();
-            // ✅ UX: 눌렀으면 바로 조회
+            // ✅ UX: 기간 선택 즉시 조회(원래 동작 유지하고 싶으면 이 줄만 지우면 됨)
             searchBtn.click();
         });
         return b;
     };
+    // ====== 프리셋 계산 ======
     const setToday = () => {
         const ymd = todayYMDKST();
         fromInput.value = ymd;
         toInput.value = ymd;
     };
-    const setThisWeek = () => {
-        const { start, end } = getWeekRange(todayYMDKST());
-        fromInput.value = start;
+    const set1Day = () => setToday(); // 제출화면의 "1일" = 오늘로 (원하면 "최근 1일"로 바꿀 수 있음)
+    const set1Week = () => {
+        // ✅ 최근 7일(오늘 포함) : 오늘-6 ~ 오늘
+        const end = todayYMDKST();
+        const endMs = parseYMDToMsKST(end);
+        if (endMs == null)
+            return;
+        const startMs = endMs - 6 * DAY_MS;
+        fromInput.value = ymdFromMsKST(startMs);
         toInput.value = end;
     };
-    const setLastWeek = () => {
-        const { start } = getWeekRange(todayYMDKST());
-        const startMs = parseYMDToMsKST(start);
-        if (startMs == null)
+    const set1Month = () => {
+        // ✅ 최근 30일(오늘 포함) : 오늘-29 ~ 오늘
+        const end = todayYMDKST();
+        const endMs = parseYMDToMsKST(end);
+        if (endMs == null)
             return;
-        const lastMonMs = startMs - 7 * DAY_MS;
-        const lastSunMs = lastMonMs + 6 * DAY_MS;
-        fromInput.value = ymdFromMsKST(lastMonMs);
-        toInput.value = ymdFromMsKST(lastSunMs);
+        const startMs = endMs - 29 * DAY_MS;
+        fromInput.value = ymdFromMsKST(startMs);
+        toInput.value = end;
     };
     const setThisMonth = () => {
         const today = todayYMDKST();
         const ms = parseYMDToMsKST(today);
         if (ms == null)
             return;
-        const k = new Date(ms + KST_OFFSET_MS); // KST 기준 날짜를 UTC로 다룸
+        const k = new Date(ms + KST_OFFSET_MS);
         const y = k.getUTCFullYear();
         const m = k.getUTCMonth() + 1;
         const firstMs = Date.UTC(y, m - 1, 1) - KST_OFFSET_MS;
@@ -1163,7 +1325,7 @@ function injectRangeButtons(fromInput, toInput, searchBtn) {
         fromInput.value = ymdFromMsKST(firstMs);
         toInput.value = ymdFromMsKST(lastMs);
     };
-    const setLastMonth = () => {
+    const setPrevMonth = () => {
         const today = todayYMDKST();
         const ms = parseYMDToMsKST(today);
         if (ms == null)
@@ -1181,12 +1343,37 @@ function injectRangeButtons(fromInput, toInput, searchBtn) {
         fromInput.value = ymdFromMsKST(firstMs);
         toInput.value = ymdFromMsKST(lastMs);
     };
-    row.appendChild(mkBtn("오늘(KST)", setToday));
-    row.appendChild(mkBtn("이번주", setThisWeek));
-    row.appendChild(mkBtn("전주", setLastWeek));
-    row.appendChild(mkBtn("이번달", setThisMonth));
-    row.appendChild(mkBtn("지난달", setLastMonth));
-    wrap.appendChild(row);
+    const setThisWeek = () => {
+        const { start, end } = getWeekRange(todayYMDKST());
+        fromInput.value = start;
+        toInput.value = end;
+    };
+    const setLastWeek = () => {
+        const { start } = getWeekRange(todayYMDKST()); // 이번주 월
+        const startMs = parseYMDToMsKST(start);
+        if (startMs == null)
+            return;
+        const lastMonMs = startMs - 7 * DAY_MS;
+        const lastSunMs = lastMonMs + 6 * DAY_MS;
+        fromInput.value = ymdFromMsKST(lastMonMs);
+        toInput.value = ymdFromMsKST(lastSunMs);
+    };
+    // ✅ 제출화면 버튼 구성 그대로
+    btnWrap.appendChild(mkBtn("1일", set1Day));
+    btnWrap.appendChild(mkBtn("1주일", set1Week));
+    btnWrap.appendChild(mkBtn("한달", set1Month));
+    btnWrap.appendChild(mkBtn("전월", setPrevMonth));
+    btnWrap.appendChild(mkBtn("당월", setThisMonth));
+    btnWrap.appendChild(mkBtn("이번주(월~일)", setThisWeek));
+    btnWrap.appendChild(mkBtn("지난주(월~일)", setLastWeek));
+    bar.appendChild(title);
+    bar.appendChild(btnWrap);
+    // (선택) 제출화면처럼 안내 문구까지 넣고 싶으면 살려둬도 됨
+    const note = document.createElement("div");
+    note.className = "mt-1 text-[11px] text-gray-500";
+    note.textContent = "* 제출은 월~일(1주일) 기간일 때만 가능합니다.";
+    host.appendChild(bar);
+    host.appendChild(note);
 }
 function initTripApprovalPanel(_panelId) {
     const fromInput = getEl("appr_from");
@@ -4056,8 +4243,10 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./utils/ModalUtil */ "./TypeScript/workspace/utils/ModalUtil.ts");
 // TypeScript/workspace/08_domestic-trip-register.ts
 
-// ✅ 모듈(탭) 메모리 유지용: 새로고침/로그아웃/브라우저 종료 시 자동 초기화
+// ✅ 모듈(탭) 메모리 유지용
 let ACTIVE = null;
+// ✅ 시간 경고 임계값(분)
+const WARN_LONG_TRAVEL_MINS = 18 * 60; // 18시간
 function getEl(id) {
     const el = document.getElementById(id);
     if (!el)
@@ -4082,8 +4271,6 @@ function pickTripIdFromResponse(data) {
 }
 /**
  * ✅ URL 파라미터 읽기 (search + hash 둘 다 대응)
- * - 일반 URL:    /workspace?req_name=...&trip_date=...
- * - 해시 라우팅: /workspace#something?req_name=...&trip_date=...
  */
 function getQueryParam(name) {
     try {
@@ -4104,13 +4291,11 @@ function getQueryParam(name) {
         return "";
     }
 }
-/** ✅ URL 파라미터 세팅/삭제 (현재 라우팅 방식과 무관하게 최대한 안전하게 처리) */
+/** ✅ URL 파라미터 세팅/삭제 */
 function setQueryParams(params) {
     try {
         const url = new URL(window.location.href);
-        // 기본: search에 넣기
         Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-        // hash 라우팅이면 hash의 query도 맞춰주기(있을 때만)
         const hash = String(url.hash ?? "");
         const qIdx = hash.indexOf("?");
         if (qIdx >= 0) {
@@ -4144,6 +4329,123 @@ function clearQueryParams(keys) {
         // ignore
     }
 }
+// ===============================
+// ✅ 출장 등록 안전수칙 모달 (필수 동의)
+// - "오늘은 다시 보지 않기" 제거
+// - ✅ [동의함] 체크 필수
+// ===============================
+async function showSafetyModalIfNeeded() {
+    const messageHtml = `
+    <div class="text-left text-sm leading-relaxed space-y-3">
+      <div class="font-bold text-rose-600 text-base">
+        ⚠️ 출장 안전수칙 안내 (필수 확인/동의)
+      </div>
+
+      <div>
+        <div class="font-semibold">1. 사내·현장 안전수칙</div>
+        <ul class="list-disc pl-5 text-gray-700 space-y-1">
+          <li>작업 중 보호장비 의무적 착용 및 설비 점검</li>
+          <li>위험요소 사전 확인 필수</li>
+          <li>사다리 작업 시 반드시 2인 1조 진행</li>
+          <li>고소 작업 시 안전대(BANDO) 착용 필수</li>
+        </ul>
+      </div>
+
+      <div>
+        <div class="font-semibold">2. 고객사 현장 안전수칙</div>
+        <ul class="list-disc pl-5 text-gray-700 space-y-1">
+          <li>고객사 안전 규정 및 작업 지시 준수</li>
+          <li>보호장비 착용 필수</li>
+          <li>이상 징후 발견 시 즉시 작업 중단 및 보고</li>
+        </ul>
+      </div>
+
+      <div>
+        <div class="font-semibold">3. 운전 시 안전수칙</div>
+        <ul class="list-disc pl-5 text-gray-700 space-y-1">
+          <li>정해진 속도 및 교통법규 준수</li>
+          <li>운전 중 휴대폰 사용 금지</li>
+          <li>장거리 운행 시 충분한 휴식</li>
+          <li>음주 또는 약물 복용 후 운전 금지</li>
+        </ul>
+      </div>
+
+      <div class="text-rose-600 font-semibold text-sm">
+        ※ 출장 댓글(목적/내용) 작성 시<br/>
+        &nbsp;&nbsp;“안전수칙 준수하겠습니다” 문구를 반드시 기재 바랍니다.
+      </div>
+
+      <div class="text-xs text-gray-600">
+        예) 자택 07:00 → 온세미 08:00 / 안전수칙 준수하겠습니다.
+      </div>
+
+      <label class="flex items-center gap-2 pt-3">
+        <input id="safetyAgreeChk" type="checkbox" class="w-4 h-4" />
+        <span class="text-sm font-semibold text-gray-800">
+          안전수칙을 확인했으며 준수에 동의합니다. (필수)
+        </span>
+      </label>
+
+      <div class="text-xs text-gray-500 pt-1">
+        ※ 동의 후에만 출장 등록이 가능합니다.
+      </div>
+    </div>
+  `;
+    const ok = await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+        type: "warn",
+        title: "출장 안전수칙 확인",
+        messageHtml,
+        showOk: true,
+        showCancel: true,
+        okText: "확인",
+        cancelText: "취소",
+        okClass: "bg-rose-600 hover:bg-rose-700",
+        cancelClass: "border border-gray-300 text-gray-700 hover:bg-gray-50",
+    });
+    if (ok !== true)
+        return false;
+    const cb = document.getElementById("safetyAgreeChk");
+    if (!cb?.checked) {
+        await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+            type: "alert",
+            title: "동의가 필요합니다",
+            message: "출장 등록을 위해서는 안전수칙 동의가 필요합니다.\n체크 후 다시 시도해주세요.",
+            showOk: true,
+            showCancel: false,
+        });
+        return false;
+    }
+    return true;
+}
+// ===============================
+// ✅ 시간 유틸 (자정 넘어감 허용)
+// ===============================
+function parseHHMMToMinutes(v) {
+    const s = String(v ?? "").trim();
+    const m = /^(\d{1,2}):(\d{2})$/.exec(s);
+    if (!m)
+        return null;
+    const hh = Number(m[1]);
+    const mm = Number(m[2]);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm))
+        return null;
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59)
+        return null;
+    return hh * 60 + mm;
+}
+function calcDurationAllowNextDay(startHHMM, endHHMM) {
+    const s = parseHHMMToMinutes(startHHMM);
+    const e = parseHHMMToMinutes(endHHMM);
+    if (s == null || e == null)
+        return null;
+    let diff = e - s;
+    let nextDay = false;
+    if (diff < 0) {
+        diff += 24 * 60;
+        nextDay = true;
+    }
+    return { mins: diff, nextDay };
+}
 function initDomesticTripRegisterPanel(API_BASE) {
     const panel = document.getElementById("panel-국내출장-출장등록");
     if (!panel)
@@ -4158,10 +4460,8 @@ function initDomesticTripRegisterPanel(API_BASE) {
     const settlementSection = document.getElementById("bt_settlement_section");
     const userNameEl = document.getElementById("userName");
     const reqNameInput = getEl("bt_req_name");
-    // ✅ 출발지 select (value: company/home/other)
     const departPlaceSelect = getEl("bt_place");
     const departPlaceOther = document.getElementById("bt_place_other");
-    // ✅ 출장지 select (clients API)
     const destinationSelect = getEl("bt_destination");
     const startInput = getEl("bt_start");
     const departTimeInput = getEl("bt_depart_time");
@@ -4170,7 +4470,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
     function currentUserName() {
         return (userNameEl?.textContent ?? "").trim();
     }
-    /** ✅ 입력값 싹 비우기 */
+    /** ✅ 입력값 싹 비우기 (등록 화면은 항상 빈 폼) */
     function clearFormUI() {
         reqNameInput.value = currentUserName() || "사용자";
         departPlaceSelect.value = "";
@@ -4179,7 +4479,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
             departPlaceOther.classList.add("hidden");
         }
         destinationSelect.value = "";
-        startInput.value = "";
+        startInput.value = ""; // (원하면 오늘 날짜로 넣어줄 수도 있음)
         departTimeInput.value = "";
         arriveTimeInput.value = "";
         purposeInput.value = "";
@@ -4189,7 +4489,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
         if (settlementSection)
             settlementSection.classList.add("hidden");
     }
-    /** ✅ 메모리 ACTIVE로 UI 복원(탭 유지용) */
+    /** ✅ ACTIVE 복원(같은 탭에서만 유지) */
     function restoreFromActive(active) {
         const p = active.payload;
         reqNameInput.value = p.req_name || (currentUserName() || "사용자");
@@ -4223,10 +4523,8 @@ function initDomesticTripRegisterPanel(API_BASE) {
         try {
             destinationSelect.innerHTML = `<option value="">거래처(출장지) 선택</option>`;
             const res = await fetch(`${API_BASE}/api/business-trip/clients`);
-            if (!res.ok) {
-                console.error("[REGISTER] clients API HTTP error:", res.status);
+            if (!res.ok)
                 return;
-            }
             const json = await res.json().catch(() => null);
             const raw = Array.isArray(json?.data) ? json.data :
                 Array.isArray(json?.rows) ? json.rows :
@@ -4245,98 +4543,31 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 opt.textContent = clean;
                 destinationSelect.appendChild(opt);
             }
-            // ✅ 목록 로드 후: ACTIVE가 있으면 destination 값 재적용
             if (ACTIVE?.payload?.destination) {
                 destinationSelect.value = ACTIVE.payload.destination;
             }
         }
-        catch (err) {
-            console.warn("[REGISTER] 거래처 목록 로딩 실패:", err);
+        catch {
+            // ignore
         }
     }
-    /**
-     * ✅✅✅ 핵심: 로그아웃/재로그인 복원
-     * - end_data가 비어있는(정산 미완료) 최신 1건의 start_data를 불러와 폼에 채움
-     * - API: GET /api/business-trip/domestic/incomplete?req_name=...
-     */
-    async function restoreIncompleteFromServer() {
-        const me = currentUserName();
-        if (!me)
-            return;
-        try {
-            const url = `${API_BASE}/api/business-trip/domestic/incomplete?req_name=${encodeURIComponent(me)}`;
-            const res = await fetch(url);
-            if (!res.ok)
-                return;
-            const j = await res.json().catch(() => null);
-            const data = j?.data;
-            if (!data?.start_data)
-                return;
-            const p = data.start_data;
-            // 요청자
-            reqNameInput.value = p.req_name ?? me;
-            // 출발지(company/home/기타텍스트)
-            const dp = String(p.depart_place ?? "");
-            if (dp === "company" || dp === "home") {
-                departPlaceSelect.value = dp;
-                if (departPlaceOther) {
-                    departPlaceOther.value = "";
-                    departPlaceOther.classList.add("hidden");
-                }
-            }
-            else if (dp) {
-                departPlaceSelect.value = "other";
-                if (departPlaceOther) {
-                    departPlaceOther.classList.remove("hidden");
-                    departPlaceOther.value = dp;
-                }
-            }
-            // 출장지/일자/시간/목적
-            destinationSelect.value = String(p.destination ?? "");
-            startInput.value = String(p.start_date ?? p.trip_date ?? "");
-            departTimeInput.value = String(p.depart_time ?? "");
-            arriveTimeInput.value = String(p.arrive_time ?? "");
-            purposeInput.value = String(p.purpose ?? "");
-            // URL 파라미터도 맞춰줌(09가 이걸 쓰는 구조라서)
-            const tripDate = String(p.start_date ?? p.trip_date ?? "");
-            if (tripDate) {
-                setQueryParams({ req_name: me, trip_date: tripDate });
-            }
-            // UI: 이어서 정산 버튼은 보여주되, 정산 섹션은 버튼 누를 때만 열림
-            if (continueBtn)
-                continueBtn.classList.remove("hidden");
-            if (settlementSection)
-                settlementSection.classList.add("hidden");
-            resultBox.textContent = "✅ 정산 미완료 출장건을 불러왔습니다. [이어서 정산]을 눌러 진행하세요.";
-        }
-        catch (e) {
-            console.warn("[REGISTER] restoreIncompleteFromServer error:", e);
-        }
-    }
-    /** ✅ 패널 열릴 때 규칙: ACTIVE 있으면 복원 / 없으면 리셋 */
+    /** ✅ 패널 열릴 때: ACTIVE 있으면 복원 / 없으면 빈 폼 */
     async function applyOpenRule() {
         if (ACTIVE)
             restoreFromActive(ACTIVE);
         else
             clearFormUI();
         await loadClients();
-        // ✅ URL 파라미터가 현재 유저와 동일하면 날짜/이름 정도는 채움
+        // 등록 화면은 URL 파라미터로 폼 덮어쓰기 금지 (정산용)
         const qpName = getQueryParam("req_name");
         const qpDate = getQueryParam("trip_date");
         const me = currentUserName();
-        if (qpName && qpDate && me && qpName === me) {
-            reqNameInput.value = qpName;
-            startInput.value = qpDate;
+        if (qpName || qpDate) {
+            if (!me || qpName !== me)
+                clearQueryParams(["req_name", "trip_date", "trip_id"]);
         }
-        else if (qpName || qpDate) {
-            clearQueryParams(["req_name", "trip_date"]);
-        }
-        // ✅✅✅ 마지막: 서버에서 "정산 미완료 start_data" 자동 복원
-        await restoreIncompleteFromServer();
     }
-    // ✅ 최초 1회 적용
     applyOpenRule();
-    // 초기 숨김(복원 로직에서 필요하면 풀림)
     if (continueBtn)
         continueBtn.classList.add("hidden");
     if (settlementSection)
@@ -4350,6 +4581,24 @@ function initDomesticTripRegisterPanel(API_BASE) {
         if (!isOther)
             departPlaceOther.value = "";
     });
+    // ✅ 입력 중 “익일 도착” 안내문
+    function showNextDayHint_Register() {
+        const info = calcDurationAllowNextDay(departTimeInput.value, arriveTimeInput.value);
+        if (!info)
+            return;
+        const { mins, nextDay } = info;
+        if (!nextDay)
+            return;
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        resultBox.textContent =
+            `ℹ️ 도착시간이 출발시간보다 빠릅니다 → 익일 도착(자정 넘어감)으로 처리됩니다. ` +
+                `(이동 ${h}시간${m ? " " + m + "분" : ""})`;
+    }
+    departTimeInput.addEventListener("input", showNextDayHint_Register);
+    arriveTimeInput.addEventListener("input", showNextDayHint_Register);
+    departTimeInput.addEventListener("change", showNextDayHint_Register);
+    arriveTimeInput.addEventListener("change", showNextDayHint_Register);
     // ✅ 패널 이동 감지(hidden 토글)
     const mo = new MutationObserver(() => {
         const isHidden = panel.classList.contains("hidden");
@@ -4362,7 +4611,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
         }
     });
     mo.observe(panel, { attributes: true, attributeFilter: ["class"] });
-    // 🔹 리셋 버튼: UI 초기화 + ACTIVE 제거 + URL 파라미터 제거
+    // 🔹 리셋 버튼
     resetBtn.addEventListener("click", async () => {
         if (ACTIVE) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
@@ -4375,15 +4624,19 @@ function initDomesticTripRegisterPanel(API_BASE) {
             });
         }
         ACTIVE = null;
-        clearQueryParams(["req_name", "trip_date"]);
+        clearQueryParams(["req_name", "trip_date", "trip_id"]);
         clearFormUI();
         loadClients();
     });
     // 🔹 저장(출장등록)
     saveBtn.addEventListener("click", async () => {
+        // ✅ 안전수칙 동의(필수)
+        const safetyOk = await showSafetyModalIfNeeded();
+        if (!safetyOk)
+            return;
         const depart_place = departPlaceSelect.value === "other"
             ? textOrEmpty(departPlaceOther?.value)
-            : textOrEmpty(departPlaceSelect.value); // company | home
+            : textOrEmpty(departPlaceSelect.value);
         const payload = {
             trip_type: "domestic",
             req_name: reqNameInput.value.trim(),
@@ -4421,6 +4674,50 @@ function initDomesticTripRegisterPanel(API_BASE) {
             });
             return;
         }
+        // ✅ 자정 넘어감/과도 이동시간 경고 (저장 시점 모달)
+        {
+            const info = calcDurationAllowNextDay(payload.depart_time, payload.arrive_time);
+            if (info) {
+                const { mins, nextDay } = info;
+                const h = Math.floor(mins / 60);
+                const m = mins % 60;
+                if (nextDay) {
+                    const ok = await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                        type: "warn",
+                        title: "시간 확인",
+                        messageHtml: `도착시간이 출발시간보다 빠릅니다.<br/>` +
+                            `→ <b>익일 도착(자정 넘어감)</b>으로 처리됩니다.<br/>` +
+                            `<div class="mt-2 text-sm text-gray-600">예상 이동시간: ${h}시간${m ? ` ${m}분` : ""}</div>` +
+                            `<div class="mt-2 text-sm text-gray-600">이 입력이 맞으면 <b>계속</b>을 누르세요.</div>`,
+                        showOk: true,
+                        showCancel: true,
+                        okText: "계속",
+                        cancelText: "수정",
+                        okClass: "bg-indigo-600 hover:bg-indigo-700",
+                        cancelClass: "border border-gray-300 text-gray-700 hover:bg-gray-50",
+                    });
+                    if (ok !== true)
+                        return;
+                }
+                if (mins >= WARN_LONG_TRAVEL_MINS) {
+                    const ok2 = await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
+                        type: "warn",
+                        title: "이동시간이 너무 깁니다",
+                        messageHtml: `입력된 이동시간이 <b>${h}시간${m ? ` ${m}분` : ""}</b> 입니다.<br/>` +
+                            `시간 입력 실수(오전/오후, 0 하나 빠짐)일 수 있어요.<br/>` +
+                            `<div class="mt-2 text-sm text-gray-600">그래도 맞으면 계속 진행하세요.</div>`,
+                        showOk: true,
+                        showCancel: true,
+                        okText: "그래도 등록",
+                        cancelText: "수정",
+                        okClass: "bg-rose-600 hover:bg-rose-700",
+                        cancelClass: "border border-gray-300 text-gray-700 hover:bg-gray-50",
+                    });
+                    if (ok2 !== true)
+                        return;
+                }
+            }
+        }
         try {
             saveBtn.disabled = true;
             resultBox.textContent = "서버에 저장 중...";
@@ -4447,14 +4744,16 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 return;
             }
             const data = await res.json().catch(() => null);
-            // ✅ 탭 메모리(ACTIVE)만 세팅
             const trip_id = pickTripIdFromResponse(data);
             ACTIVE = { savedAt: Date.now(), trip_id, payload };
-            // ✅ 09 정산이 req_name/trip_date를 쓰는 구조라 URL도 맞춰줌
-            setQueryParams({
+            // ✅ 정산 패널이 쓰는 URL 파라미터 세팅 (req_name/trip_date/trip_id)
+            const params = {
                 req_name: payload.req_name,
                 trip_date: payload.start_date,
-            });
+            };
+            if (trip_id)
+                params.trip_id = trip_id;
+            setQueryParams(params);
             resultBox.textContent = "✅ 출장 등록 완료 (정산 전까지 탭에서만 유지됩니다.)";
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
@@ -4480,7 +4779,7 @@ function initDomesticTripRegisterPanel(API_BASE) {
                 showCancel: false,
             });
             ACTIVE = null;
-            clearQueryParams(["req_name", "trip_date"]);
+            clearQueryParams(["req_name", "trip_date", "trip_id"]);
             window.dispatchEvent(new Event("trip-status-refresh"));
             if (continueBtn)
                 continueBtn.classList.add("hidden");
@@ -4493,19 +4792,18 @@ function initDomesticTripRegisterPanel(API_BASE) {
     });
     /**
      * 🔹 이어서 정산
-     * ✅ in-progress 플래그/백엔드 호출 없음
-     * - 그냥 정산 섹션을 열고 URL 파라미터만 맞춰준다.
      */
     continueBtn?.addEventListener("click", async () => {
         try {
             const me = currentUserName();
             const date = startInput.value;
             const name = reqNameInput.value.trim();
+            // ✅ 정산폼 강제 초기화 이벤트(09에서 듣고 clearForm)
+            window.dispatchEvent(new Event("settlement:force-clear"));
             if (!date || !name) {
                 resultBox.textContent = "❌ 정산 대상(요청자/날짜)이 없습니다.";
                 return;
             }
-            // ✅ 현재 로그인 유저와 다르면 막기(다른 계정 잔존 문제 방지)
             if (me && name !== me) {
                 await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                     type: "alert",
@@ -4514,10 +4812,13 @@ function initDomesticTripRegisterPanel(API_BASE) {
                     showOk: true,
                     showCancel: false,
                 });
-                clearQueryParams(["req_name", "trip_date"]);
+                clearQueryParams(["req_name", "trip_date", "trip_id"]);
                 return;
             }
-            setQueryParams({ req_name: name, trip_date: date });
+            const params = { req_name: name, trip_date: date };
+            if (ACTIVE?.trip_id)
+                params.trip_id = ACTIVE.trip_id;
+            setQueryParams(params);
             if (settlementSection) {
                 settlementSection.classList.remove("hidden");
                 settlementSection.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -4538,12 +4839,12 @@ function initDomesticTripRegisterPanel(API_BASE) {
     // ✅ 정산 완료 이벤트(09에서 발사)
     window.addEventListener("domestic-trip-settled", () => {
         ACTIVE = null;
-        clearQueryParams(["req_name", "trip_date"]);
+        clearQueryParams(["req_name", "trip_date", "trip_id"]);
         clearFormUI();
     });
     window.addEventListener("trip-settled", () => {
         ACTIVE = null;
-        clearQueryParams(["req_name", "trip_date"]);
+        clearQueryParams(["req_name", "trip_date", "trip_id"]);
         clearFormUI();
     });
 }
@@ -4589,6 +4890,20 @@ function toVehicleCode(v) {
 }
 function textOrEmpty(v) {
     return String(v ?? "").trim();
+}
+// ✅ HH:mm → 분(min) 변환 (자정 넘어감 판단에 사용)
+function parseHHMMToMinutes(v) {
+    const s = String(v ?? "").trim();
+    const m = /^(\d{1,2}):(\d{2})$/.exec(s);
+    if (!m)
+        return null;
+    const hh = Number(m[1]);
+    const mm = Number(m[2]);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm))
+        return null;
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59)
+        return null;
+    return hh * 60 + mm;
 }
 /**
  * ✅ URL 파라미터 읽기 (search + hash 둘 다 대응)
@@ -4710,16 +5025,6 @@ function initDomesticTripSettlementPanel(API_BASE) {
     function currentUserName() {
         return (userNameEl?.textContent ?? "").trim();
     }
-    // ✅ 복귀지 기타 토글
-    returnPlaceSelect.addEventListener("change", () => {
-        if (!returnPlaceOther)
-            return;
-        const isOther = returnPlaceSelect.value === "other";
-        returnPlaceOther.classList.toggle("hidden", !isOther);
-        if (!isOther)
-            returnPlaceOther.value = "";
-        markDirty();
-    });
     // ✅ 체크 안 한 식사는 owner="none"
     const normalizeMeal = (checked, owner) => {
         if (!checked)
@@ -4727,7 +5032,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
         return { checked: true, owner: owner || "personal" };
     };
     // ===========================
-    // ✅ (추가) 변경 감지(Dirty) + 새로고침 경고
+    // ✅ 변경 감지(Dirty) + 새로고침 경고
     // ===========================
     let snapshot = "";
     let isDirty = false;
@@ -4767,7 +5072,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
         const now = collectFormSnapshot();
         setDirtyUI(now !== snapshot);
     }
-    // ✅✅✅ (추가) 폼 완전 초기화 (이전 데이터 잔존 방지)
+    // ✅✅✅ 폼 완전 초기화
     function clearForm(msg) {
         workEndInput.value = "";
         returnTimeInput.value = "";
@@ -4786,6 +5091,37 @@ function initDomesticTripSettlementPanel(API_BASE) {
         resultBox.textContent = msg ?? "";
         applySnapshotNow(); // dirty 해제
     }
+    // ✅✅✅ 08에서 "이어서 정산" 누르면 무조건 폼 초기화(브라우저 자동복원 제거)
+    window.addEventListener("settlement:force-clear", () => {
+        clearForm("");
+        applySnapshotNow();
+    });
+    // ✅✅✅ 정산 시간 인터락(자정 넘어감 허용)
+    // - 업무종료(예: 23:00) > 복귀(예: 02:00)면 "익일 복귀" 안내만 띄움
+    function showNextDayHint_Settlement() {
+        const s = parseHHMMToMinutes(workEndInput.value);
+        const e = parseHHMMToMinutes(returnTimeInput.value);
+        if (s == null || e == null)
+            return;
+        if (s > e) {
+            resultBox.textContent =
+                "ℹ️ 복귀시간이 업무종료시간보다 빠릅니다 → 익일 복귀(자정 넘어감)으로 처리됩니다.";
+        }
+    }
+    workEndInput.addEventListener("change", showNextDayHint_Settlement);
+    returnTimeInput.addEventListener("change", showNextDayHint_Settlement);
+    workEndInput.addEventListener("input", showNextDayHint_Settlement);
+    returnTimeInput.addEventListener("input", showNextDayHint_Settlement);
+    // ✅ 복귀지 기타 토글
+    returnPlaceSelect.addEventListener("change", () => {
+        if (!returnPlaceOther)
+            return;
+        const isOther = returnPlaceSelect.value === "other";
+        returnPlaceOther.classList.toggle("hidden", !isOther);
+        if (!isOther)
+            returnPlaceOther.value = "";
+        markDirty();
+    });
     // ✅ 입력 변화 감지(최소 침습)
     const bindDirty = (el) => {
         if (!el)
@@ -4815,32 +5151,34 @@ function initDomesticTripSettlementPanel(API_BASE) {
         e.preventDefault();
         e.returnValue = "";
     });
-    // ✅ 정산 대상(요청자/날짜) 읽기: URL 파라미터에서만
+    // ✅ 정산 대상(요청자/날짜/✅trip_id) 읽기: URL 파라미터에서만
     function readSettleTarget() {
         const req_name = textOrEmpty(getQueryParam("req_name"));
         const trip_date = textOrEmpty(getQueryParam("trip_date"));
-        return { req_name, trip_date };
+        const trip_id = textOrEmpty(getQueryParam("trip_id"));
+        return { req_name, trip_date, trip_id };
     }
     // ✅ 다른 계정 로그인 상태에서 URL 파라미터가 남아있으면 즉시 제거(정보 잔존 방지)
     function validateTargetOrClear() {
-        const { req_name, trip_date } = readSettleTarget();
+        const { req_name, trip_date, trip_id } = readSettleTarget();
         const me = currentUserName();
         if (!req_name || !trip_date)
-            return { ok: false, req_name, trip_date };
+            return { ok: false, req_name, trip_date, trip_id };
         if (me && req_name !== me) {
-            clearQueryParams(["req_name", "trip_date"]);
-            return { ok: false, req_name: "", trip_date: "" };
+            clearQueryParams(["req_name", "trip_date", "trip_id"]);
+            return { ok: false, req_name: "", trip_date: "", trip_id: "" };
         }
-        return { ok: true, req_name, trip_date };
+        return { ok: true, req_name, trip_date, trip_id };
     }
-    // ✅✅✅ (추가) 타겟이 바뀌면 폼을 무조건 비움 (이전 값 잔존 방지)
+    // ✅✅✅ 핵심: 타겟이 바뀌면 폼을 무조건 비움
+    // - 기존엔 req_name|trip_date 만 써서 "같은날 2건"이면 안 비워졌음
     let lastTargetKey = "";
     function syncTargetAndClearIfChanged() {
         const t = validateTargetOrClear();
-        const key = `${t.req_name}|${t.trip_date}`;
+        // ✅ trip_id가 있으면 반드시 포함(같은 날짜 다건 처리)
+        const key = `${t.req_name}|${t.trip_date}|${t.trip_id || "-"}`;
         if (!t.req_name || !t.trip_date) {
             lastTargetKey = "";
-            // 타겟이 없으면 화면 잔존값도 지우는 게 안전
             clearForm("");
             return;
         }
@@ -4851,6 +5189,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
     }
     /**
      * ✅ URL 파라미터가 없을 때 "진행중 정산" 1건을 서버에서 다시 찾아 자동 세팅
+     * - 가능하면 trip_id도 같이 세팅 (서버가 내려주면)
      */
     async function restoreTargetIfMissing() {
         const me = currentUserName();
@@ -4869,7 +5208,11 @@ function initDomesticTripSettlementPanel(API_BASE) {
                 return;
             if (String(data.req_name ?? "") !== me)
                 return;
-            setQueryParams({ req_name: me, trip_date: data.trip_date });
+            const params = { req_name: me, trip_date: String(data.trip_date) };
+            const tid = textOrEmpty(data.trip_id ?? data.id);
+            if (tid)
+                params.trip_id = tid;
+            setQueryParams(params);
             resultBox.textContent = "✅ 진행중 정산 건을 자동으로 불러왔습니다. 이어서 작성하세요.";
         }
         catch {
@@ -4878,12 +5221,10 @@ function initDomesticTripSettlementPanel(API_BASE) {
     }
     // ✅ 초기 1회: 혹시 URL이 비어있으면 진행중 복원 시도
     restoreTargetIfMissing().then(() => {
-        // ✅ 타겟 확정 + 변경 시 폼 초기화
         syncTargetAndClearIfChanged();
-        // ✅ 최초 스냅샷 기준점
         applySnapshotNow();
     });
-    // ✅ (선택) URL이 바뀌는 SPA 환경 대응: 뒤로가기/해시 변경 시에도 타겟 동기화
+    // ✅ (선택) URL이 바뀌는 SPA 환경 대응
     window.addEventListener("hashchange", () => syncTargetAndClearIfChanged());
     window.addEventListener("popstate", () => syncTargetAndClearIfChanged());
     resetBtn.addEventListener("click", async () => {
@@ -4909,10 +5250,11 @@ function initDomesticTripSettlementPanel(API_BASE) {
         const vehicleValue = toVehicleCode(vehicleValueRaw);
         // ✅ 저장 순간에도 URL이 비어있으면 한번 더 복원 시도 후 검증
         await restoreTargetIfMissing();
-        syncTargetAndClearIfChanged(); // ✅ 타겟 동기화(혹시 변경됐으면 초기화)
+        syncTargetAndClearIfChanged();
         const t = validateTargetOrClear();
         const trip_date = t.trip_date;
         const req_name = t.req_name;
+        const trip_id = t.trip_id; // ✅ 있으면 같이 전송(백엔드가 무시해도 OK)
         if (!trip_date || !req_name) {
             await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
                 type: "alert",
@@ -4991,7 +5333,7 @@ function initDomesticTripSettlementPanel(API_BASE) {
             const res = await fetch(`${API_BASE}/api/business-trip/settlement`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ req_name, trip_date, detail_json }),
+                body: JSON.stringify({ req_name, trip_date, trip_id, detail_json }),
             });
             if (!res.ok) {
                 const text = await res.text();
@@ -5025,11 +5367,11 @@ function initDomesticTripSettlementPanel(API_BASE) {
                 showOk: true,
                 showCancel: false,
             });
-            clearQueryParams(["req_name", "trip_date"]);
+            clearQueryParams(["req_name", "trip_date", "trip_id"]);
             window.dispatchEvent(new Event("domestic-trip-settled"));
             window.dispatchEvent(new Event("trip-status-refresh"));
             applySnapshotNow();
-            lastTargetKey = ""; // ✅ 타겟 제거했으니 키도 초기화
+            lastTargetKey = "";
         }
         catch (err) {
             console.error("[정산] 저장 중 오류:", err);
@@ -5046,14 +5388,11 @@ function initDomesticTripSettlementPanel(API_BASE) {
             saveBtn.disabled = false;
         }
     });
-    // ✅✅✅ (추가) SPA 패널 전환 대응: 정산 섹션이 "보이는 순간" 타겟 점검 + 타겟 없으면 clearForm()
-    // - 너의 화면은 hidden 토글 방식이라 hashchange가 안 나서 값이 남았던 것
+    // ✅ SPA 패널 전환 대응: 정산 섹션이 "보이는 순간" 타겟 점검 + 타겟 없으면 clearForm()
     const mo = new MutationObserver(() => {
         const isHidden = section.classList.contains("hidden");
         if (!isHidden) {
-            // 섹션이 보이는 순간마다: 타겟 동기화 + 없으면 폼 초기화
             syncTargetAndClearIfChanged();
-            // 타겟이 있더라도, 여기서 snapshot 기준점 다시 잡아줘야 "dirty"가 이상하게 안 뜸
             applySnapshotNow();
         }
     });
@@ -5063,7 +5402,6 @@ function initDomesticTripSettlementPanel(API_BASE) {
         syncTargetAndClearIfChanged();
         applySnapshotNow();
     }
-    // ✅ 섹션이 열려있는 상태에서 다른 계정으로 로그인하거나 URL 파라미터가 꼬이면 즉시 제거
     syncTargetAndClearIfChanged();
 }
 
@@ -5086,6 +5424,7 @@ __webpack_require__.r(__webpack_exports__);
 // 1) 다른 화면 갔다가 오면 무조건 "오늘 기준 전주(월~일)"로 초기세팅 + 조회전 UI 리셋
 // 2) 제출 버튼은 "조회된 내역이 있으면" 항상 클릭 가능(주간아님/미정산/이미제출은 클릭 후 안내/모달)
 // 3) 주간(월~일) 아니면 모달로 주간 자동 변경 + 재조회 후 제출
+//    ✅ 단, 자동 변경 기준은 "오늘"이 아니라 "서칭된 주(lastRows 기준)"로 잡는다
 // 4) 미정산 포함 / 이미 제출 포함은 alert 안내
 // 5) ✅ 반려사유 옆에 [삭제] 버튼 추가
 //    - ✅ 승인(approved)만 삭제 불가
@@ -5398,22 +5737,53 @@ function initDomesticTripHistoryPanel(API_BASE) {
         return ok === true;
     }
     // =========================
-    // ✅ 주간 제출 전용 모달
+    // ✅ "서칭된 주" 기준 계산 helpers (핵심!)
+    // =========================
+    function parseYMDLocal(ymd) {
+        const [y, m, d] = String(ymd).slice(0, 10).split("-").map(Number);
+        return new Date(y, (m ?? 1) - 1, d ?? 1); // ✅ UTC 파싱 방지
+    }
+    function weekRangeMonSunByYMD(ymd) {
+        const dt = parseYMDLocal(ymd);
+        const day = dt.getDay(); // 0=일..6=토
+        const diffToMon = (day + 6) % 7; // 월요일 기준
+        const mon = new Date(dt);
+        mon.setDate(dt.getDate() - diffToMon);
+        const sun = new Date(mon);
+        sun.setDate(mon.getDate() + 6);
+        return { monStr: toYMD(mon), sunStr: toYMD(sun) };
+    }
+    /** ✅ 모달에서 제안할 기준 날짜: 조회된 rows가 있으면 최신 날짜(max trip_date) 기준 */
+    function getSearchBasedBaseYmd() {
+        const dates = (lastRows ?? [])
+            .map((r) => String(r.trip_date ?? "").slice(0, 10).trim())
+            .filter(Boolean);
+        if (dates.length > 0) {
+            dates.sort(); // YYYY-MM-DD 문자열 정렬 = 날짜 정렬
+            return dates[dates.length - 1]; // ✅ 최신 날짜
+        }
+        // rows가 없으면 현재 입력값 to -> from 순서로 fallback
+        const t = String(toInput.value ?? "").slice(0, 10).trim();
+        if (t)
+            return t;
+        const f = String(fromInput.value ?? "").slice(0, 10).trim();
+        if (f)
+            return f;
+        return toYMD(new Date());
+    }
+    // =========================
+    // ✅ 주간 제출 전용 모달 (서칭된 주 기준으로 주간 제안)
     // =========================
     async function openWeekSubmitModal(opts) {
-        const base = opts.baseFrom || "-";
-        const baseDate = base && base !== "-" ? new Date(base) : new Date();
-        const mon = startOfWeekMon(baseDate);
-        const sun = endOfWeekSun(baseDate);
-        const monStr = toYMD(mon);
-        const sunStr = toYMD(sun);
+        const baseYmd = getSearchBasedBaseYmd();
+        const { monStr, sunStr } = weekRangeMonSunByYMD(baseYmd);
         const ok = await _utils_ModalUtil__WEBPACK_IMPORTED_MODULE_0__.ModalUtil.show({
             type: "warn",
             title: "제출은 주간(월~일)만 가능합니다",
             messageHtml: `
-      현재 선택 기간은 주간(월~일)이 아닙니다.<br/>
-      <b class="text-gray-900">${monStr} ~ ${sunStr}</b> (월~일)로 자동 변경 후 제출할까요?
-    `,
+        현재 선택 기간은 주간(월~일)이 아닙니다.<br/>
+        <b class="text-gray-900">${monStr} ~ ${sunStr}</b> (월~일)로 자동 변경 후 제출할까요?
+      `,
             showOk: true,
             showCancel: true,
             okText: "주간으로 맞추고 제출",
@@ -5584,7 +5954,7 @@ function initDomesticTripHistoryPanel(API_BASE) {
     ${rejectReason}
   </td>
 
-  <!-- ✅ 삭제 칸: 삭제 버튼만 (반려사유 옆 공란 칸) -->
+  <!-- ✅ 삭제 칸: 삭제 버튼만 -->
   <td class="border px-2 py-1 text-center whitespace-nowrap">
     ${deleteBtnHtml}
   </td>
@@ -5601,7 +5971,6 @@ function initDomesticTripHistoryPanel(API_BASE) {
                 const tripId = String(btn.dataset.tripId ?? "").trim();
                 if (!tripId)
                     return;
-                // 현재 rows에서 상태 확인
                 const row = lastRows.find((x) => x.trip_id === tripId);
                 if (row?.approve_status === "approved") {
                     await niceAlert("삭제 불가", "승인된 건은 삭제할 수 없습니다.", "warn");
@@ -5708,11 +6077,10 @@ function initDomesticTripHistoryPanel(API_BASE) {
                 await niceAlert("제출할 수 없습니다", "이미 제출된 정산이 포함되어 있습니다.<br/>제출할 주간만 다시 조회해서 제출해주세요.", "warn");
                 return;
             }
-            // 3) 주간 아니면 모달 → 주간으로 맞추고 제출
+            // 3) 주간 아니면 모달 → ✅ 서칭된 주 기준으로 맞추고 제출
             const okWeek = isMonToSunRange(fromInput.value, toInput.value);
             if (!okWeek) {
                 await openWeekSubmitModal({
-                    baseFrom: fromInput.value,
                     onConvertAndSubmit: async () => {
                         await fetchHistory();
                         if (!lastRows.length) {

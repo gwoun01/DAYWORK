@@ -348,3 +348,18 @@ th.border-b {
 #workspace ::-webkit-scrollbar-track {
     background: transparent;
 }
+
+/* ✅ 캘린더 전체 높이 고정 분배 */
+.cal-grid-fix {
+    height: 100%;
+    display: grid;
+    grid-template-rows: repeat(6, minmax(0, 1fr));
+    align-content: stretch;
+    box-sizing: border-box;
+}
+
+/* ✅ 각 날짜 셀 */
+#dutyCalGrid>div {
+    min-height: 0;
+    overflow: hidden;
+}

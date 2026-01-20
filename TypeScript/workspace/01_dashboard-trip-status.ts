@@ -35,13 +35,6 @@ type VacationItem = {
 
 type DutyMember = { no: number; name: string };
 
-// ✅ 대시보드 일정 타입 (회사 일정)
-type CalendarEventItem = {
-  id: number;
-  date: string;   // YYYY-MM-DD
-  title: string;  // 예: "장비검수"
-};
-
 /** ✅ 출장업무관리 config 타입(대시보드에서 필요한 것만) */
 type BusinessMasterConfig = {
   notice?: string;
@@ -56,6 +49,12 @@ type BusinessMasterConfig = {
   exchange_rate_usd?: number | null;
   exchange_rate_jpy?: number | null;
   exchange_rate_cny?: number | null;
+};
+
+type CalendarEventItem = {
+  id: number;
+  date: string; // YYYY-MM-DD
+  title: string; // 예: "장비검수"
 };
 
 // ----------------------
@@ -152,10 +151,19 @@ function mod(n: number, m: number) {
   return ((n % m) + m) % m;
 }
 
+// ✅ 날짜 범위(YYYY-MM-DD) 안에 포함되는지
+function isBetweenYmd(target: string, start: string, end: string) {
+  if (!isYmdStr(target) || !isYmdStr(start) || !isYmdStr(end)) return false;
+  return start <= target && target <= end;
+}
+
 // ----------------------
 // ✅ DOM이 늦게 생기는 문제 해결(기존 유지)
 // ----------------------
-async function waitForElement<T extends HTMLElement>(id: string, timeoutMs = 8000): Promise<T | null> {
+async function waitForElement<T extends HTMLElement>(
+  id: string,
+  timeoutMs = 8000
+): Promise<T | null> {
   const start = Date.now();
 
   return new Promise((resolve) => {
@@ -170,9 +178,145 @@ async function waitForElement<T extends HTMLElement>(id: string, timeoutMs = 800
 }
 
 // ----------------------
+// ✅ 캘린더 고정 스타일 주입 (dutyCalGrid 기준 / 셀 높이 충분히 크게 / 최대 2개 표시 + 더보기 버튼)
+// ----------------------
+function ensureDashboardCalFixedStyle() {
+  if (document.getElementById("dashCalFixedStyle")) return;
+
+  const style = document.createElement("style");
+  style.id = "dashCalFixedStyle";
+  style.textContent = `
+    /* ✅ 격자선 안 깨지게: grid 자체에 왼쪽/위 border 주고, 셀은 오른쪽/아래만 */
+    #dutyCalGrid{
+      border-left: 1px solid #e5e7eb;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    /* ✅ 셀 높이 크게(요청) */
+    #dutyCalGrid > div{
+      box-sizing: border-box;
+      min-height: 160px; /* ✅ 충분히 크게 */
+      overflow: hidden;
+      background: #fff;
+    }
+
+    /* ✅ 뱃지: 텍스트 2~3줄 정도 */
+    .dash-pill{
+      padding: 6px 10px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.2;
+      white-space: normal;
+      word-break: keep-all;
+
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+
+      cursor: pointer;
+      user-select: none;
+    }
+    .dash-pill:hover{ filter: brightness(0.98); }
+
+    .dash-more-btn{
+      margin-top: 6px;
+      width: 100%;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 6px 10px;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      cursor: pointer;
+    }
+    .dash-more-btn:hover{ background:#f9fafb; }
+
+    .dash-day{
+      font-size: 12px;
+      font-weight: 900;
+      margin-bottom: 6px;
+    }
+
+    .dash-content{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-height:0;
+      overflow:hidden;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function ensureDashCalModal() {
+  if (document.getElementById("dashCalModal")) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "dashCalModal";
+  wrap.className = "fixed inset-0 z-[9999] hidden";
+
+  wrap.innerHTML = `
+    <div class="absolute inset-0 bg-black/40"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b">
+          <div class="font-bold text-gray-900 text-sm" id="dashCalModalTitle">상세</div>
+          <button id="dashCalModalClose" class="px-2 py-1 rounded-lg border text-xs hover:bg-gray-50 active:bg-gray-100">닫기</button>
+        </div>
+        <div class="p-4 space-y-2 max-h-[60vh] overflow-auto" id="dashCalModalBody"></div>
+        <div class="px-4 py-3 border-t bg-gray-50 flex justify-end">
+          <button id="dashCalModalOk" class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 active:bg-indigo-800">확인</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(wrap);
+
+  const close = () => wrap.classList.add("hidden");
+  wrap.querySelector("#dashCalModalClose")?.addEventListener("click", close);
+  wrap.querySelector("#dashCalModalOk")?.addEventListener("click", close);
+  wrap
+    .querySelector("div.absolute.inset-0.bg-black\\/40")
+    ?.addEventListener("click", close);
+}
+
+function openDashCalModal(title: string, lines: string[]) {
+  ensureDashboardCalFixedStyle();
+  ensureDashCalModal();
+
+  const modal = document.getElementById("dashCalModal");
+  const titleEl = document.getElementById("dashCalModalTitle");
+  const bodyEl = document.getElementById("dashCalModalBody");
+
+  if (!modal || !titleEl || !bodyEl) return;
+
+  titleEl.textContent = title;
+
+  bodyEl.innerHTML = lines.length
+    ? lines
+        .map(
+          (t) => `
+          <div class="border rounded-xl px-3 py-2 text-sm text-gray-800 bg-white">
+            ${escapeHtml(t)}
+          </div>
+        `
+        )
+        .join("")
+    : `<div class="text-sm text-gray-500">표시할 내용이 없습니다.</div>`;
+
+  modal.classList.remove("hidden");
+}
+
+// ----------------------
 // ✅ API: 휴일(주말+공휴일)
 // ----------------------
-async function fetchHolidayItemsForMonth(API_BASE: string, base: Date): Promise<HolidayItem[]> {
+async function fetchHolidayItemsForMonth(
+  API_BASE: string,
+  base: Date
+): Promise<HolidayItem[]> {
   const year = String(base.getFullYear());
   const month = pad2(base.getMonth() + 1);
 
@@ -190,9 +334,12 @@ async function fetchHolidayItemsForMonth(API_BASE: string, base: Date): Promise<
   // 2) 공휴일 API
   let apiHolidays: HolidayItem[] = [];
   try {
-    const res = await fetch(`${API_BASE}/api/business-master/holidays?year=${year}&month=${month}`, {
-      credentials: "include",
-    });
+    const res = await fetch(
+      `${API_BASE}/api/business-master/holidays?year=${year}&month=${month}`,
+      {
+        credentials: "include",
+      }
+    );
     const json = await res.json().catch(() => null);
 
     if (res.ok && json?.ok === true) {
@@ -239,6 +386,37 @@ async function fetchVacations(API_BASE: string): Promise<VacationItem[]> {
   }
 }
 
+// ----------------------
+// ✅ API: 일정(대시보드 캘린더용)  + 월별 맵
+// ----------------------
+async function fetchDashboardSchedules(
+  API_BASE: string,
+  ymStr: string
+): Promise<CalendarEventItem[]> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/business-master/calendar-events?ym=${encodeURIComponent(ymStr)}`,
+      { credentials: "include" }
+    );
+    const json = await res.json().catch(() => null);
+    if (!res.ok || json?.ok !== true) return [];
+    return Array.isArray(json.items) ? (json.items as CalendarEventItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildScheduleMapForMonth(viewingYm: string, schedules: CalendarEventItem[]) {
+  const map = new Map<string, CalendarEventItem[]>();
+  for (const it of schedules) {
+    if (!it?.date || !it.title) continue;
+    if (!it.date.startsWith(viewingYm)) continue;
+    if (!map.has(it.date)) map.set(it.date, []);
+    map.get(it.date)!.push(it);
+  }
+  return map;
+}
+
 // ✅ "월 기준 날짜별 휴가자 배열" map
 function buildVacationMapForMonth(items: VacationItem[], base: Date) {
   const y = base.getFullYear();
@@ -251,7 +429,6 @@ function buildVacationMapForMonth(items: VacationItem[], base: Date) {
   for (const v of items) {
     if (!v?.user_name) continue;
 
-    // ✅ start/end 정규화 (ISO -> YYYY-MM-DD)
     const sStr = ymdText(v.start_date);
     const eStr = ymdText(v.end_date);
 
@@ -306,9 +483,13 @@ type DutyConfigParsed = {
   lastAssigns: DutyAssign[];
 };
 
-async function fetchBusinessMasterConfig(API_BASE: string): Promise<BusinessMasterConfig | null> {
+async function fetchBusinessMasterConfig(
+  API_BASE: string
+): Promise<BusinessMasterConfig | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/business-master/config`, { credentials: "include" });
+    const res = await fetch(`${API_BASE}/api/business-master/config`, {
+      credentials: "include",
+    });
     if (!res.ok) return null;
     const data = await res.json().catch(() => null);
     if (!data) return null;
@@ -333,7 +514,9 @@ async function fetchBusinessMasterConfig(API_BASE: string): Promise<BusinessMast
 
 async function fetchDutyConfig(API_BASE: string): Promise<DutyConfigParsed> {
   try {
-    const res = await fetch(`${API_BASE}/api/business-master/config`, { credentials: "include" });
+    const res = await fetch(`${API_BASE}/api/business-master/config`, {
+      credentials: "include",
+    });
     if (!res.ok) return { startIndex: 0, lastYm: "", lastAssigns: [] };
     const data = await res.json().catch(() => ({} as any));
 
@@ -346,11 +529,11 @@ async function fetchDutyConfig(API_BASE: string): Promise<DutyConfigParsed> {
       const lastYm = String(parsed?.lastYm ?? "");
       const lastAssigns = Array.isArray(parsed?.lastAssigns)
         ? parsed.lastAssigns
-          .map((a: any) => ({
-            date: String(a?.date ?? ""),
-            name: String(a?.name ?? ""),
-          }))
-          .filter((a: DutyAssign) => isYmdStr(a.date) && !!a.name)
+            .map((a: any) => ({
+              date: String(a?.date ?? ""),
+              name: String(a?.name ?? ""),
+            }))
+            .filter((a: DutyAssign) => isYmdStr(a.date) && !!a.name)
         : [];
       return { startIndex, lastYm, lastAssigns };
     } catch {
@@ -361,23 +544,8 @@ async function fetchDutyConfig(API_BASE: string): Promise<DutyConfigParsed> {
   }
 }
 
-// ✅ 회사 일정(캘린더용) 불러오기
-async function fetchDashboardSchedules(API_BASE: string, ymStr: string): Promise<CalendarEventItem[]> {
-  try {
-    const res = await fetch(
-      `${API_BASE}/api/business-master/calendar-events?ym=${encodeURIComponent(ymStr)}`,
-      { credentials: "include" }
-    );
-    const json = await res.json().catch(() => null);
-    if (!res.ok || json?.ok !== true) return [];
-    return Array.isArray(json.items) ? json.items : [];
-  } catch {
-    return [];
-  }
-}
-
 // ----------------------
-// ✅ 대시보드: 공지/유류/환율 렌더 (추가)
+// ✅ 대시보드: 공지/유류/환율 렌더
 // ----------------------
 async function refreshDashboardTopNoticeFuelFx(API_BASE: string) {
   // DOM이 없을 수도 있으니(패널 전환 시) 기다렸다가 세팅
@@ -387,20 +555,19 @@ async function refreshDashboardTopNoticeFuelFx(API_BASE: string) {
   const cfg = await fetchBusinessMasterConfig(API_BASE);
   if (!cfg) return;
 
-  // 1) 공지(상단 공지판)
-
-  //const noticeCard = document.querySelector("#panel-dashboard .bg-white .font-bold.text-gray-800") as HTMLElement | null;
-
-  const noticeCard = Array.from(document.querySelectorAll<HTMLElement>("#panel-dashboard .bg-white"))
-    .find((el) => (el.textContent || "").includes("공지사항 알림판")) ?? null;
+  // 1) 공지(상단 공지판) - "공지사항 알림판" 카드에 내용 삽입
+  const noticeCard =
+    Array.from(document.querySelectorAll<HTMLElement>("#panel-dashboard .bg-white")).find((el) =>
+      (el.textContent || "").includes("공지사항 알림판")
+    ) ?? null;
 
   if (noticeCard) {
     let out = noticeCard.querySelector<HTMLElement>("#dashNoticeText");
     if (!out) {
       out = document.createElement("div");
       out.id = "dashNoticeText";
-      out.className = "mt-3 text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap break-words";
-      // 카드 안의 첫 설명문 다음에 꽂아줌
+      out.className =
+        "mt-3 text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap break-words";
       noticeCard.appendChild(out);
     }
     out.textContent = (cfg.notice ?? cfg.note ?? "").trim() || "-";
@@ -411,13 +578,9 @@ async function refreshDashboardTopNoticeFuelFx(API_BASE: string) {
   setText("fuelUnitDiesel", fmtNumber(cfg.fuel_price_diesel, "0"));
   setText("fuelUnitGas", fmtNumber(cfg.fuel_price_lpg, "0"));
 
-  // 전기 유류대는 아직 config에 없으니 0 유지
-  // (원하면 나중에 config에 fuel_price_electric 같은 필드 추가해서 연동하면 됨)
-  // 여기서는 기존 표시값 유지(없으면 0)
   const elElec = document.getElementById("fuelUnitElectric");
   if (elElec && !elElec.textContent) elElec.textContent = "0";
 
-  // 기준일 표시는 “설정 저장일”이 따로 없어서 오늘로 표시(원하면 config updatedAt 저장해서 정확히 가능)
   setText("fuelPriceBaseDate", todayYmd());
 
   // 3) 환율
@@ -428,12 +591,13 @@ async function refreshDashboardTopNoticeFuelFx(API_BASE: string) {
 }
 
 // ----------------------
-// ✅ 대시보드: 표(#dutyHolidayBody) 렌더 (휴일 + 당직 + 휴가)
+// ✅ 대시보드: 표(#dutyHolidayBody) 렌더 (휴일 + 당직 + 휴가 + 일정)  ※ 숨김 유지용
 // ----------------------
-function renderDashboardHolidayDuty(
+function renderDashboardHolidayDutyTable(
   holidays: HolidayItem[],
   assignsMap: Record<string, string>,
-  vacMap: Record<string, string[]>
+  vacMap: Record<string, string[]>,
+  scheduleMap: Map<string, CalendarEventItem[]>
 ) {
   const tbody = document.getElementById("dutyHolidayBody") as HTMLTableSectionElement | null;
   if (!tbody) return;
@@ -458,10 +622,12 @@ function renderDashboardHolidayDuty(
 
       const dutyName = assignsMap[h.date] || "";
       const vacNames = vacMap[h.date] ?? [];
+      const sch = scheduleMap.get(h.date) ?? [];
 
       const lines: string[] = [];
       if (dutyName) lines.push(`당직: ${escapeHtml(dutyName)}`);
       if (vacNames.length) lines.push(`휴가: ${vacNames.map(escapeHtml).join(", ")}`);
+      if (sch.length) lines.push(`일정: ${sch.map((x) => escapeHtml(x.title)).join(", ")}`);
 
       const cell =
         lines.length === 0
@@ -481,30 +647,22 @@ function renderDashboardHolidayDuty(
 }
 
 // ----------------------
-// ✅ 대시보드: 달력 그리드(#dutyCalGrid) 렌더 (휴일/당직/휴가)
+// ✅ 대시보드: 달력 그리드(#dutyCalGrid) 렌더 (휴일/휴가/당직/일정) + 셀당 최대 2개 + 더보기 모달
 // ----------------------
-function ensureDutyCalLabel() {
-  let label = document.getElementById("dutyCalLabel") as HTMLDivElement | null;
-  if (!label) {
-    label = document.createElement("div");
-    label.id = "dutyCalLabel";
-    label.className = "hidden";
-    document.body.appendChild(label);
-  }
-  const txt = (label.textContent || "").trim();
-  if (!/^\d{4}-\d{2}$/.test(txt)) label.textContent = ym(new Date());
-}
-
 function renderDashboardCalendarGrid(
   viewingYm: string,
   holidays: HolidayItem[],
   assignsMap: Record<string, string>,
-  vacMap: Record<string, string[]>
+  vacMap: Record<string, string[]>,
+  scheduleMap: Map<string, CalendarEventItem[]>
 ) {
   const grid = document.getElementById("dutyCalGrid") as HTMLDivElement | null;
   if (!grid) return;
 
-  ensureDutyCalLabel();
+  // ✅ dutyCalGrid 기준: cell 자체 min-height는 style에서 고정
+  grid.style.gridAutoRows = "1fr";
+  grid.style.alignItems = "stretch";
+
   const label = document.getElementById("dutyCalLabel") as HTMLDivElement | null;
   if (label) label.textContent = viewingYm;
 
@@ -512,70 +670,121 @@ function renderDashboardCalendarGrid(
   if (!m) return;
 
   const y = Number(m[1]);
-  const mo = Number(m[2]); // 1~12
+  const mo = Number(m[2]);
 
   const first = new Date(y, mo - 1, 1);
   const lastDay = new Date(y, mo, 0).getDate();
-  const startDow = first.getDay(); // 0=일
+  const startDow = first.getDay();
 
   const holidayMap = new Map<string, HolidayItem>();
   for (const h of holidays) holidayMap.set(h.date, h);
 
   grid.innerHTML = "";
 
-  // 앞 빈칸
-  for (let i = 0; i < startDow; i++) {
+  const mkEmpty = () => {
     const empty = document.createElement("div");
-    empty.className = "min-h-[90px] border-b border-r bg-gray-50/50";
-    grid.appendChild(empty);
-  }
+    empty.className = "border-r border-b bg-gray-50/40";
+    return empty;
+  };
 
-  // 날짜 셀
+  // 앞 빈칸
+  for (let i = 0; i < startDow; i++) grid.appendChild(mkEmpty());
+
   for (let d = 1; d <= lastDay; d++) {
     const key = `${y}-${pad2(mo)}-${pad2(d)}`;
-
-    const cell = document.createElement("div");
-    cell.className = "min-h-[90px] border-b border-r p-1 overflow-hidden bg-white";
-    cell.dataset.date = key;
 
     const h = holidayMap.get(key);
     const dow = new Date(key + "T00:00:00").getDay();
     const isRed = (h && h.type === "공휴일") || dow === 0;
 
+    const cell = document.createElement("div");
+    cell.className = "border-r border-b p-2 bg-white overflow-hidden flex flex-col";
+    cell.dataset.date = key;
+
     const dayEl = document.createElement("div");
-    dayEl.className = `text-[11px] font-bold mb-1 ${isRed ? "text-rose-600" : "text-gray-900"}`;
+    dayEl.className = `dash-day ${isRed ? "text-rose-600" : "text-gray-900"}`;
     dayEl.textContent = String(d);
     cell.appendChild(dayEl);
 
-    // 휴일 배지(주말/공휴일)
+    const contentBox = document.createElement("div");
+    contentBox.className = "dash-content";
+    cell.appendChild(contentBox);
+
+    // ✅ 표시 우선순위: 휴일 -> 휴가 -> 당직 -> 일정 (요청: 모두 표시)
+    const lines: { kind: "holiday" | "vac" | "duty" | "schedule"; text: string }[] =
+      [];
+
     if (h) {
-      const badge = document.createElement("div");
       const isHoliday = h.type === "공휴일";
-      badge.className =
-        "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 " +
-        (isHoliday ? "bg-rose-50 text-rose-700" : "bg-gray-100 text-gray-700");
-      badge.textContent = isHoliday ? (h.holidayName ? `공휴일(${h.holidayName})` : "공휴일") : "주말";
-      cell.appendChild(badge);
+      const txt = isHoliday
+        ? h.holidayName
+          ? `공휴일 ${h.holidayName}`
+          : "공휴일"
+        : "주말";
+      lines.push({ kind: "holiday", text: txt });
     }
 
-    // 휴가 1줄(+더보기)
     const vacs = vacMap[key] ?? [];
-    if (vacs.length) {
-      const vLine = document.createElement("div");
-      vLine.className =
-        "px-1.5 py-0.5 rounded text-[10px] font-semibold mb-1 bg-amber-50 text-amber-800 whitespace-normal break-keep";
-      vLine.textContent = `휴가 ${vacs[0]}${vacs.length > 1 ? ` 외 ${vacs.length - 1}` : ""}`;
-      cell.appendChild(vLine);
+    if (vacs.length) lines.push({ kind: "vac", text: `휴가 ${vacs.join(", ")}` });
+
+    const dutyName = assignsMap[key] || "";
+    if (dutyName) lines.push({ kind: "duty", text: `당직 ${dutyName}` });
+
+    const sch = scheduleMap.get(key) ?? [];
+    if (sch.length) {
+      // 일정 여러개면 한 줄로 묶고(셀 표시 제한 때문에), 모달에서 전체 보여줌
+      const titles = sch.map((x) => x.title).filter(Boolean);
+      if (titles.length) lines.push({ kind: "schedule", text: `일정 ${titles.join(", ")}` });
     }
 
-    // 당직 1줄
-    const dutyName = assignsMap[key] || "";
-    if (dutyName) {
-      const dLine = document.createElement("div");
-      dLine.className =
-        "px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 whitespace-normal break-keep";
-      dLine.textContent = `당직 ${dutyName}`;
-      cell.appendChild(dLine);
+    const makePill = (kind: string, text: string) => {
+      const pill = document.createElement("div");
+
+      if (kind === "holiday") {
+        const isHoliday = text.startsWith("공휴일");
+        pill.className =
+          "dash-pill " + (isHoliday ? "bg-rose-50 text-rose-700" : "bg-gray-100 text-gray-700");
+      } else if (kind === "vac") {
+        pill.className = "dash-pill bg-amber-50 text-amber-800";
+      } else if (kind === "duty") {
+        pill.className = "dash-pill bg-indigo-50 text-indigo-700";
+      } else {
+        pill.className = "dash-pill bg-emerald-50 text-emerald-700";
+      }
+
+      pill.textContent = text;
+
+      // ✅ pill 클릭 → 해당 날짜 전체를 모달로
+      pill.addEventListener("click", () => {
+        const title = `${key} 상세`;
+        openDashCalModal(title, lines.map((x) => x.text));
+      });
+
+      return pill;
+    };
+
+    const MAX_SHOW = 2;
+    const show = lines.slice(0, MAX_SHOW);
+    const remain = lines.length - show.length;
+
+    for (const it of show) contentBox.appendChild(makePill(it.kind, it.text));
+
+    if (remain > 0) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "dash-more-btn";
+      btn.textContent = `+ 더보기 (${remain})`;
+      btn.addEventListener("click", () => {
+        openDashCalModal(`${key} 상세`, lines.map((x) => x.text));
+      });
+      contentBox.appendChild(btn);
+    }
+
+    if (lines.length === 0) {
+      const none = document.createElement("div");
+      none.className = "text-[11px] text-gray-300 font-semibold";
+      none.textContent = "-";
+      contentBox.appendChild(none);
     }
 
     grid.appendChild(cell);
@@ -584,58 +793,11 @@ function renderDashboardCalendarGrid(
   // 뒤 빈칸
   const totalCells = startDow + lastDay;
   const remain = (7 - (totalCells % 7)) % 7;
-  for (let i = 0; i < remain; i++) {
-    const empty = document.createElement("div");
-    empty.className = "min-h-[90px] border-b border-r bg-gray-50/30";
-    grid.appendChild(empty);
-  }
-}
-
-// ✅ 대시보드 캘린더 셀에 "일정"만 추가 표시
-function appendSchedulesToDashboardCalendar(viewingYm: string, schedules: CalendarEventItem[]) {
-  const grid = document.getElementById("dutyCalGrid") as HTMLDivElement | null;
-  if (!grid) return;
-
-  const monthItems = schedules.filter((s) => s.date.startsWith(viewingYm));
-
-  const map = new Map<string, CalendarEventItem[]>();
-  for (const it of monthItems) {
-    if (!map.has(it.date)) map.set(it.date, []);
-    map.get(it.date)!.push(it);
-  }
-
-  const cells = grid.querySelectorAll<HTMLDivElement>("div[data-date]");
-  cells.forEach((cell) => {
-    const date = cell.dataset.date!;
-    const items = map.get(date);
-    if (!items?.length) return;
-
-    // 🔒 중복 표시 방지
-    cell.querySelectorAll(".dash-schedule").forEach((n) => n.remove());
-
-    const first = items[0];
-
-    const line = document.createElement("div");
-    line.className =
-      "dash-schedule px-1.5 py-0.5 mt-1 rounded bg-slate-50 text-slate-800 text-[10px] font-semibold";
-    line.textContent = `일정 ${first.title}`;
-    cell.appendChild(line);
-
-    if (items.length > 1) {
-      const more = document.createElement("div");
-      more.className = "dash-schedule text-[10px] text-slate-600 underline cursor-pointer";
-      more.textContent = `+${items.length - 1}건`;
-      more.onclick = (e) => {
-        e.stopPropagation();
-        alert(`[${date}]\n\n일정:\n` + items.map((x) => `- ${x.title}`).join("\n"));
-      };
-      cell.appendChild(more);
-    }
-  });
+  for (let i = 0; i < remain; i++) grid.appendChild(mkEmpty());
 }
 
 // ----------------------
-// ✅ 핵심: "당직생성 버튼" 없이도 현재월 당직을 자동으로 계산해서 대시보드에 그리기
+// ✅ 핵심: "당직생성 버튼" 없이도 현재월 당직을 자동으로 계산해서 대시보드에 그리기(표시용)
 // ----------------------
 async function computeDutyAssignsForYm(
   API_BASE: string,
@@ -648,7 +810,7 @@ async function computeDutyAssignsForYm(
   const len = members.length;
   const safeStartIndex = mod(Number(cfg.startIndex || 0), len);
 
-  // lastYm가 없으면: 그냥 0부터 현재월 휴일 수만큼 배정(처음 사용)
+  // cfg.lastYm 없으면 "현재월"만 단순 배정
   if (!/^\d{4}-\d{2}$/.test(cfg.lastYm)) {
     const [yy, mm] = viewingYm.split("-").map(Number);
     const base = new Date(yy, mm - 1, 1);
@@ -663,12 +825,11 @@ async function computeDutyAssignsForYm(
     return assigns.filter((a) => a.date && a.name);
   }
 
-  // viewingYm == lastYm이고 lastAssigns가 있으면 그걸 그대로 사용(정확)
+  // 같은 달이면 저장된 lastAssigns 그대로
   if (compareYm(viewingYm, cfg.lastYm) === 0 && cfg.lastAssigns.length) {
     return cfg.lastAssigns;
   }
 
-  // helper: 어떤 월의 휴일 수
   async function getHolidayCount(ymStr: string): Promise<number> {
     const [yy, mm] = ymStr.split("-").map(Number);
     const monthBase = new Date(yy, mm - 1, 1);
@@ -678,20 +839,28 @@ async function computeDutyAssignsForYm(
 
   let startIdx = 0;
 
+  // viewingYm이 lastYm보다 미래면, 중간 달 휴일 수만큼 인덱스 이동
   if (compareYm(viewingYm, cfg.lastYm) > 0) {
-    // 미래 월: lastYm 다음달부터 누적해서 idx 이동
     let idx = safeStartIndex;
 
-    for (let cur = addMonthsToYm(cfg.lastYm, 1); compareYm(cur, viewingYm) < 0; cur = addMonthsToYm(cur, 1)) {
+    for (
+      let cur = addMonthsToYm(cfg.lastYm, 1);
+      compareYm(cur, viewingYm) < 0;
+      cur = addMonthsToYm(cur, 1)
+    ) {
       const cnt = await getHolidayCount(cur);
       idx = mod(idx + cnt, len);
     }
     startIdx = idx;
   } else {
-    // 과거 월: 뒤로 돌리기
+    // 과거 달로 이동(거의 안 쓰지만 안전)
     let idxAfter = safeStartIndex;
 
-    for (let cur = cfg.lastYm; compareYm(cur, addMonthsToYm(viewingYm, 1)) >= 0; cur = addMonthsToYm(cur, -1)) {
+    for (
+      let cur = cfg.lastYm;
+      compareYm(cur, addMonthsToYm(viewingYm, 1)) >= 0;
+      cur = addMonthsToYm(cur, -1)
+    ) {
       const cnt = await getHolidayCount(cur);
       idxAfter = mod(idxAfter - cnt, len);
       if (compareYm(cur, addMonthsToYm(viewingYm, 1)) === 0) break;
@@ -718,15 +887,19 @@ async function computeDutyAssignsForYm(
 }
 
 // ----------------------
-// ✅ 대시보드 캘린더(표+그리드) 전체 리프레시
+// ✅ 대시보드 캘린더(표+그리드) 전체 리프레시 (휴일/휴가/당직/일정 모두)
 // ----------------------
 async function refreshDashboardDutyVacationCalendar(API_BASE: string) {
-  const tbody = await waitForElement<HTMLTableSectionElement>("dutyHolidayBody", 8000);
   const grid = await waitForElement<HTMLDivElement>("dutyCalGrid", 8000);
+  if (!grid) return;
 
-  if (!tbody && !grid) return;
+  ensureDashboardCalFixedStyle();
 
-  const viewingYm = ym(new Date());
+  const labelEl = document.getElementById("dutyCalLabel") as HTMLDivElement | null;
+  let viewingYm = (labelEl?.textContent ?? "").trim();
+  if (!/^\d{4}-\d{2}$/.test(viewingYm)) viewingYm = ym(new Date());
+  if (labelEl) labelEl.textContent = viewingYm;
+
   const [yy, mm] = viewingYm.split("-").map(Number);
   const base = new Date(yy, mm - 1, 1);
 
@@ -737,23 +910,22 @@ async function refreshDashboardDutyVacationCalendar(API_BASE: string) {
   const vacations = await fetchVacations(API_BASE);
   const vacMap = buildVacationMapForMonth(vacations, base);
 
-  // 3) 당직 후보 + config 기반 로테이션 계산
+  // 3) 당직 계산(표시용)
   const members = await fetchDutyMembers(API_BASE);
   const cfg = await fetchDutyConfig(API_BASE);
   const assigns = await computeDutyAssignsForYm(API_BASE, viewingYm, members, cfg);
-
   const assignsMap: Record<string, string> = {};
   for (const a of assigns) assignsMap[a.date] = a.name;
 
-  // 4) 표 렌더
-  renderDashboardHolidayDuty(holidays, assignsMap, vacMap);
-
-  // 5) 그리드 렌더
-  renderDashboardCalendarGrid(viewingYm, holidays, assignsMap, vacMap);
-
-  // 6) 회사 일정 표시
+  // 4) 일정(월별)
   const schedules = await fetchDashboardSchedules(API_BASE, viewingYm);
-  appendSchedulesToDashboardCalendar(viewingYm, schedules);
+  const scheduleMap = buildScheduleMapForMonth(viewingYm, schedules);
+
+  // 5) (숨김) 표 렌더 - 유지용
+  renderDashboardHolidayDutyTable(holidays, assignsMap, vacMap, scheduleMap);
+
+  // 6) 캘린더 렌더 (dutyCalGrid)
+  renderDashboardCalendarGrid(viewingYm, holidays, assignsMap, vacMap, scheduleMap);
 }
 
 /* ============================================================
@@ -771,7 +943,7 @@ function renderDashboardVacation(items: VacationItem[], baseDateYmd: string) {
     const s = ymdText(v.start_date);
     const e = ymdText(v.end_date);
     if (!isYmdStr(s) || !isYmdStr(e)) return false;
-    return s <= baseDateYmd && baseDateYmd <= e; // YYYY-MM-DD 문자열 비교는 안전
+    return isBetweenYmd(baseDateYmd, s, e);
   });
 
   const filter = filterSelect?.value ?? "all";
@@ -801,7 +973,6 @@ function renderDashboardVacation(items: VacationItem[], baseDateYmd: string) {
 
   tbody.innerHTML = todayItems
     .map((v, idx) => {
-      // ✅ ISO든 뭐든 무조건 YYYY-MM-DD로 잘라서 표시
       const s = ymdText(v.start_date);
       const e = ymdText(v.end_date);
 
@@ -861,9 +1032,7 @@ async function loadDashboardVacation(API_BASE: string, dateYmd: string) {
     const kpiEl = document.getElementById("kpiVacationToday") as HTMLElement | null;
     if (kpiEl) kpiEl.textContent = "0";
   }
-
 }
-
 
 /**
  * 📌 대시보드 - 출장자 현황 + 오늘 출장 인원
@@ -881,6 +1050,9 @@ export function initDashboardTripStatus(API_BASE: string) {
     return;
   }
 
+  // ✅ 캘린더 스타일 1회 주입
+  ensureDashboardCalFixedStyle();
+
   const tbodyEl = tbody as HTMLTableSectionElement;
 
   let lastItems: TripStatusItem[] = [];
@@ -892,8 +1064,9 @@ export function initDashboardTripStatus(API_BASE: string) {
 
     let items = lastItems.slice();
 
-    if (filter === "overseas" || filter === "inhouse") {
-      items = [];
+    // (지금은 domestic/overseas/inhouse 서버 필터가 없어서 UI만 유지)
+    if (filter === "overseas" || filter === "inhouse" || filter === "domestic") {
+      // TODO: 서버에서 type 내려오면 여기서 필터 가능
     }
 
     if (keyword) {
@@ -946,9 +1119,7 @@ export function initDashboardTripStatus(API_BASE: string) {
   async function loadTripStatus(date?: string) {
     currentDate = date;
 
-    if (dateLabel) {
-      dateLabel.textContent = date ?? "오늘";
-    }
+    if (dateLabel) dateLabel.textContent = date ?? "오늘";
 
     tbodyEl.innerHTML = `
       <tr>
@@ -1014,7 +1185,7 @@ export function initDashboardTripStatus(API_BASE: string) {
   // ✅ 최초 로딩 (출장)
   loadTripStatus();
 
-  // ✅ ✅ ✅ 대시보드 캘린더(휴일/당직/휴가)
+  // ✅ ✅ ✅ 대시보드 캘린더(휴일/당직/휴가/일정)
   refreshDashboardDutyVacationCalendar(API_BASE);
 
   // ✅ ✅ ✅ 공지/유류/환율: 최초 1회 로딩
@@ -1023,9 +1194,15 @@ export function initDashboardTripStatus(API_BASE: string) {
   // -----------------------------
   // 이벤트 바인딩 (휴가)
   // -----------------------------
-  const vacationSearchInput = document.getElementById("vacationSearchInput") as HTMLInputElement | null;
-  const vacationFilterType = document.getElementById("vacationFilterType") as HTMLSelectElement | null;
-  const btnVacationReload = document.getElementById("btnVacationReload") as HTMLButtonElement | null;
+  const vacationSearchInput = document.getElementById(
+    "vacationSearchInput"
+  ) as HTMLInputElement | null;
+  const vacationFilterType = document.getElementById(
+    "vacationFilterType"
+  ) as HTMLSelectElement | null;
+  const btnVacationReload = document.getElementById(
+    "btnVacationReload"
+  ) as HTMLButtonElement | null;
 
   const reloadVacation = () => loadDashboardVacation(API_BASE, todayYmd());
 
@@ -1038,12 +1215,10 @@ export function initDashboardTripStatus(API_BASE: string) {
     refreshDashboardDutyVacationCalendar(API_BASE);
   });
 
-  // ✅ 설정/당직쪽에서 "저장됨" 이벤트 보내면 대시보드도 즉시 새로고침
   window.addEventListener("duty-config-changed", () => {
     refreshDashboardDutyVacationCalendar(API_BASE);
   });
 
-  // ✅ ✅ ✅ 출장업무관리에서 config 저장했을 때: 공지/유류/환율 즉시 갱신
   window.addEventListener("business-config-changed", () => {
     refreshDashboardTopNoticeFuelFx(API_BASE);
   });
